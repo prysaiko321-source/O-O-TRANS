@@ -1,7 +1,8 @@
-
 import os
+import json
+import threading
 import requests
-from flask import Flask
+from flask import Flask, jsonify
 
 app = Flask(__name__)
 
@@ -14,76 +15,114 @@ HEADERS = {
     "User-Agent": "O-O-TRANS/1.0"
 }
 
+STREAM_HEADERS = {
+    "Authorization": f"Token {TOKEN}",
+    "Accept": "application/x-ndjson; version=1.52.1",
+    "User-Agent": "O-O-TRANS/1.0"
+}
 
-@app.route("/")
-def home():
-    return "O&O TRANS bot працює!"
+positions = {}
 
 
-@app.route("/debug-stream")
-def debug_stream():
+def read_stream():
     try:
-        # Отримуємо автомобілі
         r = requests.get(
             f"{API}/vehicles/",
             headers=HEADERS,
-            timeout=15
+            timeout=20
         )
 
-        result = []
-        result.append(f"VEHICLES STATUS: {r.status_code}")
+        vehicles = r.json()
 
-        data = r.json()
-
-        if isinstance(data, dict):
-            vehicles = data.get("results", [])
-        else:
-            vehicles = data
-
-        result.append(f"VEHICLES: {len(vehicles)}")
+        if isinstance(vehicles, dict):
+            vehicles = vehicles.get("results", [])
 
         if not vehicles:
-            return "<pre>" + "\n".join(result) + "</pre>"
+            print("O&O TRANS: немає автомобілів")
+            return
 
-        # Беремо account першого автомобіля
         account_url = vehicles[0].get("account", "")
         account_id = account_url.rstrip("/").split("/")[-1]
 
-        result.append(f"ACCOUNT: {account_id}")
-
-        # Перевіряємо stream
         stream_url = f"{API}/streams/vehicle_states/?account={account_id}"
 
-        result.append(f"STREAM URL: {stream_url}")
+        print("O&O TRANS: підключення до Navirec stream...")
 
-        stream_headers = {
-            "Authorization": f"Token {TOKEN}",
-            "Accept": "application/x-ndjson; version=1.52.1",
-            "User-Agent": "O-O-TRANS/1.0"
-        }
-
-        s = requests.get(
+        stream = requests.get(
             stream_url,
-            headers=stream_headers,
+            headers=STREAM_HEADERS,
             stream=True,
-            timeout=(10, 5)
+            timeout=(20, None)
         )
 
-        result.append(f"STREAM STATUS: {s.status_code}")
-        result.append(f"CONTENT-TYPE: {s.headers.get('Content-Type')}")
+        print("O&O TRANS: stream status =", stream.status_code)
 
-        try:
-            first_line = next(s.iter_lines())
-            result.append("FIRST LINE:")
-            result.append(first_line.decode("utf-8", errors="replace"))
-        except Exception as e:
-            result.append(f"FIRST LINE ERROR: {e}")
+        for line in stream.iter_lines(decode_unicode=True):
 
-        return "<pre>" + "\n".join(result) + "</pre>"
+            if not line:
+                continue
+
+            try:
+                event = json.loads(line)
+            except Exception:
+                continue
+
+            print("NAVIREC:", event)
+
+            if event.get("event") != "vehicle_state":
+                continue
+
+            data = event.get("data", {})
+
+            vehicle = data.get("vehicle")
+            location = data.get("location")
+
+            if not vehicle or not location:
+                continue
+
+            coordinates = location.get("coordinates")
+
+            if not coordinates:
+                continue
+
+            positions[vehicle] = {
+                "longitude": coordinates[0],
+                "latitude": coordinates[1]
+            }
+
+            print(
+                "GPS:",
+                vehicle,
+                coordinates[1],
+                coordinates[0]
+            )
 
     except Exception as e:
-        return f"<pre>ERROR: {e}</pre>"
+        print("O&O TRANS STREAM ERROR:", e)
+
+
+@app.route("/")
+def home():
+    return """
+    <h1>O&O TRANS</h1>
+    <p>Navirec GPS працює.</p>
+    <p><a href="/positions">Переглянути GPS</a></p>
+    """
+
+
+@app.route("/positions")
+def get_positions():
+    return jsonify(positions)
 
 
 if __name__ == "__main__":
-    app.run(host="0.0.0.0", port=10000)
+    thread = threading.Thread(
+        target=read_stream,
+        daemon=True
+    )
+    thread.start()
+
+    app.run(
+        host="0.0.0.0",
+        port=10000
+    )
