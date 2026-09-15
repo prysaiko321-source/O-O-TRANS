@@ -18,8 +18,8 @@ HEADERS = {
 def home():
     return """
     <h1>O&O TRANS</h1>
-    <p>Перевірка API Navirec</p>
-    <p><a href="/events-test">Відкрити</a></p>
+    <p>O&O TRANS — Navirec vehicle events</p>
+    <p><a href="/events-test">Перевірити події</a></p>
     """
 
 
@@ -27,15 +27,44 @@ def home():
 def events_test():
 
     try:
+        # Отримуємо автомобілі
+        r = requests.get(
+            f"{API}/vehicles/",
+            headers=HEADERS,
+            timeout=20
+        )
+
+        vehicles = r.json()
+
+        if isinstance(vehicles, dict):
+            vehicles = vehicles.get("results", [])
+
+        vehicle = vehicles[0]
+
+        vehicle_id = vehicle["id"]
+        vehicle_name = vehicle.get("name", "")
+
+        # Запит vehicle_events
+        url = (
+            f"{API}/vehicle_events/"
+            f"?vehicle={vehicle_id}"
+        )
+
         response = requests.get(
-            f"{API}/vehicle_events/",
+            url,
             headers=HEADERS,
             timeout=30
         )
 
         return (
             "<pre>"
-            f"STATUS: {response.status_code}\n\n"
+            f"АВТО: {vehicle_name}\n"
+            f"ID: {vehicle_id}\n\n"
+            f"URL: {url}\n\n"
+            f"STATUS: {response.status_code}\n"
+            f"CONTENT-TYPE: "
+            f"{response.headers.get('Content-Type')}\n\n"
+            f"=== NAVIREC ===\n"
             f"{response.text[:20000]}"
             "</pre>"
         )
