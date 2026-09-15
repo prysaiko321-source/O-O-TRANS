@@ -13,32 +13,31 @@ HEADERS = {
     "User-Agent": "O-O-TRANS/1.0"
 }
 
-STREAM_HEADERS = {
-    "Authorization": f"Token {TOKEN}",
-    "Accept": "application/x-ndjson; version=1.52.1",
-    "User-Agent": "O-O-TRANS/1.0"
-}
-
 
 @app.route("/")
 def home():
     return """
     <h1>O&O TRANS</h1>
-    <p>Navirec stream diagnostic</p>
-    <p><a href="/stream-test">Перевірити потік GPS</a></p>
+    <p>Перевірка поїздок Navirec</p>
+    <p><a href="/trips-test">Відкрити перевірку</a></p>
     """
 
 
-@app.route("/stream-test")
-def stream_test():
+@app.route("/trips-test")
+def trips_test():
 
     output = []
 
     try:
+        # Отримуємо автомобілі
         r = requests.get(
             f"{API}/vehicles/",
             headers=HEADERS,
             timeout=20
+        )
+
+        output.append(
+            f"VEHICLES STATUS: {r.status_code}"
         )
 
         vehicles = r.json()
@@ -46,29 +45,37 @@ def stream_test():
         if isinstance(vehicles, dict):
             vehicles = vehicles.get("results", [])
 
-        output.append(f"VEHICLES: {len(vehicles)}")
-
-        account_url = vehicles[0]["account"]
-        account_id = account_url.rstrip("/").split("/")[-1]
-
-        output.append(f"ACCOUNT: {account_id}")
-
-        url = (
-            f"{API}/streams/vehicle_states/"
-            f"?account={account_id}"
+        output.append(
+            f"КІЛЬКІСТЬ АВТО: {len(vehicles)}"
         )
 
-        output.append(f"STREAM STATUS: підключення...")
+        # Перевіряємо перший автомобіль
+        vehicle = vehicles[0]
+
+        vehicle_id = vehicle["id"]
+        vehicle_name = vehicle.get("name", "")
+
+        output.append("")
+        output.append("=" * 60)
+        output.append(f"АВТО: {vehicle_name}")
+        output.append(f"ID: {vehicle_id}")
+        output.append("=" * 60)
+
+        # Запит по vehicle
+        url = f"{API}/trips/?vehicle={vehicle_id}"
+
+        output.append(
+            f"URL: /trips/?vehicle={vehicle_id}"
+        )
 
         response = requests.get(
             url,
-            headers=STREAM_HEADERS,
-            stream=True,
-            timeout=(20, 15)
+            headers=HEADERS,
+            timeout=30
         )
 
         output.append(
-            f"STREAM STATUS: {response.status_code}"
+            f"TRIPS STATUS: {response.status_code}"
         )
 
         output.append(
@@ -76,44 +83,18 @@ def stream_test():
         )
 
         output.append("")
-        output.append("=== RAW STREAM ===")
+        output.append("=== ВІДПОВІДЬ NAVIREC ===")
 
-        count = 0
-
-        for line in response.iter_lines(
-            decode_unicode=False
-        ):
-
-            if line is None:
-                continue
-
-            count += 1
-
-            if isinstance(line, bytes):
-                text = line.decode(
-                    "utf-8",
-                    errors="replace"
-                )
-            else:
-                text = str(line)
-
-            output.append(
-                f"LINE {count}: {text}"
-            )
-
-            if count >= 10:
-                break
-
-        output.append("")
+        # Показуємо відповідь повністю, але максимум 10000 символів
         output.append(
-            f"Отримано рядків: {count}"
+            response.text[:10000]
         )
 
     except Exception as e:
 
         output.append("")
         output.append(
-            f"ERROR: {repr(e)}"
+            f"ПОМИЛКА: {repr(e)}"
         )
 
     return "<pre>" + "\n".join(output) + "</pre>"
