@@ -1,200 +1,187 @@
-
 import os
 import requests
-from flask import Flask
+from flask import Flask, render_template_string
 
 app = Flask(__name__)
 
-NAVIREC_URL = "https://api.navirec.com/vehicles/"
-
+API = "https://api.navirec.com"
 HEADERS = {
     "Authorization": f"Token {os.getenv('NAVIREC_TOKEN')}",
     "Accept": "application/json; version=1.52.1",
     "User-Agent": "O-O-TRANS-Navirec/1.0"
 }
 
+HTML = """
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <title>O&O TRANS</title>
 
-@app.route("/")
-def home():
-    token = os.getenv("NAVIREC_TOKEN")
+    <link rel="stylesheet"
+          href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
 
-    if not token:
-        return "<h2>❌ NAVIREC_TOKEN не знайдено</h2>"
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
-    try:
-        response = requests.get(
-            NAVIREC_URL,
-            headers=HEADERS,
-            timeout=20
-        )
+    <style>
+        body {
+            font-family: Arial;
+            background: #f4f6f8;
+            padding: 20px;
+        }
 
-        if response.status_code != 200:
-            return f"""
-            <h2>❌ Помилка Navirec: {response.status_code}</h2>
-            <pre>{response.text}</pre>
-            """
+        .vehicle {
+            background: white;
+            padding: 15px;
+            margin: 10px 0;
+            border-radius: 10px;
+        }
 
-        vehicles = response.json()
+        #map {
+            height: 600px;
+            margin-top: 20px;
+            border-radius: 12px;
+        }
+    </style>
+</head>
 
-        html = """
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>O&O TRANS — Автомобілі</title>
+<body>
 
-            <style>
-                body {
-                    font-family: Arial, sans-serif;
-                    background: #f4f6f8;
-                    margin: 0;
-                    padding: 25px;
-                }
+<h1>🚚 O&O TRANS</h1>
 
-                h1 {
-                    margin-bottom: 5px;
-                }
+<p>Автомобілів: <b>{{ vehicles|length }}</b></p>
 
-                .vehicle {
-                    background: white;
-                    padding: 18px;
-                    margin: 15px 0;
-                    border-radius: 12px;
-                    box-shadow: 0 2px 8px rgba(0,0,0,0.1);
-                }
+{% for v in vehicles %}
+<div class="vehicle">
+    <b>🚚 {{ v.name }}</b><br>
+    Номер: {{ v.registration }}<br>
+    ID: {{ v.id }}
+</div>
+{% endfor %}
 
-                .name {
-                    font-size: 21px;
-                    font-weight: bold;
-                }
+<div id="map"></div>
 
-                .active {
-                    color: green;
-                    font-weight: bold;
-                }
+<script>
+    const vehicles = {{ vehicles|tojson }};
 
-                .inactive {
-                    color: red;
-                    font-weight: bold;
-                }
+    const map = L.map('map').setView([52.0, 19.0], 6);
 
-                #map {
-                    height: 500px;
-                    margin-top: 25px;
-                    border-radius: 12px;
-                }
-            </style>
+    L.tileLayer(
+        'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
+        {
+            attribution: '© OpenStreetMap'
+        }
+    ).addTo(map);
 
-            <link
-                rel="stylesheet"
-                href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-            />
+    async function loadPositions() {
 
-            <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
-        </head>
+        for (const vehicle of vehicles) {
 
-        <body>
+            try {
 
-        <h1>🚚 O&O TRANS — Автомобілі</h1>
+                const response = await fetch(
+                    "/position/" + vehicle.id
+                );
 
-        <p>
-            Знайдено автомобілів:
-            <b>{{ count }}</b>
-        </p>
+                const data = await response.json();
 
-        """
+                console.log(vehicle.name, data);
 
-        for vehicle in vehicles:
+                if (data.latitude && data.longitude) {
 
-            name = vehicle.get("name", "Без назви")
-            registration = vehicle.get("registration", "—")
-            active = vehicle.get("active", False)
-
-            status = (
-                '<span class="active">🟢 Активний</span>'
-                if active
-                else '<span class="inactive">🔴 Неактивний</span>'
-            )
-
-            html += f"""
-            <div class="vehicle">
-                <div class="name">🚚 {name}</div>
-                <div>Номер: <b>{registration}</b></div>
-                <div>Статус: {status}</div>
-            </div>
-            """
-
-        html += """
-        <div id="map"></div>
-
-        <script>
-            const vehicles = {{ vehicles|tojson }};
-
-            let map = L.map('map').setView([52.0, 19.0], 6);
-
-            L.tileLayer(
-                'https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',
-                {
-                    attribution: '&copy; OpenStreetMap contributors'
-                }
-            ).addTo(map);
-
-            let markers = [];
-
-            vehicles.forEach(vehicle => {
-
-                let lat = vehicle.latitude;
-                let lon = vehicle.longitude;
-
-                if (
-                    lat !== null &&
-                    lon !== null &&
-                    lat !== undefined &&
-                    lon !== undefined
-                ) {
-
-                    let marker = L.marker([lat, lon]).addTo(map);
+                    const marker = L.marker([
+                        data.latitude,
+                        data.longitude
+                    ]).addTo(map);
 
                     marker.bindPopup(
                         "<b>🚚 " +
                         vehicle.name +
                         "</b><br>" +
-                        "Numer: " +
                         vehicle.registration
                     );
 
-                    markers.push(marker);
                 }
-            });
 
-            if (markers.length > 0) {
+            } catch (error) {
 
-                let group = L.featureGroup(markers);
+                console.log(
+                    "Помилка позиції:",
+                    vehicle.name,
+                    error
+                );
 
-                map.fitBounds(group.getBounds(), {
-                    padding: [30, 30]
-                });
             }
-        </script>
+        }
+    }
 
-        </body>
-        </html>
-        """
+    loadPositions();
+</script>
 
-        from flask import render_template_string
+</body>
+</html>
+"""
 
-        return render_template_string(
-            html,
-            count=len(vehicles),
-            vehicles=vehicles
-        )
 
-    except Exception as e:
+@app.route("/")
+def home():
 
-        return f"""
-        <h2>❌ Помилка</h2>
-        <pre>{e}</pre>
-        """
+    response = requests.get(
+        API + "/vehicles/",
+        headers=HEADERS,
+        timeout=20
+    )
+
+    if response.status_code != 200:
+        return f"Помилка Navirec: {response.status_code}"
+
+    vehicles = response.json()
+
+    return render_template_string(
+        HTML,
+        vehicles=vehicles
+    )
+
+
+@app.route("/position/<vehicle_id>")
+def position(vehicle_id):
+
+    endpoints = [
+        f"/vehicles/{vehicle_id}/position/",
+        f"/vehicles/{vehicle_id}/positions/",
+        f"/positions/?vehicle={vehicle_id}",
+        f"/vehicle_positions/?vehicle={vehicle_id}"
+    ]
+
+    results = []
+
+    for endpoint in endpoints:
+
+        try:
+
+            response = requests.get(
+                API + endpoint,
+                headers=HEADERS,
+                timeout=10
+            )
+
+            results.append({
+                "endpoint": endpoint,
+                "status": response.status_code,
+                "text": response.text[:1000]
+            })
+
+        except Exception as e:
+
+            results.append({
+                "endpoint": endpoint,
+                "error": str(e)
+            })
+
+    return {
+        "vehicle_id": vehicle_id,
+        "results": results
+    }
 
 
 if __name__ == "__main__":
