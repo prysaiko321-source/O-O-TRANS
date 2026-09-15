@@ -19,18 +19,17 @@ HEADERS = {
 def home():
     return """
     <h1>O&O TRANS</h1>
-    <p>Перевірка поїздок Navirec</p>
-    <p><a href="/trips-test">Відкрити перевірку</a></p>
+    <p>Перевірка vehicle_events Navirec</p>
+    <p><a href="/events-test">Відкрити перевірку</a></p>
     """
 
 
-@app.route("/trips-test")
-def trips_test():
+@app.route("/events-test")
+def events_test():
 
     output = []
 
     try:
-        # Автомобілі
         r = requests.get(
             f"{API}/vehicles/",
             headers=HEADERS,
@@ -42,11 +41,8 @@ def trips_test():
         if isinstance(vehicles, dict):
             vehicles = vehicles.get("results", [])
 
-        output.append(
-            f"КІЛЬКІСТЬ АВТО: {len(vehicles)}"
-        )
+        output.append(f"КІЛЬКІСТЬ АВТО: {len(vehicles)}")
 
-        # Перший автомобіль
         vehicle = vehicles[0]
 
         vehicle_id = vehicle["id"]
@@ -58,7 +54,6 @@ def trips_test():
         output.append(f"ID: {vehicle_id}")
         output.append("=" * 60)
 
-        # Сьогодні
         start = datetime.now(timezone.utc).replace(
             hour=0,
             minute=0,
@@ -72,7 +67,7 @@ def trips_test():
         end_str = end.isoformat().replace("+00:00", "Z")
 
         url = (
-            f"{API}/trips/"
+            f"{API}/vehicle_events/"
             f"?vehicle={vehicle_id}"
             f"&time__range_start={start_str}"
             f"&time__range_end={end_str}"
@@ -80,13 +75,8 @@ def trips_test():
 
         output.append("")
         output.append("ПЕРІОД:")
-        output.append(f"{start_str}")
-        output.append(f"{end_str}")
-
-        output.append("")
-        output.append(
-            "ВИКОНУЄМО ЗАПИТ ДО /trips/"
-        )
+        output.append(start_str)
+        output.append(end_str)
 
         response = requests.get(
             url,
@@ -95,26 +85,18 @@ def trips_test():
         )
 
         output.append("")
-        output.append(
-            f"TRIPS STATUS: {response.status_code}"
-        )
-
+        output.append(f"STATUS: {response.status_code}")
         output.append(
             f"CONTENT-TYPE: {response.headers.get('Content-Type')}"
         )
 
         output.append("")
         output.append("=== ВІДПОВІДЬ NAVIREC ===")
-        output.append(
-            response.text[:15000]
-        )
+        output.append(response.text[:15000])
 
     except Exception as e:
-
         output.append("")
-        output.append(
-            f"ПОМИЛКА: {repr(e)}"
-        )
+        output.append(f"ПОМИЛКА: {repr(e)}")
 
     return "<pre>" + "\n".join(output) + "</pre>"
 
