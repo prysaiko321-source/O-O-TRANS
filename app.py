@@ -18,48 +18,31 @@ HEADERS = {
 def home():
     return """
     <h1>O&O TRANS</h1>
-    <p>Navirec vehicle events</p>
-    <p><a href="/events-test">Перевірити події</a></p>
+    <p>Navirec API diagnostic</p>
+    <p><a href="/events-schema">Перевірити структуру vehicle_events</a></p>
     """
 
 
-@app.route("/events-test")
-def events_test():
+@app.route("/events-schema")
+def events_schema():
 
     try:
-        r = requests.get(
-            f"{API}/vehicles/",
+        url = f"{API}/vehicle_events/"
+
+        response = requests.options(
+            url,
             headers=HEADERS,
             timeout=20
         )
 
-        vehicles = r.json()
-
-        if isinstance(vehicles, dict):
-            vehicles = vehicles.get("results", [])
-
-        account_url = vehicles[0]["account"]
-        account_id = account_url.rstrip("/").split("/")[-1]
-
-        url = (
-            f"{API}/vehicle_events/"
-            f"?account={account_id}"
-        )
-
-        response = requests.get(
-            url,
-            headers=HEADERS,
-            timeout=30
-        )
-
         return (
             "<pre>"
-            f"ACCOUNT: {account_id}\n\n"
             f"URL: {url}\n\n"
             f"STATUS: {response.status_code}\n"
-            f"CONTENT-TYPE: "
-            f"{response.headers.get('Content-Type')}\n\n"
-            f"=== NAVIREC ===\n"
+            f"CONTENT-TYPE: {response.headers.get('Content-Type')}\n\n"
+            f"=== HEADERS ===\n"
+            f"{dict(response.headers)}\n\n"
+            f"=== NAVIREC RESPONSE ===\n"
             f"{response.text[:30000]}"
             "</pre>"
         )
