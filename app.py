@@ -1,6 +1,7 @@
 import os
 import requests
 from flask import Flask
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 
@@ -29,15 +30,11 @@ def trips_test():
     output = []
 
     try:
-        # Отримуємо автомобілі
+        # Автомобілі
         r = requests.get(
             f"{API}/vehicles/",
             headers=HEADERS,
             timeout=20
-        )
-
-        output.append(
-            f"VEHICLES STATUS: {r.status_code}"
         )
 
         vehicles = r.json()
@@ -49,7 +46,7 @@ def trips_test():
             f"КІЛЬКІСТЬ АВТО: {len(vehicles)}"
         )
 
-        # Перевіряємо перший автомобіль
+        # Перший автомобіль
         vehicle = vehicles[0]
 
         vehicle_id = vehicle["id"]
@@ -61,11 +58,34 @@ def trips_test():
         output.append(f"ID: {vehicle_id}")
         output.append("=" * 60)
 
-        # Запит по vehicle
-        url = f"{API}/trips/?vehicle={vehicle_id}"
+        # Сьогодні
+        start = datetime.now(timezone.utc).replace(
+            hour=0,
+            minute=0,
+            second=0,
+            microsecond=0
+        )
 
+        end = datetime.now(timezone.utc)
+
+        start_str = start.isoformat().replace("+00:00", "Z")
+        end_str = end.isoformat().replace("+00:00", "Z")
+
+        url = (
+            f"{API}/trips/"
+            f"?vehicle={vehicle_id}"
+            f"&time__range_start={start_str}"
+            f"&time__range_end={end_str}"
+        )
+
+        output.append("")
+        output.append("ПЕРІОД:")
+        output.append(f"{start_str}")
+        output.append(f"{end_str}")
+
+        output.append("")
         output.append(
-            f"URL: /trips/?vehicle={vehicle_id}"
+            "ВИКОНУЄМО ЗАПИТ ДО /trips/"
         )
 
         response = requests.get(
@@ -74,6 +94,7 @@ def trips_test():
             timeout=30
         )
 
+        output.append("")
         output.append(
             f"TRIPS STATUS: {response.status_code}"
         )
@@ -84,10 +105,8 @@ def trips_test():
 
         output.append("")
         output.append("=== ВІДПОВІДЬ NAVIREC ===")
-
-        # Показуємо відповідь повністю, але максимум 10000 символів
         output.append(
-            response.text[:10000]
+            response.text[:15000]
         )
 
     except Exception as e:
