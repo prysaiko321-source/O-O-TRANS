@@ -25,6 +25,8 @@ positions = {}
 
 
 def read_stream():
+    print("O&O TRANS: START STREAM", flush=True)
+
     try:
         r = requests.get(
             f"{API}/vehicles/",
@@ -32,21 +34,48 @@ def read_stream():
             timeout=20
         )
 
+        print(
+            "O&O TRANS: vehicles status =",
+            r.status_code,
+            flush=True
+        )
+
         vehicles = r.json()
 
         if isinstance(vehicles, dict):
             vehicles = vehicles.get("results", [])
 
+        print(
+            "O&O TRANS: vehicles =",
+            len(vehicles),
+            flush=True
+        )
+
         if not vehicles:
-            print("O&O TRANS: немає автомобілів")
+            print(
+                "O&O TRANS: NO VEHICLES",
+                flush=True
+            )
             return
 
         account_url = vehicles[0].get("account", "")
         account_id = account_url.rstrip("/").split("/")[-1]
 
-        stream_url = f"{API}/streams/vehicle_states/?account={account_id}"
+        print(
+            "O&O TRANS: account =",
+            account_id,
+            flush=True
+        )
 
-        print("O&O TRANS: підключення до Navirec stream...")
+        stream_url = (
+            f"{API}/streams/vehicle_states/"
+            f"?account={account_id}"
+        )
+
+        print(
+            "O&O TRANS: connecting to Navirec stream...",
+            flush=True
+        )
 
         stream = requests.get(
             stream_url,
@@ -55,34 +84,87 @@ def read_stream():
             timeout=(20, None)
         )
 
-        print("O&O TRANS: stream status =", stream.status_code)
+        print(
+            "O&O TRANS: stream status =",
+            stream.status_code,
+            flush=True
+        )
 
-        for line in stream.iter_lines(decode_unicode=True):
+        print(
+            "O&O TRANS: content type =",
+            stream.headers.get("Content-Type"),
+            flush=True
+        )
+
+        for line in stream.iter_lines(
+            decode_unicode=True
+        ):
 
             if not line:
                 continue
 
+            print(
+                "NAVIREC RAW:",
+                line,
+                flush=True
+            )
+
             try:
                 event = json.loads(line)
-            except Exception:
+            except Exception as e:
+                print(
+                    "JSON ERROR:",
+                    e,
+                    flush=True
+                )
                 continue
 
-            print("NAVIREC:", event)
+            print(
+                "NAVIREC EVENT:",
+                event,
+                flush=True
+            )
 
-            if event.get("event") != "vehicle_state":
+            event_type = event.get("event")
+
+            if event_type != "vehicle_state":
                 continue
 
             data = event.get("data", {})
 
+            print(
+                "VEHICLE DATA:",
+                data,
+                flush=True
+            )
+
             vehicle = data.get("vehicle")
             location = data.get("location")
 
-            if not vehicle or not location:
+            if not vehicle:
+                print(
+                    "NO VEHICLE ID",
+                    flush=True
+                )
+                continue
+
+            if not location:
+                print(
+                    "NO LOCATION:",
+                    vehicle,
+                    flush=True
+                )
                 continue
 
             coordinates = location.get("coordinates")
 
             if not coordinates:
+                print(
+                    "NO COORDINATES:",
+                    vehicle,
+                    location,
+                    flush=True
+                )
                 continue
 
             positions[vehicle] = {
@@ -94,11 +176,16 @@ def read_stream():
                 "GPS:",
                 vehicle,
                 coordinates[1],
-                coordinates[0]
+                coordinates[0],
+                flush=True
             )
 
     except Exception as e:
-        print("O&O TRANS STREAM ERROR:", e)
+        print(
+            "O&O TRANS STREAM ERROR:",
+            repr(e),
+            flush=True
+        )
 
 
 @app.route("/")
@@ -116,10 +203,12 @@ def get_positions():
 
 
 if __name__ == "__main__":
+
     thread = threading.Thread(
         target=read_stream,
         daemon=True
     )
+
     thread.start()
 
     app.run(
