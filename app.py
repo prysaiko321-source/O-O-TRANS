@@ -1035,22 +1035,25 @@ def tachograph_test():
 
     try:
 
-        # CEL TESTU:
-        # Nie wysyłamy nagłówka Accept.
-        # Authorization zostaje, bo jest potrzebny
-        # do uwierzytelnienia w Navirec.
+        # TEST:
+        # Accept = application/x-ndjson
+        # Content-Type = application/x-ndjson
+        # account = USUNIĘTY
 
         stream_headers = {
             "Authorization":
                 f"Token {NAVIREC_TOKEN}",
+
+            "Accept":
+                "application/x-ndjson",
+
+            "Content-Type":
+                "application/x-ndjson",
         }
 
         response = requests.get(
             f"{NAVIREC_API}/streams/driver_states/",
             headers=stream_headers,
-            params={
-                "account": ACCOUNT_ID
-            },
             stream=True,
             timeout=(10, 20),
         )
@@ -1073,6 +1076,13 @@ def tachograph_test():
 
                 if len(lines) >= 10:
                     break
+
+        else:
+
+            error_text = response.text
+
+            if error_text:
+                lines.append(error_text)
 
         response.close()
 
@@ -1100,10 +1110,7 @@ def tachograph_test():
 
         else:
 
-            formatted = response.text
-
-            if not formatted:
-                formatted = "Brak danych."
+            formatted = "Brak danych."
 
         content = f"""
 
@@ -1125,6 +1132,17 @@ def tachograph_test():
             <p>
                 Content-Type:
                 <b>{content_type}</b>
+            </p>
+
+            <p>
+                Test:
+                <b>Accept + Content-Type =
+                application/x-ndjson</b>
+            </p>
+
+            <p>
+                Parametr account:
+                <b>nie został wysłany</b>
             </p>
 
         </div>
@@ -1202,13 +1220,17 @@ def tachograph_options():
 
     try:
 
-        # OPTIONS również bez Accept.
-
         response = requests.options(
             f"{NAVIREC_API}/streams/driver_states/",
             headers={
                 "Authorization":
-                    f"Token {NAVIREC_TOKEN}"
+                    f"Token {NAVIREC_TOKEN}",
+
+                "Accept":
+                    "application/x-ndjson",
+
+                "Content-Type":
+                    "application/x-ndjson",
             },
             timeout=20,
         )
