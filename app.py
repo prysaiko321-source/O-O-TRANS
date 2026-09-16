@@ -42,7 +42,6 @@ def get_states():
         return []
 
     try:
-
         response = requests.get(
             f"{NAVIREC_API}/last_vehicle_states/",
             headers=get_headers(),
@@ -1036,19 +1035,15 @@ def tachograph_test():
     try:
 
         # TEST:
-        # Accept = application/x-ndjson
-        # Content-Type = application/x-ndjson
-        # account = USUNIĘTY
+        # Navirec wymaga wersji API
+        # również dla application/x-ndjson.
 
         stream_headers = {
             "Authorization":
                 f"Token {NAVIREC_TOKEN}",
 
             "Accept":
-                "application/x-ndjson",
-
-            "Content-Type":
-                "application/x-ndjson",
+                "application/x-ndjson; version=1.52.1",
         }
 
         response = requests.get(
@@ -1135,9 +1130,11 @@ def tachograph_test():
             </p>
 
             <p>
-                Test:
-                <b>Accept + Content-Type =
-                application/x-ndjson</b>
+                Accept:
+                <b>
+                    application/x-ndjson;
+                    version=1.52.1
+                </b>
             </p>
 
             <p>
@@ -1227,10 +1224,7 @@ def tachograph_options():
                     f"Token {NAVIREC_TOKEN}",
 
                 "Accept":
-                    "application/x-ndjson",
-
-                "Content-Type":
-                    "application/x-ndjson",
+                    "application/x-ndjson; version=1.52.1",
             },
             timeout=20,
         )
