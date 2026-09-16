@@ -7,55 +7,75 @@ app = Flask(__name__)
 API = "https://api.navirec.com"
 TOKEN = os.getenv("NAVIREC_TOKEN")
 
+ACCOUNT_ID = "5c980074-7a71-4c9b-b5a8-a7c45163adf5"
+
 HEADERS = {
     "Authorization": f"Token {TOKEN}",
     "Accept": "application/json; version=1.52.1",
     "User-Agent": "O-O-TRANS/1.0"
 }
 
-ACCOUNT_ID = "5c980074-7a71-4c9b-b5a8-a7c45163adf5"
-
 
 @app.route("/")
 def home():
     return """
     <h1>O&O TRANS</h1>
-    <p>Navirec GPS test</p>
-    <p><a href="/gps">Перевірити GPS</a></p>
+    <p>Navirec GPS</p>
+    <p><a href="/gps">Відкрити GPS автомобілів</a></p>
     """
 
 
 @app.route("/gps")
 def gps():
 
-    url = f"{API}/streams/vehicle_states/?account={ACCOUNT_ID}"
+    url = f"{API}/last_vehicle_states/"
+    params = {
+        "account": ACCOUNT_ID
+    }
 
     try:
         response = requests.get(
             url,
             headers=HEADERS,
-            stream=True,
-            timeout=(10, 35)
+            params=params,
+            timeout=30
         )
 
+        if response.status_code != 200:
+            return f"""
+            <pre>
+СТАТУС: {response.status_code}
+
+ВІДПОВІДЬ NAVIREC:
+{response.text}
+            </pre>
+            """
+
+        data = response.json()
+
         output = [
-            f"СТАТУС: {response.status_code}",
-            f"ТИП-ЗМІСТУ: {response.headers.get('Content-Type')}",
-            "",
-            "=== NAVIREC STREAM ==="
+            "=== O&O TRANS — GPS ===",
+            ""
         ]
 
-        for i, line in enumerate(
-            response.iter_lines(decode_unicode=False)
-        ):
+        for vehicle in data:
 
-            if line:
-                output.append(
-                    f"РЯДОК {i + 1}: {line.decode('utf-8', errors='replace')}"
-                )
+            vehicle_url = vehicle.get("vehicle", "")
+            time = vehicle.get("time")
+            speed = vehicle.get("speed")
+            heading = vehicle.get("heading")
+            location = vehicle.get("location")
 
-            if i >= 30:
-                break
+            output.append("────────────────────────")
+            output.append(f"VEHICLE: {vehicle_url}")
+            output.append(f"ЧАС: {time}")
+            output.append(f"ШВИДКІСТЬ: {speed} km/h")
+            output.append(f"НАПРЯМОК: {heading}")
+            output.append(f"GPS: {location}")
+            output.append("")
+
+        output.append("────────────────────────")
+        output.append(f"КІЛЬКІСТЬ АВТО: {len(data)}")
 
         return "<pre>" + "\n".join(output) + "</pre>"
 
