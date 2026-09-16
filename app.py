@@ -9,7 +9,7 @@ TOKEN = os.getenv("NAVIREC_TOKEN")
 
 HEADERS = {
     "Authorization": f"Token {TOKEN}",
-    "Accept": "application/json; version=1.52.1",
+    "Accept": "application/x-ndjson",
     "User-Agent": "O-O-TRANS/1.0"
 }
 
@@ -45,10 +45,14 @@ def gps():
             "=== NAVIREC STREAM ==="
         ]
 
-        for i, line in enumerate(response.iter_lines(decode_unicode=True)):
+        for i, line in enumerate(
+            response.iter_lines(decode_unicode=False)
+        ):
 
             if line:
-                output.append(f"РЯДОК {i + 1}: {line}")
+                output.append(
+                    f"РЯДОК {i + 1}: {line.decode('utf-8', errors='replace')}"
+                )
 
             if i >= 30:
                 break
