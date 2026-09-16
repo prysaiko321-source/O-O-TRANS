@@ -13,88 +13,50 @@ HEADERS = {
     "User-Agent": "O-O-TRANS/1.0"
 }
 
+ACCOUNT_ID = "5c980074-7a71-4c9b-b5a8-a7c45163adf5"
+
 
 @app.route("/")
 def home():
     return """
     <h1>O&O TRANS</h1>
-    <p>Navirec vehicle_events diagnostic</p>
-    <p><a href="/events-check">Запустити перевірку</a></p>
+    <p>Navirec GPS test</p>
+    <p><a href="/gps">Перевірити GPS</a></p>
     """
 
 
-@app.route("/events-check")
-def events_check():
+@app.route("/gps")
+def gps():
+
+    url = f"{API}/streams/vehicle_states/?account={ACCOUNT_ID}"
 
     try:
-        vehicles_response = requests.get(
-            f"{API}/vehicles/",
+        response = requests.get(
+            url,
             headers=HEADERS,
-            timeout=20
+            stream=True,
+            timeout=(10, 35)
         )
 
-        vehicles = vehicles_response.json()
+        output = [
+            f"STATUS: {response.status_code}",
+            f"CONTENT-TYPE: {response.headers.get('Content-Type')}",
+            "",
+            "=== NAVIREC STREAM ==="
+        ]
 
-        if isinstance(vehicles, dict):
-            vehicles = vehicles.get("results", [])
+        for i, line in enumerate(response.iter_lines(decode_unicode=True)):
 
-        if not vehicles:
-            return "<pre>Автомобілі не знайдені.</pre>"
+            if line:
+                output.append(f"РЯДОК {i + 1}: {line}")
 
-        account_url = vehicles[0].get("account")
-        account_id = account_url.rstrip("/").split("/")[-1]
-
-        vehicle_id = vehicles[0].get("id")
-
-        tests = {
-            "account": account_id,
-            "primary_account": account_id,
-            "vehicle": vehicle_id,
-            "vehicle_group": ""
-        }
-
-        output = []
-
-        for parameter, value in tests.items():
-
-            url = f"{API}/vehicle_events/"
-
-            if value:
-                url += f"?{parameter}={value}"
-
-            try:
-                response = requests.get(
-                    url,
-                    headers=HEADERS,
-                    timeout=20
-                )
-
-                output.append(
-                    f"""
-==============================
-ПАРАМЕТР: {parameter}
-ЗНАЧЕННЯ: {value}
-STATUS: {response.status_code}
-
-ВІДПОВІДЬ:
-{response.text[:10000]}
-"""
-                )
-
-            except Exception as e:
-                output.append(
-                    f"""
-==============================
-ПАРАМЕТР: {parameter}
-ПОМИЛКА:
-{repr(e)}
-"""
-                )
+            if i >= 30:
+                break
 
         return "<pre>" + "\n".join(output) + "</pre>"
 
     except Exception as e:
-        return f"<pre>ПОМИЛКА: {repr(e)}</pre>"
+        return "<pre>ПОМИЛКА:\n" + repr(e) + "</pre>"
 
 
 if __name__ == "__main__":
