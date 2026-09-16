@@ -327,9 +327,7 @@ def login():
             </h1>
 
             <div class="info">
-
                 Nieprawidłowy login lub hasło.
-
             </div>
 
             <form method="post">
@@ -1037,12 +1035,14 @@ def tachograph_test():
 
     try:
 
+        # CEL TESTU:
+        # Nie wysyłamy nagłówka Accept.
+        # Authorization zostaje, bo jest potrzebny
+        # do uwierzytelnienia w Navirec.
+
         stream_headers = {
             "Authorization":
                 f"Token {NAVIREC_TOKEN}",
-
-            "Accept":
-                "application/x-ndjson; version=1.0",
         }
 
         response = requests.get(
@@ -1100,7 +1100,10 @@ def tachograph_test():
 
         else:
 
-            formatted = "Brak danych."
+            formatted = response.text
+
+            if not formatted:
+                formatted = "Brak danych."
 
         content = f"""
 
@@ -1199,14 +1202,13 @@ def tachograph_options():
 
     try:
 
+        # OPTIONS również bez Accept.
+
         response = requests.options(
             f"{NAVIREC_API}/streams/driver_states/",
             headers={
                 "Authorization":
-                    f"Token {NAVIREC_TOKEN}",
-
-                "Accept":
-                    "application/json",
+                    f"Token {NAVIREC_TOKEN}"
             },
             timeout=20,
         )
