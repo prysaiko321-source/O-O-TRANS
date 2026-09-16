@@ -1,9 +1,15 @@
 import os
 import json
-from flask import Flask, redirect, url_for, session, request
+from datetime import datetime
+
 import requests
+from flask import Flask, redirect, url_for, session, request
 
 app = Flask(__name__)
+
+# =========================================================
+# SETTINGS
+# =========================================================
 
 app.secret_key = os.getenv("SESSION_SECRET", "change-me")
 
@@ -15,16 +21,27 @@ NAVIREC_API = "https://api.navirec.com"
 
 ACCOUNT_ID = "5c980074-7a71-4c9b-b5a8-a7c45163adf5"
 
+
+# =========================================================
+# VEHICLES
+# =========================================================
+
 VEHICLES = {
-    "aaaa9acd-5bb5-467e-8241-81444292bbfe": "Renault Master SH 9203G",
-    "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb": "Renault Master DX 9034F",
-    "f016af91-dee6-4e72-9f86-4b2e27a253c1": "Renault Master DX 5405A",
+    "aaaa9acd-5bb5-467e-8241-81444292bbfe": {
+        "name": "Renault Master SH 9203G"
+    },
+    "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb": {
+        "name": "Renault Master DX 9034F"
+    },
+    "f016af91-dee6-4e72-9f86-4b2e27a253c1": {
+        "name": "Renault Master DX 5405A"
+    },
 }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # LOGIN
-# ---------------------------------------------------------
+# =========================================================
 
 def logged_in():
     return session.get("logged_in") is True
@@ -54,55 +71,89 @@ def login():
 
     <head>
         <meta charset="utf-8">
-        <title>O&O TRANS — Login</title>
+        <meta name="viewport" content="width=device-width, initial-scale=1">
+
+        <title>O&O TRANS — Вхід</title>
 
         <style>
 
+            * {{
+                box-sizing:border-box;
+            }}
+
             body {{
                 margin:0;
-                font-family:Arial;
+                font-family:Arial,sans-serif;
                 background:#111827;
                 color:white;
 
-                display:flex;
-                justify-content:center;
-                align-items:center;
-
                 min-height:100vh;
+
+                display:flex;
+                align-items:center;
+                justify-content:center;
             }}
 
-            .login {{
-                width:320px;
+            .login-box {{
+                width:360px;
+                max-width:90%;
+
                 background:#1f2937;
-                padding:30px;
-                border-radius:16px;
-                box-shadow:0 10px 30px rgba(0,0,0,.3);
+
+                padding:32px;
+
+                border-radius:18px;
+
+                box-shadow:0 20px 50px rgba(0,0,0,.35);
+            }}
+
+            .logo {{
+                font-size:30px;
+                font-weight:bold;
+                margin-bottom:8px;
+            }}
+
+            .subtitle {{
+                color:#9ca3af;
+                margin-bottom:25px;
             }}
 
             input {{
                 width:100%;
-                box-sizing:border-box;
-                padding:12px;
-                margin:8px 0;
+                padding:13px;
+
+                margin-bottom:12px;
+
                 border:0;
-                border-radius:8px;
+                border-radius:9px;
+
+                font-size:15px;
             }}
 
             button {{
                 width:100%;
-                padding:12px;
-                margin-top:10px;
+
+                padding:13px;
+
                 border:0;
-                border-radius:8px;
+                border-radius:9px;
+
                 background:#2563eb;
                 color:white;
+
                 font-weight:bold;
+                font-size:15px;
+
                 cursor:pointer;
             }}
 
+            button:hover {{
+                background:#1d4ed8;
+            }}
+
             .error {{
-                color:#f87171;
                 margin-top:15px;
+                color:#f87171;
             }}
 
         </style>
@@ -111,11 +162,15 @@ def login():
 
     <body>
 
-        <div class="login">
+        <div class="login-box">
 
-            <h1>O&O TRANS</h1>
+            <div class="logo">
+                O&O TRANS
+            </div>
 
-            <p>Вхід у систему</p>
+            <div class="subtitle">
+                Внутрішня система компанії
+            </div>
 
             <form method="post">
 
@@ -145,7 +200,6 @@ def login():
         </div>
 
     </body>
-
     </html>
     """
 
@@ -158,9 +212,9 @@ def logout():
     return redirect(url_for("login"))
 
 
-# ---------------------------------------------------------
+# =========================================================
 # NAVIREC
-# ---------------------------------------------------------
+# =========================================================
 
 def navirec_headers():
 
@@ -208,155 +262,282 @@ def get_vehicle_states():
         return None, f"Невідома помилка: {e}"
 
 
-# ---------------------------------------------------------
-# HELPERS
-# ---------------------------------------------------------
+# =========================================================
+# FIND VEHICLE STATE
+# =========================================================
+
+def extract_vehicle_id(vehicle_url):
+
+    if not vehicle_url:
+        return None
+
+    return str(vehicle_url).rstrip("/").split("/")[-1]
+
 
 def find_vehicle_state(states, vehicle_id):
 
-    if states is None:
+    if not isinstance(states, list):
         return None
 
-    if isinstance(states, dict):
+    for item in states:
 
-        for key in [
-            "results",
-            "data",
-            "items",
-            "vehicles",
-            "states",
-        ]:
+        if not isinstance(item, dict):
+            continue
 
-            value = states.get(key)
+        navirec_vehicle = item.get("vehicle")
 
-            if isinstance(value, list):
+        current_id = extract_vehicle_id(navirec_vehicle)
 
-                for item in value:
+        if current_id == vehicle_id:
 
-                    if not isinstance(item, dict):
-                        continue
-
-                    for id_key in [
-                        "vehicle",
-                        "vehicle_id",
-                        "vehicleId",
-                    ]:
-
-                        if item.get(id_key) == vehicle_id:
-
-                            return item
-
-    if isinstance(states, list):
-
-        for item in states:
-
-            if not isinstance(item, dict):
-                continue
-
-            for id_key in [
-                "vehicle",
-                "vehicle_id",
-                "vehicleId",
-            ]:
-
-                if item.get(id_key) == vehicle_id:
-
-                    return item
+            return item
 
     return None
 
 
-def extract_value(data, keys):
+# =========================================================
+# HELPERS
+# =========================================================
 
-    if not isinstance(data, dict):
-        return None
-
-    for key in keys:
-
-        if key in data and data[key] is not None:
-
-            return data[key]
-
-    return None
-
-
-def vehicle_status(state):
-
-    value = extract_value(
-        state,
-        [
-            "state",
-            "status",
-            "vehicle_state",
-            "movement_state",
-        ],
-    )
-
-    if value is None:
-        return "Немає даних"
-
-    return str(value)
-
-
-def vehicle_position(state):
+def get_coordinates(state):
 
     if not isinstance(state, dict):
         return None, None
 
-    latitude = extract_value(
-        state,
-        [
-            "latitude",
-            "lat",
-            "gps_latitude",
-        ],
-    )
+    location = state.get("location")
 
-    longitude = extract_value(
-        state,
-        [
-            "longitude",
-            "lon",
-            "lng",
-            "gps_longitude",
-        ],
-    )
+    if not isinstance(location, dict):
+        return None, None
+
+    coordinates = location.get("coordinates")
+
+    if not isinstance(coordinates, list):
+        return None, None
+
+    if len(coordinates) < 2:
+        return None, None
 
     try:
 
-        if latitude is not None:
-            latitude = float(latitude)
+        longitude = float(coordinates[0])
+        latitude = float(coordinates[1])
 
-        if longitude is not None:
-            longitude = float(longitude)
+        return latitude, longitude
 
     except Exception:
 
         return None, None
 
-    return latitude, longitude
+
+def get_driver_id(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    driver = state.get("driver")
+
+    if not driver:
+        return None
+
+    return str(driver).rstrip("/").split("/")[-1]
 
 
-def vehicle_speed(state):
+def get_activity(state):
 
-    value = extract_value(
-        state,
-        [
-            "speed",
-            "gps_speed",
-            "vehicle_speed",
-        ],
-    )
+    if not isinstance(state, dict):
+        return "Немає даних"
+
+    activity = state.get("activity")
+
+    if activity == "parking":
+        return "Стоїть"
+
+    if activity == "driving":
+        return "Рухається"
+
+    if activity == "stopped":
+        return "Зупинка"
+
+    if activity:
+        return str(activity)
+
+    return "Немає даних"
+
+
+def get_speed(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    value = state.get("speed")
+
+    if value is None:
+        return None
+
+    try:
+        return round(float(value), 1)
+    except Exception:
+        return value
+
+
+def get_fuel(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    value = state.get("fuel_level")
+
+    if value is None:
+        value = state.get("fuel_level_ewma")
+
+    if value is None:
+        return None
+
+    try:
+        return round(float(value), 1)
+    except Exception:
+        return value
+
+
+def get_distance(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    value = state.get("total_distance")
+
+    if value is None:
+        return None
+
+    try:
+
+        # Navirec returns distance in metres
+        km = float(value) / 1000
+
+        return round(km, 1)
+
+    except Exception:
+
+        return None
+
+
+def get_heading(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    return state.get("heading")
+
+
+def get_ignition(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    value = state.get("ignition")
+
+    if value is None:
+        return None
+
+    return bool(value)
+
+
+def get_satellites(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    return state.get("satellites")
+
+
+def get_altitude(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    return state.get("altitude")
+
+
+def get_voltage(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    value = state.get("supply_voltage")
+
+    if value is None:
+        return None
+
+    try:
+        return round(float(value), 2)
+    except Exception:
+        return value
+
+
+def get_time(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    return state.get("time")
+
+
+def get_driver_card(state):
+
+    if not isinstance(state, dict):
+        return None
+
+    return state.get("driver_1_card_id")
+
+
+def format_time(value):
+
+    if not value:
+        return "—"
+
+    try:
+
+        dt = datetime.fromisoformat(
+            value.replace("Z", "+00:00")
+        )
+
+        return dt.strftime(
+            "%d.%m.%Y %H:%M:%S"
+        )
+
+    except Exception:
+
+        return str(value)
+
+
+def format_number(value):
 
     if value is None:
         return "—"
 
-    return str(value)
+    try:
+
+        return f"{float(value):,.1f}".replace(",", " ")
+
+    except Exception:
+
+        return str(value)
 
 
-# ---------------------------------------------------------
+def status_class(activity):
+
+    if activity == "Рухається":
+        return "moving"
+
+    if activity == "Стоїть":
+        return "parking"
+
+    return "unknown"
+
+
+# =========================================================
 # HOME
-# ---------------------------------------------------------
+# =========================================================
 
 @app.route("/")
 def home():
@@ -364,7 +545,39 @@ def home():
     if not logged_in():
         return redirect(url_for("login"))
 
-    return """
+    states, error = get_vehicle_states()
+
+    online_count = 0
+    moving_count = 0
+
+    if isinstance(states, list):
+
+        for vehicle_id in VEHICLES:
+
+            state = find_vehicle_state(
+                states,
+                vehicle_id
+            )
+
+            if state:
+
+                online_count += 1
+
+                if get_activity(state) == "Рухається":
+
+                    moving_count += 1
+
+    error_box = ""
+
+    if error:
+
+        error_box = f"""
+        <div class="alert">
+            ⚠️ {error}
+        </div>
+        """
+
+    return f"""
     <!doctype html>
 
     <html lang="uk">
@@ -373,52 +586,114 @@ def home():
 
         <meta charset="utf-8">
 
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+        >
+
         <title>O&O TRANS</title>
 
         <style>
 
-            body {
+            * {{
+                box-sizing:border-box;
+            }}
+
+            body {{
                 margin:0;
-                font-family:Arial;
+                font-family:Arial,sans-serif;
                 background:#f3f4f6;
                 color:#111827;
-            }
+            }}
 
-            header {
+            header {{
                 background:#111827;
                 color:white;
-                padding:22px 30px;
-            }
+                padding:20px 30px;
+            }}
 
-            .container {
-                padding:30px;
-                max-width:1200px;
+            header h1 {{
+                margin:0;
+            }}
+
+            header p {{
+                margin:6px 0 0;
+                color:#9ca3af;
+            }}
+
+            .container {{
+                max-width:1250px;
                 margin:auto;
-            }
+                padding:25px;
+            }}
 
-            .grid {
+            .alert {{
+                background:#fff7ed;
+                border:1px solid #fdba74;
+                padding:15px;
+                border-radius:12px;
+                margin-bottom:20px;
+            }}
+
+            .stats {{
                 display:grid;
                 grid-template-columns:
-                    repeat(auto-fit,minmax(220px,1fr));
-                gap:18px;
-            }
+                    repeat(auto-fit,minmax(180px,1fr));
 
-            .card {
+                gap:15px;
+
+                margin-bottom:25px;
+            }}
+
+            .stat {{
+                background:white;
+                padding:20px;
+                border-radius:14px;
+                box-shadow:0 3px 12px rgba(0,0,0,.07);
+            }}
+
+            .stat-number {{
+                font-size:30px;
+                font-weight:bold;
+            }}
+
+            .menu {{
+                display:grid;
+                grid-template-columns:
+                    repeat(auto-fit,minmax(230px,1fr));
+
+                gap:18px;
+            }}
+
+            .card {{
                 background:white;
                 padding:25px;
-                border-radius:14px;
-                box-shadow:0 3px 12px rgba(0,0,0,.08);
-            }
+                border-radius:15px;
 
-            .card a {
-                color:#111827;
+                box-shadow:0 3px 12px rgba(0,0,0,.07);
+
                 text-decoration:none;
-                font-weight:bold;
-            }
+                color:#111827;
 
-            .card:hover {
-                background:#eef2ff;
-            }
+                transition:.15s;
+            }}
+
+            .card:hover {{
+                transform:translateY(-2px);
+                box-shadow:0 8px 20px rgba(0,0,0,.12);
+            }}
+
+            .icon {{
+                font-size:32px;
+            }}
+
+            .card h2 {{
+                margin-bottom:5px;
+            }}
+
+            .card p {{
+                color:#6b7280;
+            }}
 
         </style>
 
@@ -430,74 +705,141 @@ def home():
 
             <h1>O&O TRANS</h1>
 
-            <div>
-                Внутрішня система транспортної компанії
-            </div>
+            <p>
+                Transport Management System
+            </p>
 
         </header>
 
         <div class="container">
 
-            <div class="grid">
+            {error_box}
 
-                <div class="card">
-                    🚚
-                    <h2>
-                        <a href="/vehicles">
-                            Машини
-                        </a>
-                    </h2>
-                    <p>Стан автомобілів</p>
+            <div class="stats">
+
+                <div class="stat">
+
+                    <div>
+                        Автомобілі
+                    </div>
+
+                    <div class="stat-number">
+                        {len(VEHICLES)}
+                    </div>
+
                 </div>
 
-                <div class="card">
-                    📍
-                    <h2>
-                        <a href="/gps">
-                            GPS
-                        </a>
-                    </h2>
-                    <p>Карта та позиції</p>
+                <div class="stat">
+
+                    <div>
+                        Дані Navirec
+                    </div>
+
+                    <div class="stat-number">
+                        {online_count}
+                    </div>
+
                 </div>
 
-                <div class="card">
-                    ⛽
-                    <h2>
-                        <a href="/fuel">
-                            Паливо
-                        </a>
-                    </h2>
-                    <p>Контроль пального</p>
+                <div class="stat">
+
+                    <div>
+                        Рухаються
+                    </div>
+
+                    <div class="stat-number">
+                        {moving_count}
+                    </div>
+
                 </div>
 
-                <div class="card">
-                    ⏱️
-                    <h2>
-                        <a href="/tachograph-test">
-                            Тахограф
-                        </a>
-                    </h2>
-                    <p>Тест Navirec stream</p>
-                </div>
+            </div>
 
-                <div class="card">
-                    ❤️
-                    <h2>
-                        <a href="/health">
-                            Health
-                        </a>
-                    </h2>
-                    <p>Стан сервера</p>
-                </div>
+            <div class="menu">
 
-                <div class="card">
-                    🚪
+                <a class="card" href="/vehicles">
+
+                    <div class="icon">🚚</div>
+
                     <h2>
-                        <a href="/logout">
-                            Вийти
-                        </a>
+                        Машини
                     </h2>
-                </div>
+
+                    <p>
+                        Стан та параметри автомобілів
+                    </p>
+
+                </a>
+
+                <a class="card" href="/gps">
+
+                    <div class="icon">🗺️</div>
+
+                    <h2>
+                        GPS / Карта
+                    </h2>
+
+                    <p>
+                        Реальні позиції автомобілів
+                    </p>
+
+                </a>
+
+                <a class="card" href="/fuel">
+
+                    <div class="icon">⛽</div>
+
+                    <h2>
+                        Паливо
+                    </h2>
+
+                    <p>
+                        Рівень пального та контроль
+                    </p>
+
+                </a>
+
+                <a class="card" href="/tachograph-test">
+
+                    <div class="icon">⏱️</div>
+
+                    <h2>
+                        Тахограф
+                    </h2>
+
+                    <p>
+                        Тест підключення Navirec
+                    </p>
+
+                </a>
+
+                <a class="card" href="/health">
+
+                    <div class="icon">❤️</div>
+
+                    <h2>
+                        Система
+                    </h2>
+
+                    <p>
+                        Перевірка роботи сервера
+                    </p>
+
+                </a>
+
+                <a class="card" href="/logout">
+
+                    <div class="icon">🚪</div>
+
+                    <h2>
+                        Вийти
+                    </h2>
+
+                    <p>
+                        Завершити сесію
+                    </p>
+
+                </a>
 
             </div>
 
@@ -509,9 +851,9 @@ def home():
     """
 
 
-# ---------------------------------------------------------
+# =========================================================
 # VEHICLES
-# ---------------------------------------------------------
+# =========================================================
 
 @app.route("/vehicles")
 def vehicles():
@@ -523,55 +865,101 @@ def vehicles():
 
     cards = ""
 
-    for vehicle_id, name in VEHICLES.items():
+    for vehicle_id, vehicle_info in VEHICLES.items():
 
         state = find_vehicle_state(
             states,
             vehicle_id
         )
 
-        status = vehicle_status(state)
+        name = vehicle_info["name"]
 
-        speed = vehicle_speed(state)
+        activity = get_activity(state)
 
-        latitude, longitude = vehicle_position(state)
+        speed = get_speed(state)
 
-        if latitude is not None and longitude is not None:
+        fuel = get_fuel(state)
 
-            position = (
-                f"{latitude}, {longitude}"
-            )
+        distance = get_distance(state)
 
+        ignition = get_ignition(state)
+
+        last_time = get_time(state)
+
+        css = status_class(activity)
+
+        if ignition is True:
+            ignition_text = "Увімкнене"
+        elif ignition is False:
+            ignition_text = "Вимкнене"
         else:
-
-            position = "Координати не отримані"
+            ignition_text = "—"
 
         cards += f"""
 
-        <div class="vehicle">
+        <div class="vehicle-card">
 
-            <h2>🚚 {name}</h2>
+            <div class="vehicle-top">
 
-            <p>
-                <b>Статус:</b>
-                {status}
-            </p>
+                <div>
 
-            <p>
-                <b>Швидкість:</b>
-                {speed}
-            </p>
+                    <h2>
+                        🚚 {name}
+                    </h2>
 
-            <p>
-                <b>GPS:</b>
-                {position}
-            </p>
+                    <div class="status {css}">
+                        {activity}
+                    </div>
 
-            <p>
-                <a href="/vehicle/{vehicle_id}">
-                    Деталі →
-                </a>
-            </p>
+                </div>
+
+            </div>
+
+            <div class="data-grid">
+
+                <div>
+                    <span>Швидкість</span>
+                    <strong>
+                        {speed if speed is not None else "—"} км/год
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Паливо</span>
+                    <strong>
+                        {fuel if fuel is not None else "—"} %
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Запалювання</span>
+                    <strong>
+                        {ignition_text}
+                    </strong>
+                </div>
+
+                <div>
+                    <span>Пробіг</span>
+                    <strong>
+                        {format_number(distance)} км
+                    </strong>
+                </div>
+
+            </div>
+
+            <div class="last-time">
+
+                Останній сигнал:
+                {format_time(last_time)}
+
+            </div>
+
+            <a
+                class="details"
+                href="/vehicle/{vehicle_id}"
+            >
+                Відкрити автомобіль →
+            </a>
 
         </div>
 
@@ -579,11 +967,11 @@ def vehicles():
 
     if error:
 
-        message = f"""
+        navirec_message = f"""
 
         <div class="warning">
 
-            ⚠️ <b>Navirec зараз не відповідає.</b>
+            ⚠️ <b>Navirec тимчасово недоступний</b>
 
             <br><br>
 
@@ -591,8 +979,7 @@ def vehicles():
 
             <br><br>
 
-            Сам сайт працює нормально.
-            Спробуйте оновити сторінку пізніше.
+            Сайт продовжує працювати.
 
         </div>
 
@@ -600,11 +987,11 @@ def vehicles():
 
     else:
 
-        message = """
+        navirec_message = """
 
         <div class="success">
 
-            ✅ З'єднання з Navirec працює.
+            ✅ Navirec підключений
 
         </div>
 
@@ -619,6 +1006,11 @@ def vehicles():
     <head>
 
         <meta charset="utf-8">
+
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+        >
 
         <title>O&O TRANS — Машини</title>
 
@@ -631,15 +1023,15 @@ def vehicles():
             }}
 
             .container {{
-                max-width:1200px;
+                max-width:1250px;
                 margin:auto;
-                padding:30px;
+                padding:25px;
             }}
 
             .warning {{
                 background:#fff7ed;
                 border:1px solid #fdba74;
-                padding:20px;
+                padding:18px;
                 border-radius:12px;
                 margin-bottom:20px;
             }}
@@ -647,37 +1039,105 @@ def vehicles():
             .success {{
                 background:#ecfdf5;
                 border:1px solid #6ee7b7;
-                padding:20px;
+                padding:18px;
                 border-radius:12px;
                 margin-bottom:20px;
             }}
 
-            .grid {{
+            .vehicles {{
                 display:grid;
                 grid-template-columns:
-                    repeat(auto-fit,minmax(280px,1fr));
-                gap:18px;
+                    repeat(auto-fit,minmax(320px,1fr));
+
+                gap:20px;
             }}
 
-            .vehicle {{
+            .vehicle-card {{
                 background:white;
                 padding:22px;
-                border-radius:14px;
+                border-radius:16px;
+
                 box-shadow:0 3px 12px rgba(0,0,0,.08);
             }}
 
-            a {{
-                color:#2563eb;
+            .vehicle-card h2 {{
+                margin:0 0 10px;
+            }}
+
+            .status {{
+                display:inline-block;
+                padding:6px 10px;
+                border-radius:20px;
+                font-weight:bold;
+                font-size:13px;
+            }}
+
+            .moving {{
+                background:#dcfce7;
+                color:#166534;
+            }}
+
+            .parking {{
+                background:#e5e7eb;
+                color:#374151;
+            }}
+
+            .unknown {{
+                background:#fef3c7;
+                color:#92400e;
+            }}
+
+            .data-grid {{
+                display:grid;
+                grid-template-columns:1fr 1fr;
+                gap:12px;
+                margin-top:20px;
+            }}
+
+            .data-grid div {{
+                background:#f9fafb;
+                padding:12px;
+                border-radius:10px;
+            }}
+
+            .data-grid span {{
+                display:block;
+                color:#6b7280;
+                font-size:12px;
+                margin-bottom:5px;
+            }}
+
+            .data-grid strong {{
+                font-size:16px;
+            }}
+
+            .last-time {{
+                margin-top:18px;
+                color:#6b7280;
+                font-size:13px;
+            }}
+
+            .details {{
+                display:block;
+                margin-top:18px;
+                padding:12px;
+
+                background:#2563eb;
+                color:white;
+
+                text-align:center;
                 text-decoration:none;
+
+                border-radius:9px;
                 font-weight:bold;
             }}
 
-            pre {{
-                background:#111827;
-                color:#e5e7eb;
-                padding:20px;
-                border-radius:12px;
-                overflow:auto;
+            .back {{
+                display:inline-block;
+                margin-top:25px;
+                color:#2563eb;
+                text-decoration:none;
+                font-weight:bold;
             }}
 
         </style>
@@ -690,144 +1150,16 @@ def vehicles():
 
             <h1>🚚 Машини</h1>
 
-            {message}
+            {navirec_message}
 
-            <div class="grid">
+            <div class="vehicles">
 
                 {cards}
 
             </div>
 
-            <br>
-
-            <details>
-
-                <summary>
-                    Технічні дані Navirec
-                </summary>
-
-                <pre>
-{json.dumps(states, indent=2, ensure_ascii=False)}
-                </pre>
-
-            </details>
-
-            <br>
-
-            <a href="/">← Головна</a>
-
-        </div>
-
-    </body>
-
-    </html>
-
-    """
-
-
-# ---------------------------------------------------------
-# VEHICLE DETAILS
-# ---------------------------------------------------------
-
-@app.route("/vehicle/<vehicle_id>")
-def vehicle(vehicle_id):
-
-    if not logged_in():
-        return redirect(url_for("login"))
-
-    name = VEHICLES.get(
-        vehicle_id,
-        "Невідомий автомобіль"
-    )
-
-    states, error = get_vehicle_states()
-
-    state = find_vehicle_state(
-        states,
-        vehicle_id
-    )
-
-    latitude, longitude = vehicle_position(state)
-
-    return f"""
-
-    <!doctype html>
-
-    <html lang="uk">
-
-    <head>
-
-        <meta charset="utf-8">
-
-        <title>{name}</title>
-
-        <style>
-
-            body {{
-                font-family:Arial;
-                background:#f3f4f6;
-                padding:30px;
-            }}
-
-            .box {{
-                background:white;
-                padding:25px;
-                border-radius:14px;
-                max-width:900px;
-                margin:auto;
-            }}
-
-            pre {{
-                background:#111827;
-                color:white;
-                padding:20px;
-                border-radius:10px;
-                overflow:auto;
-            }}
-
-        </style>
-
-    </head>
-
-    <body>
-
-        <div class="box">
-
-            <h1>🚚 {name}</h1>
-
-            <p>
-                <b>Vehicle ID:</b>
-                {vehicle_id}
-            </p>
-
-            <p>
-                <b>Статус:</b>
-                {vehicle_status(state)}
-            </p>
-
-            <p>
-                <b>Швидкість:</b>
-                {vehicle_speed(state)}
-            </p>
-
-            <p>
-                <b>Latitude:</b>
-                {latitude if latitude is not None else "—"}
-            </p>
-
-            <p>
-                <b>Longitude:</b>
-                {longitude if longitude is not None else "—"}
-            </p>
-
-            <h2>Дані Navirec</h2>
-
-            <pre>
-{json.dumps(state, indent=2, ensure_ascii=False)}
-            </pre>
-
-            <a href="/vehicles">
-                ← До машин
+            <a class="back" href="/">
+                ← Головна
             </a>
 
         </div>
@@ -839,9 +1171,404 @@ def vehicle(vehicle_id):
     """
 
 
-# ---------------------------------------------------------
-# GPS
-# ---------------------------------------------------------
+# =========================================================
+# SINGLE VEHICLE
+# =========================================================
+
+@app.route("/vehicle/<vehicle_id>")
+def vehicle(vehicle_id):
+
+    if not logged_in():
+        return redirect(url_for("login"))
+
+    vehicle_info = VEHICLES.get(vehicle_id)
+
+    if not vehicle_info:
+
+        return "Автомобіль не знайдено", 404
+
+    name = vehicle_info["name"]
+
+    states, error = get_vehicle_states()
+
+    state = find_vehicle_state(
+        states,
+        vehicle_id
+    )
+
+    latitude, longitude = get_coordinates(state)
+
+    activity = get_activity(state)
+
+    speed = get_speed(state)
+
+    fuel = get_fuel(state)
+
+    distance = get_distance(state)
+
+    heading = get_heading(state)
+
+    ignition = get_ignition(state)
+
+    satellites = get_satellites(state)
+
+    altitude = get_altitude(state)
+
+    voltage = get_voltage(state)
+
+    driver = get_driver_id(state)
+
+    last_time = get_time(state)
+
+    driver_card = get_driver_card(state)
+
+    raw_data = json.dumps(
+        state,
+        indent=2,
+        ensure_ascii=False
+    )
+
+    map_html = ""
+
+    if latitude is not None and longitude is not None:
+
+        map_html = f"""
+
+        <div id="map"></div>
+
+        <script>
+
+            const map = L.map("map").setView(
+                [{latitude}, {longitude}],
+                13
+            );
+
+            L.tileLayer(
+                "https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
+                {{
+                    maxZoom:19,
+                    attribution:"&copy; OpenStreetMap"
+                }}
+            ).addTo(map);
+
+            const marker = L.marker(
+                [{latitude}, {longitude}]
+            ).addTo(map);
+
+            marker.bindPopup(
+                "<b>{name}</b><br>" +
+                "{activity}<br>" +
+                "{speed if speed is not None else '—'} km/h"
+            ).openPopup();
+
+        </script>
+
+        """
+
+    else:
+
+        map_html = """
+
+        <div class="no-map">
+
+            📍 Координати зараз недоступні.
+
+        </div>
+
+        """
+
+    if ignition is True:
+        ignition_text = "Увімкнене"
+    elif ignition is False:
+        ignition_text = "Вимкнене"
+    else:
+        ignition_text = "—"
+
+    if error:
+
+        error_box = f"""
+
+        <div class="warning">
+            ⚠️ {error}
+        </div>
+
+        """
+
+    else:
+
+        error_box = ""
+
+    return f"""
+
+    <!doctype html>
+
+    <html lang="uk">
+
+    <head>
+
+        <meta charset="utf-8">
+
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+        >
+
+        <title>{name} — O&O TRANS</title>
+
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        >
+
+        <script
+            src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+        </script>
+
+        <style>
+
+            body {{
+                margin:0;
+                font-family:Arial;
+                background:#f3f4f6;
+            }}
+
+            .container {{
+                max-width:1250px;
+                margin:auto;
+                padding:25px;
+            }}
+
+            .header {{
+                background:white;
+                padding:25px;
+                border-radius:16px;
+                margin-bottom:20px;
+            }}
+
+            .status {{
+                display:inline-block;
+                padding:7px 12px;
+                background:#e5e7eb;
+                border-radius:20px;
+                font-weight:bold;
+            }}
+
+            .grid {{
+                display:grid;
+                grid-template-columns:
+                    repeat(auto-fit,minmax(180px,1fr));
+                gap:15px;
+                margin-bottom:20px;
+            }}
+
+            .data {{
+                background:white;
+                padding:18px;
+                border-radius:14px;
+            }}
+
+            .data span {{
+                display:block;
+                color:#6b7280;
+                font-size:12px;
+                margin-bottom:7px;
+            }}
+
+            .data strong {{
+                font-size:18px;
+            }}
+
+            #map {{
+                height:500px;
+                border-radius:16px;
+                overflow:hidden;
+                margin-bottom:20px;
+            }}
+
+            .no-map {{
+                background:white;
+                padding:40px;
+                text-align:center;
+                border-radius:16px;
+                margin-bottom:20px;
+            }}
+
+            .warning {{
+                background:#fff7ed;
+                border:1px solid #fdba74;
+                padding:18px;
+                border-radius:12px;
+                margin-bottom:20px;
+            }}
+
+            details {{
+                background:white;
+                padding:18px;
+                border-radius:14px;
+            }}
+
+            pre {{
+                background:#111827;
+                color:#e5e7eb;
+                padding:20px;
+                border-radius:10px;
+                overflow:auto;
+                white-space:pre-wrap;
+            }}
+
+            a {{
+                color:#2563eb;
+                text-decoration:none;
+                font-weight:bold;
+            }}
+
+        </style>
+
+    </head>
+
+    <body>
+
+        <div class="container">
+
+            <div class="header">
+
+                <h1>
+                    🚚 {name}
+                </h1>
+
+                <div class="status">
+                    {activity}
+                </div>
+
+            </div>
+
+            {error_box}
+
+            <div class="grid">
+
+                <div class="data">
+                    <span>Швидкість</span>
+                    <strong>
+                        {speed if speed is not None else "—"} км/год
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Паливо</span>
+                    <strong>
+                        {fuel if fuel is not None else "—"} %
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Пробіг</span>
+                    <strong>
+                        {format_number(distance)} км
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Напрямок</span>
+                    <strong>
+                        {heading if heading is not None else "—"}°
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Запалювання</span>
+                    <strong>
+                        {ignition_text}
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Супутники</span>
+                    <strong>
+                        {satellites if satellites is not None else "—"}
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Висота</span>
+                    <strong>
+                        {altitude if altitude is not None else "—"} м
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Напруга</span>
+                    <strong>
+                        {voltage if voltage is not None else "—"} V
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Водій</span>
+                    <strong>
+                        {driver if driver else "—"}
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Карта водія</span>
+                    <strong>
+                        {driver_card if driver_card else "—"}
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Останній сигнал</span>
+                    <strong>
+                        {format_time(last_time)}
+                    </strong>
+                </div>
+
+                <div class="data">
+                    <span>Координати</span>
+                    <strong>
+                        {latitude if latitude is not None else "—"},
+                        {longitude if longitude is not None else "—"}
+                    </strong>
+                </div>
+
+            </div>
+
+            {map_html}
+
+            <details>
+
+                <summary>
+                    Технічні дані Navirec
+                </summary>
+
+                <pre>{raw_data}</pre>
+
+            </details>
+
+            <br>
+
+            <a href="/vehicles">
+                ← До машин
+            </a>
+
+            &nbsp;&nbsp;
+
+            <a href="/">
+                Головна
+            </a>
+
+        </div>
+
+    </body>
+
+    </html>
+
+    """
+
+
+# =========================================================
+# GPS MAP
+# =========================================================
 
 @app.route("/gps")
 def gps():
@@ -853,42 +1580,56 @@ def gps():
 
     markers = []
 
-    for vehicle_id, name in VEHICLES.items():
+    for vehicle_id, vehicle_info in VEHICLES.items():
 
         state = find_vehicle_state(
             states,
             vehicle_id
         )
 
-        latitude, longitude = vehicle_position(state)
+        latitude, longitude = get_coordinates(state)
 
-        if latitude is not None and longitude is not None:
+        if latitude is None or longitude is None:
+            continue
 
-            markers.append({
-                "name": name,
-                "lat": latitude,
-                "lon": longitude,
-            })
+        markers.append({
+
+            "id": vehicle_id,
+
+            "name": vehicle_info["name"],
+
+            "lat": latitude,
+
+            "lon": longitude,
+
+            "activity": get_activity(state),
+
+            "speed": get_speed(state),
+
+            "fuel": get_fuel(state),
+
+            "heading": get_heading(state),
+
+            "time": format_time(
+                get_time(state)
+            ),
+
+        })
 
     markers_json = json.dumps(
         markers,
         ensure_ascii=False
     )
 
-    error_text = ""
+    error_box = ""
 
     if error:
 
-        error_text = f"""
+        error_box = f"""
 
         <div class="warning">
 
             ⚠️ {error}
-
-            <br><br>
-
-            Карта залишилась доступною,
-            але нові координати зараз не отримані.
 
         </div>
 
@@ -904,12 +1645,12 @@ def gps():
 
         <meta charset="utf-8">
 
-        <title>O&O TRANS — GPS</title>
-
         <meta
             name="viewport"
             content="width=device-width, initial-scale=1"
         >
+
+        <title>O&O TRANS — GPS</title>
 
         <link
             rel="stylesheet"
@@ -929,20 +1670,22 @@ def gps():
             }}
 
             .top {{
-                padding:20px;
+                background:white;
+                padding:20px 25px;
             }}
 
             #map {{
-                height:650px;
                 width:100%;
+                height:calc(100vh - 150px);
+                min-height:550px;
             }}
 
             .warning {{
                 background:#fff7ed;
                 border:1px solid #fdba74;
-                padding:15px;
-                margin:15px;
+                padding:12px;
                 border-radius:10px;
+                margin-top:10px;
             }}
 
             a {{
@@ -959,16 +1702,30 @@ def gps():
 
         <div class="top">
 
-            <h1>📍 O&O TRANS — GPS</h1>
+            <h1>
+                🗺️ O&O TRANS — GPS
+            </h1>
 
-            {error_text}
+            <div>
 
-            <p>
-                Отримано автомобілів на карті:
+                Автомобілів на карті:
                 <b>{len(markers)}</b>
-            </p>
 
-            <a href="/">← Головна</a>
+            </div>
+
+            {error_box}
+
+            <br>
+
+            <a href="/">
+                ← Головна
+            </a>
+
+            &nbsp;&nbsp;
+
+            <a href="/vehicles">
+                🚚 Машини
+            </a>
 
         </div>
 
@@ -986,41 +1743,86 @@ def gps():
             L.tileLayer(
                 "https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
                 {{
-                    maxZoom: 19,
-                    attribution: "&copy; OpenStreetMap"
+                    maxZoom:19,
+                    attribution:"&copy; OpenStreetMap"
                 }}
             ).addTo(map);
 
-            if (vehicles.length > 0) {{
+            const bounds = [];
 
-                const bounds = [];
+            vehicles.forEach(function(vehicle) {{
 
-                vehicles.forEach(function(vehicle) {{
+                const marker = L.marker([
 
-                    const marker = L.marker([
-                        vehicle.lat,
-                        vehicle.lon
-                    ]).addTo(map);
+                    vehicle.lat,
+                    vehicle.lon
 
-                    marker.bindPopup(
-                        "<b>" +
-                        vehicle.name +
-                        "</b><br>" +
-                        vehicle.lat +
-                        "<br>" +
-                        vehicle.lon
-                    );
+                ]).addTo(map);
 
-                    bounds.push([
-                        vehicle.lat,
-                        vehicle.lon
-                    ]);
+                const popup = `
 
-                }});
+                    <div style="min-width:220px">
 
-                map.fitBounds(bounds, {{
-                    padding:[40,40]
-                }});
+                        <h3 style="margin-top:0">
+
+                            🚚 ${{vehicle.name}}
+
+                        </h3>
+
+                        <b>Стан:</b>
+                        ${{vehicle.activity}}
+
+                        <br>
+
+                        <b>Швидкість:</b>
+                        ${{vehicle.speed ?? "—"}} км/год
+
+                        <br>
+
+                        <b>Паливо:</b>
+                        ${{vehicle.fuel ?? "—"}} %
+
+                        <br>
+
+                        <b>Напрямок:</b>
+                        ${{vehicle.heading ?? "—"}}°
+
+                        <br>
+
+                        <b>Останній сигнал:</b>
+                        ${{vehicle.time}}
+
+                        <br><br>
+
+                        <a href="/vehicle/${{vehicle.id}}">
+
+                            Відкрити автомобіль →
+
+                        </a>
+
+                    </div>
+
+                `;
+
+                marker.bindPopup(popup);
+
+                bounds.push([
+
+                    vehicle.lat,
+                    vehicle.lon
+
+                ]);
+
+            }});
+
+            if (bounds.length > 0) {{
+
+                map.fitBounds(
+                    bounds,
+                    {{
+                        padding:[50,50]
+                    }}
+                );
 
             }}
 
@@ -1033,9 +1835,9 @@ def gps():
     """
 
 
-# ---------------------------------------------------------
+# =========================================================
 # FUEL
-# ---------------------------------------------------------
+# =========================================================
 
 @app.route("/fuel")
 def fuel():
@@ -1043,29 +1845,170 @@ def fuel():
     if not logged_in():
         return redirect(url_for("login"))
 
-    return """
+    states, error = get_vehicle_states()
+
+    rows = ""
+
+    for vehicle_id, vehicle_info in VEHICLES.items():
+
+        state = find_vehicle_state(
+            states,
+            vehicle_id
+        )
+
+        fuel = get_fuel(state)
+
+        rows += f"""
+
+        <tr>
+
+            <td>
+                {vehicle_info["name"]}
+            </td>
+
+            <td>
+                {fuel if fuel is not None else "—"} %
+            </td>
+
+            <td>
+                {format_time(
+                    get_time(state)
+                )}
+            </td>
+
+        </tr>
+
+        """
+
+    error_text = ""
+
+    if error:
+
+        error_text = f"""
+
+        <div class="warning">
+
+            ⚠️ {error}
+
+        </div>
+
+        """
+
+    return f"""
 
     <!doctype html>
 
     <html lang="uk">
 
     <head>
+
         <meta charset="utf-8">
+
+        <meta
+            name="viewport"
+            content="width=device-width, initial-scale=1"
+        >
+
         <title>O&O TRANS — Паливо</title>
+
+        <style>
+
+            body {{
+                margin:0;
+                font-family:Arial;
+                background:#f3f4f6;
+            }}
+
+            .container {{
+                max-width:1000px;
+                margin:auto;
+                padding:30px;
+            }}
+
+            .box {{
+                background:white;
+                padding:20px;
+                border-radius:15px;
+            }}
+
+            table {{
+                width:100%;
+                border-collapse:collapse;
+            }}
+
+            th,td {{
+                padding:14px;
+                border-bottom:1px solid #e5e7eb;
+                text-align:left;
+            }}
+
+            .warning {{
+                background:#fff7ed;
+                border:1px solid #fdba74;
+                padding:15px;
+                border-radius:10px;
+                margin-bottom:20px;
+            }}
+
+            a {{
+                color:#2563eb;
+                text-decoration:none;
+                font-weight:bold;
+            }}
+
+        </style>
+
     </head>
 
-    <body style="font-family:Arial;padding:30px">
+    <body>
 
-        <h1>⛽ Паливо</h1>
+        <div class="container">
 
-        <p>
-            Модуль палива буде підключений
-            після перевірки Navirec API.
-        </p>
+            <h1>⛽ Паливо</h1>
 
-        <a href="/">
-            ← Головна
-        </a>
+            {error_text}
+
+            <div class="box">
+
+                <table>
+
+                    <thead>
+
+                        <tr>
+
+                            <th>
+                                Автомобіль
+                            </th>
+
+                            <th>
+                                Паливо
+                            </th>
+
+                            <th>
+                                Час даних
+                            </th>
+
+                        </tr>
+
+                    </thead>
+
+                    <tbody>
+
+                        {rows}
+
+                    </tbody>
+
+                </table>
+
+            </div>
+
+            <br>
+
+            <a href="/">
+                ← Головна
+            </a>
+
+        </div>
 
     </body>
 
@@ -1074,9 +2017,9 @@ def fuel():
     """
 
 
-# ---------------------------------------------------------
+# =========================================================
 # TACHOGRAPH TEST
-# ---------------------------------------------------------
+# =========================================================
 
 @app.route("/tachograph-test")
 def tachograph_test():
@@ -1128,9 +2071,13 @@ def tachograph_test():
             try:
 
                 result = json.dumps(
+
                     json.loads(first_line),
+
                     indent=2,
+
                     ensure_ascii=False
+
                 )
 
             except Exception:
@@ -1174,8 +2121,6 @@ def tachograph_test():
                 {ACCOUNT_ID}
             </p>
 
-            <h2>Відповідь</h2>
-
             <pre>{result}</pre>
 
             <br>
@@ -1208,7 +2153,7 @@ def tachograph_test():
 
         <body style="font-family:Arial;padding:30px">
 
-            <h1>❌ Navirec stream</h1>
+            <h1>❌ Tachograph</h1>
 
             <pre>{e}</pre>
 
@@ -1223,9 +2168,9 @@ def tachograph_test():
         """
 
 
-# ---------------------------------------------------------
+# =========================================================
 # HEALTH
-# ---------------------------------------------------------
+# =========================================================
 
 @app.route("/health")
 def health():
@@ -1234,14 +2179,18 @@ def health():
 
         "status": "ok",
 
-        "service": "O&O TRANS bot"
+        "service": "O&O TRANS bot",
+
+        "navirec": bool(NAVIREC_TOKEN),
+
+        "vehicles": len(VEHICLES),
 
     }
 
 
-# ---------------------------------------------------------
+# =========================================================
 # START
-# ---------------------------------------------------------
+# =========================================================
 
 if __name__ == "__main__":
 
