@@ -5,14 +5,11 @@ import requests
 
 app = Flask(__name__)
 
-app.secret_key = os.environ.get(
-    "SESSION_SECRET",
-    "change-this-secret"
-)
+app.secret_key = os.getenv("SESSION_SECRET", "change-me")
 
-NAVIREC_TOKEN = os.environ.get("NAVIREC_TOKEN", "")
-ADMIN_USER = os.environ.get("ADMIN_USER", "")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+NAVIREC_TOKEN = os.getenv("NAVIREC_TOKEN")
+ADMIN_USER = os.getenv("ADMIN_USER", "admin")
+ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "admin")
 
 NAVIREC_API = "https://api.navirec.com"
 
@@ -37,1309 +34,445 @@ def get_headers():
 
 
 def get_states():
+    response = requests.get(
+        f"{NAVIREC_API}/last_vehicle_states/",
+        headers=get_headers(),
+        params={"account": ACCOUNT_ID},
+        timeout=20,
+    )
 
-    if not NAVIREC_TOKEN:
-        return []
-
-    try:
-        response = requests.get(
-            f"{NAVIREC_API}/last_vehicle_states/",
-            headers=get_headers(),
-            params={"account": ACCOUNT_ID},
-            timeout=20,
-        )
-
-        if response.status_code != 200:
-            return []
-
-        data = response.json()
-
-        if isinstance(data, dict):
-            return data.get("results", [])
-
-        return data
-
-    except Exception:
-        return []
+    response.raise_for_status()
+    return response.json()
 
 
-def vehicle_status(vehicle_id, states):
+def vehicle_status(state):
+    if not isinstance(state, dict):
+        return "—"
 
-    for state in states:
+    for key in ["state", "status", "vehicle_state"]:
+        if key in state:
+            return str(state[key])
 
-        if str(state.get("vehicle")) == str(vehicle_id):
-            return state
-
-    return None
+    return "—"
 
 
 def format_distance(value):
-
     if value is None:
         return "—"
 
     try:
-        return f"{float(value):,.0f} km".replace(",", " ")
-
+        return f"{float(value):,.1f} km".replace(",", " ")
     except Exception:
         return str(value)
 
 
 def format_fuel(value):
-
     if value is None:
         return "—"
 
     try:
-        return f"{float(value):.0f}%"
-
+        return f"{float(value):,.1f} l".replace(",", " ")
     except Exception:
         return str(value)
 
 
-CSS = """
-<style>
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    error = ""
 
-body {
-    margin: 0;
-    font-family: Arial, sans-serif;
-    background: #f3f5f7;
-    color: #17202a;
-}
+    if request.method == "POST":
+        username = request.form.get("username", "")
+        password = request.form.get("password", "")
 
-header {
-    background: #111827;
-    color: white;
-    padding: 18px 28px;
-}
+        if username == ADMIN_USER and password == ADMIN_PASSWORD:
+            session["logged_in"] = True
+            return redirect(url_for("home"))
 
-header h1 {
-    margin: 0;
-    font-size: 24px;
-}
-
-nav {
-    background: #1f2937;
-    padding: 12px 28px;
-}
-
-nav a {
-    color: white;
-    text-decoration: none;
-    margin-right: 20px;
-    font-weight: bold;
-}
-
-.container {
-    max-width: 1400px;
-    margin: 25px auto;
-    padding: 0 20px;
-}
-
-.cards {
-    display: grid;
-    grid-template-columns:
-        repeat(auto-fit, minmax(280px, 1fr));
-    gap: 18px;
-}
-
-.card {
-    background: white;
-    border-radius: 14px;
-    padding: 22px;
-    box-shadow:
-        0 3px 12px rgba(0,0,0,0.08);
-}
-
-.card h2 {
-    margin-top: 0;
-}
-
-.info {
-    background: white;
-    border-radius: 14px;
-    padding: 20px;
-    margin-bottom: 20px;
-    box-shadow:
-        0 3px 12px rgba(0,0,0,0.08);
-}
-
-.vehicle-link {
-    display: block;
-    text-decoration: none;
-    color: inherit;
-}
-
-.map {
-    width: 100%;
-    height: 600px;
-    border-radius: 14px;
-    overflow: hidden;
-    margin-top: 20px;
-}
-
-.test-json {
-    background: #111827;
-    color: #e5e7eb;
-    padding: 20px;
-    border-radius: 10px;
-    overflow-x: auto;
-    white-space: pre-wrap;
-    word-break: break-word;
-}
-
-input {
-    padding: 10px;
-    width: 280px;
-    margin-bottom: 10px;
-}
-
-button {
-    padding: 10px 18px;
-    cursor: pointer;
-}
-
-</style>
-"""
-
-
-def page(title, content):
-
-    nav = """
-    <nav>
-
-        <a href="/">
-            🏠 Dashboard
-        </a>
-
-        <a href="/vehicles">
-            🚚 Samochody
-        </a>
-
-        <a href="/gps">
-            🗺️ GPS
-        </a>
-
-        <a href="/fuel">
-            ⛽ Paliwo
-        </a>
-
-        <a href="/tachograph-test">
-            ⏱️ Tachograf
-        </a>
-
-        <a href="/tachograph-options">
-            🔎 OPTIONS
-        </a>
-
-        <a href="/health">
-            ❤️ Health
-        </a>
-
-        <a href="/logout">
-            Wyloguj
-        </a>
-
-    </nav>
-    """
+        error = "Неправильний логін або пароль"
 
     return f"""
-    <!DOCTYPE html>
-
-    <html lang="pl">
-
+    <!doctype html>
+    <html lang="uk">
     <head>
-
-        <meta charset="UTF-8">
-
-        <meta
-            name="viewport"
-            content="width=device-width, initial-scale=1.0"
-        >
-
-        <title>
-            {title} — O&O TRANS
-        </title>
-
-        {CSS}
-
+        <meta charset="utf-8">
+        <title>O&O TRANS — Login</title>
+        <style>
+            body {{
+                font-family: Arial;
+                background:#111827;
+                color:white;
+                display:flex;
+                justify-content:center;
+                align-items:center;
+                height:100vh;
+            }}
+            .box {{
+                background:#1f2937;
+                padding:30px;
+                border-radius:15px;
+                width:320px;
+            }}
+            input {{
+                width:100%;
+                padding:12px;
+                margin:8px 0;
+                box-sizing:border-box;
+                border-radius:8px;
+                border:0;
+            }}
+            button {{
+                width:100%;
+                padding:12px;
+                margin-top:10px;
+                border:0;
+                border-radius:8px;
+                background:#2563eb;
+                color:white;
+                font-weight:bold;
+            }}
+            .error {{color:#f87171;}}
+        </style>
     </head>
-
     <body>
+        <div class="box">
+            <h2>O&O TRANS</h2>
+            <p>Вхід у систему</p>
 
-        <header>
+            <form method="post">
+                <input name="username" placeholder="Логін">
+                <input name="password" type="password" placeholder="Пароль">
+                <button>Увійти</button>
+            </form>
 
-            <h1>
-                O&O TRANS
-            </h1>
-
-        </header>
-
-        {nav}
-
-        <div class="container">
-
-            {content}
-
+            <p class="error">{error}</p>
         </div>
-
     </body>
-
     </html>
     """
 
 
-@app.route(
-    "/login",
-    methods=["GET", "POST"]
-)
-def login():
-
-    if request.method == "POST":
-
-        username = request.form.get(
-            "username",
-            ""
-        )
-
-        password = request.form.get(
-            "password",
-            ""
-        )
-
-        if (
-            username == ADMIN_USER
-            and password == ADMIN_PASSWORD
-        ):
-
-            session["logged_in"] = True
-
-            return redirect(
-                url_for("home")
-            )
-
-        return page(
-            "Logowanie",
-            """
-            <h1>
-                Logowanie
-            </h1>
-
-            <div class="info">
-                Nieprawidłowy login lub hasło.
-            </div>
-
-            <form method="post">
-
-                <input
-                    type="text"
-                    name="username"
-                    placeholder="Login"
-                >
-
-                <br>
-
-                <input
-                    type="password"
-                    name="password"
-                    placeholder="Hasło"
-                >
-
-                <br>
-
-                <button type="submit">
-                    Zaloguj
-                </button>
-
-            </form>
-            """
-        )
-
-    return page(
-        "Logowanie",
-        """
-        <h1>
-            🔐 O&O TRANS
-        </h1>
-
-        <div class="info">
-
-            <form method="post">
-
-                <input
-                    type="text"
-                    name="username"
-                    placeholder="Login"
-                >
-
-                <br>
-
-                <input
-                    type="password"
-                    name="password"
-                    placeholder="Hasło"
-                >
-
-                <br>
-
-                <button type="submit">
-                    Zaloguj
-                </button>
-
-            </form>
-
-        </div>
-        """
-    )
-
-
 @app.route("/logout")
 def logout():
-
     session.clear()
-
-    return redirect(
-        url_for("login")
-    )
+    return redirect(url_for("login"))
 
 
 @app.route("/")
 def home():
-
     if not logged_in():
-        return redirect(
-            url_for("login")
-        )
+        return redirect(url_for("login"))
 
-    states = get_states()
+    return """
+    <!doctype html>
+    <html lang="uk">
+    <head>
+        <meta charset="utf-8">
+        <title>O&O TRANS</title>
+        <style>
+            body {
+                font-family:Arial;
+                background:#f3f4f6;
+                margin:0;
+            }
+            header {
+                background:#111827;
+                color:white;
+                padding:20px;
+            }
+            .container {
+                padding:25px;
+            }
+            .menu {
+                display:grid;
+                grid-template-columns:repeat(auto-fit,minmax(200px,1fr));
+                gap:15px;
+            }
+            a {
+                display:block;
+                background:white;
+                padding:25px;
+                border-radius:12px;
+                text-decoration:none;
+                color:#111827;
+                box-shadow:0 2px 8px #ddd;
+            }
+            a:hover {
+                background:#e5e7eb;
+            }
+        </style>
+    </head>
+    <body>
+        <header>
+            <h1>O&O TRANS</h1>
+            <p>Внутрішня система компанії</p>
+        </header>
 
-    cards = ""
-
-    for vehicle_id, vehicle_name in VEHICLES.items():
-
-        state = vehicle_status(
-            vehicle_id,
-            states
-        )
-
-        if state:
-
-            speed = state.get("speed")
-
-            if speed is not None:
-                speed_text = f"{speed} km/h"
-            else:
-                speed_text = "—"
-
-            fuel = format_fuel(
-                state.get("fuel_level")
-            )
-
-            distance = format_distance(
-                state.get("total_distance")
-            )
-
-            time_value = state.get(
-                "time",
-                "—"
-            )
-
-        else:
-
-            speed_text = "—"
-            fuel = "—"
-            distance = "—"
-            time_value = "Brak danych"
-
-        cards += f"""
-
-        <a
-            class="vehicle-link"
-            href="/vehicle/{vehicle_id}"
-        >
-
-            <div class="card">
-
-                <h2>
-                    🚚 {vehicle_name}
-                </h2>
-
-                <p>
-                    <b>Prędkość:</b>
-                    {speed_text}
-                </p>
-
-                <p>
-                    <b>Paliwo:</b>
-                    {fuel}
-                </p>
-
-                <p>
-                    <b>Przebieg:</b>
-                    {distance}
-                </p>
-
-                <p>
-                    <b>Ostatni sygnał:</b>
-                    {time_value}
-                </p>
-
+        <div class="container">
+            <div class="menu">
+                <a href="/vehicles">🚚 Самочини</a>
+                <a href="/gps">📍 GPS</a>
+                <a href="/fuel">⛽ Паливо</a>
+                <a href="/tachograph-test">⏱ Тахограф — тест</a>
+                <a href="/tachograph-options">🔧 Tachograph OPTIONS</a>
+                <a href="/health">❤️ Health</a>
+                <a href="/logout">🚪 Вийти</a>
             </div>
-
-        </a>
-
-        """
-
-    return page(
-        "Dashboard",
-        f"""
-
-        <h1>
-            🏠 Dashboard
-        </h1>
-
-        <div class="cards">
-
-            {cards}
-
         </div>
-
-        """
-    )
+    </body>
+    </html>
+    """
 
 
 @app.route("/vehicles")
 def vehicles():
-
     if not logged_in():
-        return redirect(
-            url_for("login")
-        )
+        return redirect(url_for("login"))
 
-    states = get_states()
+    try:
+        states = get_states()
+    except Exception as e:
+        return f"<h2>Помилка Navirec</h2><pre>{e}</pre>"
 
-    cards = ""
-
-    for vehicle_id, vehicle_name in VEHICLES.items():
-
-        state = vehicle_status(
-            vehicle_id,
-            states
-        )
-
-        if state:
-
-            speed = state.get(
-                "speed"
-            )
-
-            if speed is not None:
-                speed_text = f"{speed} km/h"
-            else:
-                speed_text = "—"
-
-            fuel = format_fuel(
-                state.get("fuel_level")
-            )
-
-            distance = format_distance(
-                state.get("total_distance")
-            )
-
-        else:
-
-            speed_text = "—"
-            fuel = "—"
-            distance = "—"
-
-        cards += f"""
-
-        <a
-            class="vehicle-link"
-            href="/vehicle/{vehicle_id}"
-        >
-
-            <div class="card">
-
-                <h2>
-                    🚚 {vehicle_name}
-                </h2>
-
-                <p>
-                    Prędkość: {speed_text}
-                </p>
-
-                <p>
-                    Paliwo: {fuel}
-                </p>
-
-                <p>
-                    Przebieg: {distance}
-                </p>
-
-            </div>
-
-        </a>
-
-        """
-
-    return page(
-        "Samochody",
-        f"""
-
-        <h1>
-            🚚 Samochody
-        </h1>
-
-        <div class="cards">
-
-            {cards}
-
-        </div>
-
-        """
-    )
+    return f"""
+    <html lang="uk">
+    <head>
+        <meta charset="utf-8">
+        <title>O&O TRANS — Самочини</title>
+    </head>
+    <body style="font-family:Arial;padding:30px">
+        <h1>🚚 Самочини</h1>
+        <p>Account: {ACCOUNT_ID}</p>
+        <pre>{json.dumps(states, indent=2, ensure_ascii=False)}</pre>
+        <a href="/">← Назад</a>
+    </body>
+    </html>
+    """
 
 
 @app.route("/vehicle/<vehicle_id>")
 def vehicle(vehicle_id):
-
     if not logged_in():
-        return redirect(
-            url_for("login")
-        )
+        return redirect(url_for("login"))
 
-    vehicle_name = VEHICLES.get(
-        vehicle_id,
-        "Nieznany samochód"
-    )
+    name = VEHICLES.get(vehicle_id, vehicle_id)
 
-    states = get_states()
-
-    state = vehicle_status(
-        vehicle_id,
-        states
-    )
-
-    latitude = None
-    longitude = None
-
-    speed = "—"
-    fuel = "—"
-    distance = "—"
-    signal_time = "—"
-
-    if state:
-
-        location = state.get(
-            "location"
-        )
-
-        if isinstance(
-            location,
-            dict
-        ):
-
-            coordinates = location.get(
-                "coordinates"
-            )
-
-            if (
-                isinstance(
-                    coordinates,
-                    list
-                )
-                and len(coordinates) >= 2
-            ):
-
-                longitude = coordinates[0]
-                latitude = coordinates[1]
-
-        if state.get("speed") is not None:
-
-            speed = (
-                f"{state.get('speed')} km/h"
-            )
-
-        fuel = format_fuel(
-            state.get("fuel_level")
-        )
-
-        distance = format_distance(
-            state.get("total_distance")
-        )
-
-        signal_time = state.get(
-            "time",
-            "—"
-        )
-
-    if (
-        latitude is not None
-        and longitude is not None
-    ):
-
-        map_html = f"""
-
-        <div
-            id="map"
-            class="map"
-        ></div>
-
-        <link
-            rel="stylesheet"
-            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        >
-
-        <script
-            src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        ></script>
-
-        <script>
-
-        const map = L.map('map')
-            .setView(
-                [{latitude}, {longitude}],
-                8
-            );
-
-        L.tileLayer(
-            'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-            {{
-                maxZoom: 19,
-                attribution:
-                    '&copy; OpenStreetMap'
-            }}
-        ).addTo(map);
-
-        L.marker(
-            [{latitude}, {longitude}]
-        )
-        .addTo(map)
-        .bindPopup(
-            "{vehicle_name}"
-        )
-        .openPopup();
-
-        </script>
-
-        """
-
-    else:
-
-        map_html = """
-
-        <div class="info">
-
-            Brak aktualnej lokalizacji GPS.
-
-        </div>
-
-        """
-
-    return page(
-        vehicle_name,
-        f"""
-
-        <h1>
-            🚚 {vehicle_name}
-        </h1>
-
-        <div class="cards">
-
-            <div class="card">
-
-                <h2>
-                    Prędkość
-                </h2>
-
-                <p>
-                    {speed}
-                </p>
-
-            </div>
-
-            <div class="card">
-
-                <h2>
-                    Paliwo
-                </h2>
-
-                <p>
-                    {fuel}
-                </p>
-
-            </div>
-
-            <div class="card">
-
-                <h2>
-                    Przebieg
-                </h2>
-
-                <p>
-                    {distance}
-                </p>
-
-            </div>
-
-            <div class="card">
-
-                <h2>
-                    Ostatni sygnał
-                </h2>
-
-                <p>
-                    {signal_time}
-                </p>
-
-            </div>
-
-        </div>
-
-        {map_html}
-
-        <script>
-
-        setTimeout(
-            function() {{
-                location.reload();
-            }},
-            30000
-        );
-
-        </script>
-
-        """
-    )
+    return f"""
+    <html lang="uk">
+    <head>
+        <meta charset="utf-8">
+        <title>{name}</title>
+    </head>
+    <body style="font-family:Arial;padding:30px">
+        <h1>🚚 {name}</h1>
+        <p>Vehicle ID: {vehicle_id}</p>
+        <p>Тут буде детальна інформація по автомобілю.</p>
+        <a href="/vehicles">← Назад</a>
+    </body>
+    </html>
+    """
 
 
 @app.route("/fuel")
 def fuel():
-
     if not logged_in():
-        return redirect(
-            url_for("login")
-        )
+        return redirect(url_for("login"))
 
-    states = get_states()
-
-    rows = ""
-
-    for vehicle_id, vehicle_name in VEHICLES.items():
-
-        state = vehicle_status(
-            vehicle_id,
-            states
-        )
-
-        if state:
-
-            fuel_level = format_fuel(
-                state.get("fuel_level")
-            )
-
-            distance = format_distance(
-                state.get("total_distance")
-            )
-
-            signal_time = state.get(
-                "time",
-                "—"
-            )
-
-        else:
-
-            fuel_level = "—"
-            distance = "—"
-            signal_time = "—"
-
-        rows += f"""
-
-        <div class="card">
-
-            <h2>
-                🚚 {vehicle_name}
-            </h2>
-
-            <p>
-                <b>Paliwo:</b>
-                {fuel_level}
-            </p>
-
-            <p>
-                <b>Przebieg:</b>
-                {distance}
-            </p>
-
-            <p>
-                <b>Ostatni sygnał:</b>
-                {signal_time}
-            </p>
-
-        </div>
-
-        """
-
-    return page(
-        "Paliwo",
-        f"""
-
-        <h1>
-            ⛽ Paliwo
-        </h1>
-
-        <div class="cards">
-
-            {rows}
-
-        </div>
-
-        """
-    )
+    return """
+    <html lang="uk">
+    <head>
+        <meta charset="utf-8">
+        <title>O&O TRANS — Паливо</title>
+    </head>
+    <body style="font-family:Arial;padding:30px">
+        <h1>⛽ Паливо</h1>
+        <p>Модуль палива готується.</p>
+        <a href="/">← Назад</a>
+    </body>
+    </html>
+    """
 
 
 @app.route("/gps")
 def gps():
-
     if not logged_in():
-        return redirect(
-            url_for("login")
-        )
+        return redirect(url_for("login"))
 
-    states = get_states()
-
-    markers = ""
-
-    for vehicle_id, vehicle_name in VEHICLES.items():
-
-        state = vehicle_status(
-            vehicle_id,
-            states
-        )
-
-        if not state:
-            continue
-
-        location = state.get(
-            "location"
-        )
-
-        if not isinstance(
-            location,
-            dict
-        ):
-            continue
-
-        coordinates = location.get(
-            "coordinates"
-        )
-
-        if (
-            not isinstance(
-                coordinates,
-                list
-            )
-            or len(coordinates) < 2
-        ):
-            continue
-
-        longitude = coordinates[0]
-        latitude = coordinates[1]
-
-        markers += f"""
-
-        L.marker(
-            [{latitude}, {longitude}]
-        )
-        .addTo(map)
-        .bindPopup(
-            "{vehicle_name}"
-        );
-
-        """
-
-    return page(
-        "GPS",
-        f"""
-
-        <h1>
-            🗺️ GPS — wszystkie samochody
-        </h1>
-
-        <div
-            id="map"
-            class="map"
-        ></div>
-
-        <link
-            rel="stylesheet"
-            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        >
-
-        <script
-            src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"
-        ></script>
-
-        <script>
-
-        const map = L.map('map')
-            .setView(
-                [51.1, 17.0],
-                6
-            );
-
-        L.tileLayer(
-            'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-            {{
-                maxZoom: 19,
-                attribution:
-                    '&copy; OpenStreetMap'
-            }}
-        ).addTo(map);
-
-        {markers}
-
-        </script>
-
-        """
-    )
+    return """
+    <html lang="uk">
+    <head>
+        <meta charset="utf-8">
+        <title>O&O TRANS — GPS</title>
+    </head>
+    <body style="font-family:Arial;padding:30px">
+        <h1>📍 GPS</h1>
+        <p>Модуль GPS готується.</p>
+        <a href="/">← Назад</a>
+    </body>
+    </html>
+    """
 
 
 @app.route("/tachograph-test")
 def tachograph_test():
-
     if not logged_in():
-        return redirect(
-            url_for("login")
-        )
+        return redirect(url_for("login"))
 
-    if not NAVIREC_TOKEN:
-
-        return page(
-            "Tachograph Test",
-            """
-            <h1>
-                ⏱️ Test tachografu
-            </h1>
-
-            <div class="info">
-
-                Brak NAVIREC_TOKEN
-                w ustawieniach Render.
-
-            </div>
-            """
-        )
+    stream_headers = {
+        "Authorization": f"Token {NAVIREC_TOKEN}",
+        "Accept": "application/x-ndjson; version=1.52.1",
+    }
 
     try:
-
-        # TEST:
-        # Navirec wymaga wersji API
-        # również dla application/x-ndjson.
-
-        stream_headers = {
-            "Authorization":
-                f"Token {NAVIREC_TOKEN}",
-
-            "Accept":
-                "application/x-ndjson; version=1.52.1",
-        }
-
         response = requests.get(
             f"{NAVIREC_API}/streams/driver_states/",
             headers=stream_headers,
+            params={"account": ACCOUNT_ID},
             stream=True,
             timeout=(10, 20),
         )
 
-        content_type = response.headers.get(
-            "Content-Type",
-            ""
-        )
-
         lines = []
 
-        if response.status_code == 200:
+        for line in response.iter_lines(decode_unicode=True):
+            if line:
+                lines.append(line)
 
-            for line in response.iter_lines(
-                decode_unicode=True
-            ):
-
-                if line:
-                    lines.append(line)
-
-                if len(lines) >= 10:
-                    break
-
-        else:
-
-            error_text = response.text
-
-            if error_text:
-                lines.append(error_text)
-
-        response.close()
+            if len(lines) >= 10:
+                break
 
         parsed = []
 
         for line in lines:
-
             try:
-
-                parsed.append(
-                    json.loads(line)
-                )
-
+                parsed.append(json.loads(line))
             except Exception:
-
                 parsed.append(line)
 
-        if parsed:
+        return f"""
+        <!doctype html>
+        <html lang="uk">
+        <head>
+            <meta charset="utf-8">
+            <title>O&O TRANS — Tachograph Test</title>
+            <style>
+                body {{
+                    font-family:Arial;
+                    background:#f3f4f6;
+                    padding:30px;
+                }}
+                .box {{
+                    background:white;
+                    padding:20px;
+                    border-radius:12px;
+                    margin-bottom:20px;
+                }}
+                pre {{
+                    white-space:pre-wrap;
+                    word-break:break-word;
+                    background:#111827;
+                    color:#e5e7eb;
+                    padding:20px;
+                    border-radius:10px;
+                }}
+                .ok {{
+                    color:green;
+                    font-weight:bold;
+                }}
+            </style>
+        </head>
+        <body>
 
-            formatted = json.dumps(
-                parsed,
-                indent=2,
-                ensure_ascii=False
-            )
+            <h1>⏱ Tachograph Stream Test</h1>
 
-        else:
-
-            formatted = "Brak danych."
-
-        content = f"""
-
-        <h1>
-            ⏱️ Test tachografu
-        </h1>
-
-        <div class="info">
-
-            <h2>
-                Odpowiedź Navirec
-            </h2>
-
-            <p>
-                HTTP status:
-                <b>{response.status_code}</b>
-            </p>
-
-            <p>
-                Content-Type:
-                <b>{content_type}</b>
-            </p>
-
-            <p>
-                Accept:
-                <b>
-                    application/x-ndjson;
-                    version=1.52.1
-                </b>
-            </p>
-
-            <p>
-                Parametr account:
-                <b>nie został wysłany</b>
-            </p>
-
-        </div>
-
-        <div class="info">
-
-            <h2>
-                driver_states
-            </h2>
-
-            <pre class="test-json">
-{formatted}
-            </pre>
-
-        </div>
-
-        """
-
-        return page(
-            "Tachograph Test",
-            content
-        )
-
-    except Exception as error:
-
-        return page(
-            "Tachograph Test",
-            f"""
-
-            <h1>
-                ⏱️ Test tachografu
-            </h1>
-
-            <div class="info">
-
-                <h2>
-                    Błąd
-                </h2>
-
-                <pre class="test-json">
-{str(error)}
-                </pre>
-
+            <div class="box">
+                <p><b>HTTP status:</b> {response.status_code}</p>
+                <p><b>Content-Type:</b> {response.headers.get("Content-Type")}</p>
+                <p><b>Accept:</b> application/x-ndjson; version=1.52.1</p>
+                <p><b>Account:</b> {ACCOUNT_ID}</p>
             </div>
 
-            """
-        )
+            <div class="box">
+                <h2>Відповідь Navirec</h2>
+                <pre>{json.dumps(parsed, indent=2, ensure_ascii=False)}</pre>
+            </div>
+
+            <p><a href="/">← Назад</a></p>
+
+        </body>
+        </html>
+        """
+
+    except Exception as e:
+        return f"""
+        <html lang="uk">
+        <head>
+            <meta charset="utf-8">
+            <title>Tachograph Error</title>
+        </head>
+        <body style="font-family:Arial;padding:30px">
+            <h1>❌ Помилка</h1>
+            <pre>{e}</pre>
+            <a href="/">← Назад</a>
+        </body>
+        </html>
+        """
 
 
 @app.route("/tachograph-options")
 def tachograph_options():
-
     if not logged_in():
-        return redirect(
-            url_for("login")
-        )
-
-    if not NAVIREC_TOKEN:
-
-        return page(
-            "Tachograph OPTIONS",
-            """
-            <h1>
-                🔎 OPTIONS — driver_states
-            </h1>
-
-            <div class="info">
-
-                Brak NAVIREC_TOKEN
-                w ustawieniach Render.
-
-            </div>
-            """
-        )
+        return redirect(url_for("login"))
 
     try:
-
         response = requests.options(
             f"{NAVIREC_API}/streams/driver_states/",
             headers={
-                "Authorization":
-                    f"Token {NAVIREC_TOKEN}",
-
-                "Accept":
-                    "application/x-ndjson; version=1.52.1",
+                "Authorization": f"Token {NAVIREC_TOKEN}",
+                "Accept": "application/x-ndjson; version=1.52.1",
             },
             timeout=20,
         )
 
-        response_headers = {}
+        return f"""
+        <html lang="uk">
+        <head>
+            <meta charset="utf-8">
+            <title>Navirec OPTIONS</title>
+        </head>
+        <body style="font-family:Arial;padding:30px">
 
-        for key, value in response.headers.items():
+            <h1>🔧 Navirec OPTIONS</h1>
 
-            response_headers[key] = value
+            <p><b>Status:</b> {response.status_code}</p>
+            <p><b>Content-Type:</b> {response.headers.get("Content-Type")}</p>
+            <p><b>Allow:</b> {response.headers.get("Allow")}</p>
 
-        try:
+            <h2>Headers</h2>
+            <pre>{json.dumps(dict(response.headers), indent=2, ensure_ascii=False)}</pre>
 
-            body_json = response.json()
+            <h2>Body</h2>
+            <pre>{response.text}</pre>
 
-            body = json.dumps(
-                body_json,
-                indent=2,
-                ensure_ascii=False
-            )
+            <a href="/">← Назад</a>
 
-        except Exception:
-
-            body = response.text
-
-        headers_text = json.dumps(
-            response_headers,
-            indent=2,
-            ensure_ascii=False
-        )
-
-        content = f"""
-
-        <h1>
-            🔎 OPTIONS — driver_states
-        </h1>
-
-        <div class="info">
-
-            <h2>
-                Status
-            </h2>
-
-            <p>
-                HTTP status:
-                <b>{response.status_code}</b>
-            </p>
-
-        </div>
-
-        <div class="info">
-
-            <h2>
-                Response Headers
-            </h2>
-
-            <pre class="test-json">
-{headers_text}
-            </pre>
-
-        </div>
-
-        <div class="info">
-
-            <h2>
-                Response Body
-            </h2>
-
-            <pre class="test-json">
-{body}
-            </pre>
-
-        </div>
-
+        </body>
+        </html>
         """
 
-        return page(
-            "Tachograph OPTIONS",
-            content
-        )
-
-    except Exception as error:
-
-        return page(
-            "Tachograph OPTIONS",
-            f"""
-
-            <h1>
-                🔎 OPTIONS — driver_states
-            </h1>
-
-            <div class="info">
-
-                <h2>
-                    Błąd
-                </h2>
-
-                <pre class="test-json">
-{str(error)}
-                </pre>
-
-            </div>
-
-            """
-        )
+    except Exception as e:
+        return f"<h2>Помилка</h2><pre>{e}</pre>"
 
 
 @app.route("/health")
 def health():
-
-    return "O&O TRANS bot працює!"
+    return {
+        "status": "ok",
+        "service": "O&O TRANS bot"
+    }
 
 
 if __name__ == "__main__":
-
     app.run(
         host="0.0.0.0",
-        port=10000
+        port=int(os.getenv("PORT", "10000"))
     )
