@@ -449,8 +449,7 @@ def page(title, content, gps_page=False):
 
 <meta charset="UTF-8">
 
-<meta name="viewport"
-      content="width=device-width, initial-scale=1.0">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
 <title>O&O TRANS - {title}</title>
 
@@ -1467,7 +1466,7 @@ def tachograph_test():
     try:
 
         response = requests.get(
-            f"{NAVIREC_API}/driver_states/",
+            f"{NAVIREC_API}/streams/driver_states/",
             headers=get_headers(),
             params={"account": ACCOUNT_ID},
             timeout=20,
