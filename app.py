@@ -356,6 +356,12 @@ a.vehicle-link:hover {
     font-size: 14px;
 }
 
+.refresh-info {
+    margin-top: 12px;
+    color: #6b7280;
+    font-size: 14px;
+}
+
 @media(max-width: 800px) {
 
     .cards,
@@ -1047,6 +1053,10 @@ def vehicle(vehicle_id):
 
 {map_html}
 
+<div class="refresh-info">
+    🔄 Dane aktualizują się automatycznie co 30 sekund.
+</div>
+
 <div class="vehicle-info-grid">
 
     <div class="vehicle-stat">
@@ -1122,6 +1132,14 @@ def vehicle(vehicle_id):
     </div>
 
 </div>
+
+<script>
+
+setTimeout(function() {{
+    window.location.reload();
+}}, 30000);
+
+</script>
 
 """
 
@@ -1425,14 +1443,11 @@ def health():
 if __name__ == "__main__":
 
     app.run(
-
         host="0.0.0.0",
-
         port=int(
             os.environ.get(
                 "PORT",
                 10000
             )
         )
-
     )
