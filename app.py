@@ -25,9 +25,12 @@ VEHICLES = {
 @app.route("/")
 def home():
     return """
-    <h1>O&O TRANS</h1>
-    <h2>Navirec GPS</h2>
-    <p><a href="/gps">Відкрити GPS автомобілів</a></p>
+    <h1>🚚 O&O TRANS</h1>
+    <h2>Контроль автомобілів</h2>
+
+    <p>
+        <a href="/gps">📍 Відкрити карту автомобілів</a>
+    </p>
     """
 
 
@@ -47,14 +50,16 @@ def gps():
         if response.status_code != 200:
             return f"""
             <h2>Помилка Navirec</h2>
-            <pre>Статус: {response.status_code}
+            <pre>
+Статус: {response.status_code}
 
-{response.text}</pre>
+{response.text}
+            </pre>
             """
 
         data = response.json()
 
-        rows = ""
+        markers = []
 
         for vehicle in data:
 
@@ -68,99 +73,187 @@ def gps():
             heading = vehicle.get("heading", "—")
             location = vehicle.get("location")
 
-            latitude = ""
-            longitude = ""
+            if not location:
+                continue
 
-            if location and "coordinates" in location:
-                longitude = location["coordinates"][0]
-                latitude = location["coordinates"][1]
+            coordinates = location.get("coordinates")
 
-            maps = ""
+            if not coordinates:
+                continue
 
-            if latitude and longitude:
-                maps = f'''
-                <a href="https://www.google.com/maps?q={latitude},{longitude}"
-                   target="_blank">
-                   Відкрити карту
-                </a>
-                '''
+            longitude = coordinates[0]
+            latitude = coordinates[1]
 
-            rows += f"""
-            <tr>
-                <td><b>{name}</b></td>
-                <td>{time}</td>
-                <td>{speed} км/год</td>
-                <td>{heading}°</td>
-                <td>{latitude}, {longitude}</td>
-                <td>{maps}</td>
-            </tr>
-            """
+            markers.append({
+                "name": name,
+                "lat": latitude,
+                "lon": longitude,
+                "time": time,
+                "speed": speed,
+                "heading": heading
+            })
 
         return f"""
-        <!DOCTYPE html>
-        <html>
-        <head>
-            <meta charset="UTF-8">
-            <title>O&O TRANS GPS</title>
+<!DOCTYPE html>
+<html>
+<head>
 
-            <style>
-                body {{
-                    font-family: Arial, sans-serif;
-                    margin: 30px;
-                    background: #f5f5f5;
-                }}
+<meta charset="UTF-8">
 
-                h1 {{
-                    color: #222;
-                }}
+<title>O&O TRANS GPS</title>
 
-                table {{
-                    width: 100%;
-                    border-collapse: collapse;
-                    background: white;
-                }}
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
 
-                th, td {{
-                    padding: 14px;
-                    border: 1px solid #ddd;
-                    text-align: left;
-                }}
+<link
+rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
 
-                th {{
-                    background: #222;
-                    color: white;
-                }}
+<script
+src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
 
-                a {{
-                    color: #0066cc;
-                    font-weight: bold;
-                }}
-            </style>
-        </head>
+<style>
 
-        <body>
+body {{
+    margin: 0;
+    font-family: Arial, sans-serif;
+}}
 
-        <h1>🚚 O&O TRANS — GPS</h1>
+#header {{
+    height: 60px;
+    background: #222;
+    color: white;
+    display: flex;
+    align-items: center;
+    padding-left: 20px;
+    font-size: 22px;
+    font-weight: bold;
+}}
 
-        <table>
-            <tr>
-                <th>Автомобіль</th>
-                <th>Останній сигнал</th>
-                <th>Швидкість</th>
-                <th>Напрямок</th>
-                <th>Координати</th>
-                <th>Карта</th>
-            </tr>
+#map {{
+    width: 100%;
+    height: calc(100vh - 60px);
+}}
 
-            {rows}
+.info {{
+    font-size: 14px;
+    line-height: 1.5;
+}}
 
-        </table>
+.vehicle {{
+    font-size: 16px;
+    font-weight: bold;
+}}
 
-        </body>
-        </html>
-        """
+</style>
+
+</head>
+
+<body>
+
+<div id="header">
+🚚 O&O TRANS — GPS
+</div>
+
+<div id="map"></div>
+
+<script>
+
+const vehicles = {markers};
+
+let map;
+
+if (vehicles.length > 0) {{
+
+    let first = vehicles[0];
+
+    map = L.map('map').setView(
+        [first.lat, first.lon],
+        6
+    );
+
+}} else {{
+
+    map = L.map('map').setView(
+        [51.9, 19.1],
+        6
+    );
+
+}}
+
+L.tileLayer(
+    'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+    {{
+        maxZoom: 19,
+        attribution: '&copy; OpenStreetMap'
+    }}
+).addTo(map);
+
+
+const bounds = [];
+
+
+vehicles.forEach(function(vehicle) {{
+
+    const marker = L.marker(
+        [vehicle.lat, vehicle.lon]
+    ).addTo(map);
+
+    const popup = `
+        <div class="info">
+
+            <div class="vehicle">
+                🚚 ${{vehicle.name}}
+            </div>
+
+            <hr>
+
+            <b>Швидкість:</b>
+            ${{vehicle.speed}} км/год
+            <br>
+
+            <b>Напрямок:</b>
+            ${{vehicle.heading}}°
+            <br>
+
+            <b>Останній сигнал:</b>
+            ${{vehicle.time}}
+            <br>
+
+            <b>GPS:</b>
+            ${{vehicle.lat}},
+            ${{vehicle.lon}}
+
+        </div>
+    `;
+
+    marker.bindPopup(popup);
+
+    bounds.push(
+        [vehicle.lat, vehicle.lon]
+    );
+
+}});
+
+
+if (bounds.length > 1) {{
+
+    map.fitBounds(bounds, {{
+        padding: [50, 50]
+    }});
+
+}}
+
+
+</script>
+
+</body>
+</html>
+"""
 
     except Exception as e:
+
         return f"""
         <h2>Помилка</h2>
         <pre>{repr(e)}</pre>
