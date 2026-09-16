@@ -15,12 +15,18 @@ HEADERS = {
     "User-Agent": "O-O-TRANS/1.0"
 }
 
+VEHICLES = {
+    "aaaa9acd-5bb5-467e-8241-81444292bbfe": "Renault Master SH 9203G",
+    "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb": "Renault Master DX 9034F",
+    "f016af91-dee6-4e72-9f86-4b2e27a253c1": "Renault Master DX 5405A"
+}
+
 
 @app.route("/")
 def home():
     return """
     <h1>O&O TRANS</h1>
-    <p>Navirec GPS</p>
+    <h2>Navirec GPS</h2>
     <p><a href="/gps">Відкрити GPS автомобілів</a></p>
     """
 
@@ -29,58 +35,136 @@ def home():
 def gps():
 
     url = f"{API}/last_vehicle_states/"
-    params = {
-        "account": ACCOUNT_ID
-    }
 
     try:
         response = requests.get(
             url,
             headers=HEADERS,
-            params=params,
+            params={"account": ACCOUNT_ID},
             timeout=30
         )
 
         if response.status_code != 200:
             return f"""
-            <pre>
-СТАТУС: {response.status_code}
+            <h2>Помилка Navirec</h2>
+            <pre>Статус: {response.status_code}
 
-ВІДПОВІДЬ NAVIREC:
-{response.text}
-            </pre>
+{response.text}</pre>
             """
 
         data = response.json()
 
-        output = [
-            "=== O&O TRANS — GPS ===",
-            ""
-        ]
+        rows = ""
 
         for vehicle in data:
 
             vehicle_url = vehicle.get("vehicle", "")
-            time = vehicle.get("time")
-            speed = vehicle.get("speed")
-            heading = vehicle.get("heading")
+            vehicle_id = vehicle_url.rstrip("/").split("/")[-1]
+
+            name = VEHICLES.get(vehicle_id, vehicle_id)
+
+            time = vehicle.get("time", "—")
+            speed = vehicle.get("speed", "—")
+            heading = vehicle.get("heading", "—")
             location = vehicle.get("location")
 
-            output.append("────────────────────────")
-            output.append(f"VEHICLE: {vehicle_url}")
-            output.append(f"ЧАС: {time}")
-            output.append(f"ШВИДКІСТЬ: {speed} km/h")
-            output.append(f"НАПРЯМОК: {heading}")
-            output.append(f"GPS: {location}")
-            output.append("")
+            latitude = ""
+            longitude = ""
 
-        output.append("────────────────────────")
-        output.append(f"КІЛЬКІСТЬ АВТО: {len(data)}")
+            if location and "coordinates" in location:
+                longitude = location["coordinates"][0]
+                latitude = location["coordinates"][1]
 
-        return "<pre>" + "\n".join(output) + "</pre>"
+            maps = ""
+
+            if latitude and longitude:
+                maps = f'''
+                <a href="https://www.google.com/maps?q={latitude},{longitude}"
+                   target="_blank">
+                   Відкрити карту
+                </a>
+                '''
+
+            rows += f"""
+            <tr>
+                <td><b>{name}</b></td>
+                <td>{time}</td>
+                <td>{speed} км/год</td>
+                <td>{heading}°</td>
+                <td>{latitude}, {longitude}</td>
+                <td>{maps}</td>
+            </tr>
+            """
+
+        return f"""
+        <!DOCTYPE html>
+        <html>
+        <head>
+            <meta charset="UTF-8">
+            <title>O&O TRANS GPS</title>
+
+            <style>
+                body {{
+                    font-family: Arial, sans-serif;
+                    margin: 30px;
+                    background: #f5f5f5;
+                }}
+
+                h1 {{
+                    color: #222;
+                }}
+
+                table {{
+                    width: 100%;
+                    border-collapse: collapse;
+                    background: white;
+                }}
+
+                th, td {{
+                    padding: 14px;
+                    border: 1px solid #ddd;
+                    text-align: left;
+                }}
+
+                th {{
+                    background: #222;
+                    color: white;
+                }}
+
+                a {{
+                    color: #0066cc;
+                    font-weight: bold;
+                }}
+            </style>
+        </head>
+
+        <body>
+
+        <h1>🚚 O&O TRANS — GPS</h1>
+
+        <table>
+            <tr>
+                <th>Автомобіль</th>
+                <th>Останній сигнал</th>
+                <th>Швидкість</th>
+                <th>Напрямок</th>
+                <th>Координати</th>
+                <th>Карта</th>
+            </tr>
+
+            {rows}
+
+        </table>
+
+        </body>
+        </html>
+        """
 
     except Exception as e:
-        return "<pre>ПОМИЛКА:\n" + repr(e) + "</pre>"
+        return f"""
+        <h2>Помилка</h2>
+        <pre>{repr(e)}</pre>
+        """
 
 
 if __name__ == "__main__":
