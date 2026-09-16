@@ -328,25 +328,27 @@ def tachograph_test():
             headers=stream_headers,
             params={"account": ACCOUNT_ID},
             stream=True,
-            timeout=(10, 20),
+            timeout=(10, 5),
         )
 
-        lines = []
+        first_line = None
 
         for line in response.iter_lines(decode_unicode=True):
             if line:
-                lines.append(line)
-
-            if len(lines) >= 10:
+                first_line = line
                 break
 
-        parsed = []
-
-        for line in lines:
+        if first_line is None:
+            result = "Navirec не повернув жодного рядка за 5 секунд."
+        else:
             try:
-                parsed.append(json.loads(line))
+                result = json.dumps(
+                    json.loads(first_line),
+                    indent=2,
+                    ensure_ascii=False
+                )
             except Exception:
-                parsed.append(line)
+                result = first_line
 
         return f"""
         <!doctype html>
@@ -374,10 +376,6 @@ def tachograph_test():
                     padding:20px;
                     border-radius:10px;
                 }}
-                .ok {{
-                    color:green;
-                    font-weight:bold;
-                }}
             </style>
         </head>
         <body>
@@ -392,8 +390,8 @@ def tachograph_test():
             </div>
 
             <div class="box">
-                <h2>Відповідь Navirec</h2>
-                <pre>{json.dumps(parsed, indent=2, ensure_ascii=False)}</pre>
+                <h2>Перший рядок відповіді Navirec</h2>
+                <pre>{result}</pre>
             </div>
 
             <p><a href="/">← Назад</a></p>
