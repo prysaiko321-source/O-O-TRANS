@@ -133,8 +133,10 @@ BASE_STYLE = """
     box-sizing: border-box;
 }
 
+html,
 body {
     margin: 0;
+    padding: 0;
     font-family: Arial, sans-serif;
     background: #f3f5f7;
     color: #1f2937;
@@ -186,6 +188,13 @@ body {
     max-width: 1200px;
     margin: 25px auto;
     padding: 0 20px;
+}
+
+.container.gps-container {
+    max-width: none;
+    width: 100%;
+    margin: 0;
+    padding: 0;
 }
 
 .cards {
@@ -290,17 +299,21 @@ a.vehicle-link:hover {
     color: #2563eb;
 }
 
-.map-full {
-    width: 100%;
+.gps-title {
+    margin: 0;
+    padding: 12px 20px;
+    background: #f3f5f7;
+    font-size: 24px;
 }
 
 #map {
     width: 100%;
-    height: calc(100vh - 190px);
-    min-height: 650px;
-    border-radius: 15px;
+    height: calc(100vh - 150px);
+    min-height: 700px;
+    margin: 0;
+    padding: 0;
+    border-radius: 0;
     overflow: hidden;
-    box-shadow: 0 2px 10px rgba(0,0,0,.12);
 }
 
 .truck-marker {
@@ -331,9 +344,13 @@ a.vehicle-link:hover {
         padding: 0 10px;
     }
 
+    .container.gps-container {
+        padding: 0;
+    }
+
     #map {
+        height: calc(100vh - 210px);
         min-height: 500px;
-        height: calc(100vh - 230px);
     }
 }
 
@@ -364,7 +381,9 @@ NAV = """
 """
 
 
-def page(title, content):
+def page(title, content, gps_page=False):
+
+    container_class = "container gps-container" if gps_page else "container"
 
     return f"""
 <!DOCTYPE html>
@@ -401,7 +420,7 @@ def page(title, content):
 
 {NAV}
 
-<div class="container">
+<div class="{container_class}">
 
 {content}
 
@@ -603,7 +622,6 @@ def dashboard():
 
     </div>
 
-
     <div class="card">
 
         <div class="card-title">
@@ -616,7 +634,6 @@ def dashboard():
 
     </div>
 
-
     <div class="card">
 
         <div class="card-title">
@@ -628,7 +645,6 @@ def dashboard():
         </div>
 
     </div>
-
 
     <div class="card">
 
@@ -643,7 +659,6 @@ def dashboard():
     </div>
 
 </div>
-
 
 <div class="section">
 
@@ -837,13 +852,11 @@ def vehicle(vehicle_id):
 {vehicle_status(state)}
 </h2>
 
-
 <p>Prędkość</p>
 
 <h2>
 {speed:.1f} km/h
 </h2>
-
 
 <p>Poziom paliwa</p>
 
@@ -851,20 +864,17 @@ def vehicle(vehicle_id):
 {format_fuel(state.get("fuel_level"))}
 </h2>
 
-
 <p>Przebieg</p>
 
 <h2>
 {format_distance(state.get("total_distance"))}
 </h2>
 
-
 <p>Ostatni sygnał</p>
 
 <h2>
 {state.get("time") or "—"}
 </h2>
-
 
 <p>GPS</p>
 
@@ -911,7 +921,6 @@ def fuel():
 
         except Exception:
 
-            fuel_value = None
             width = 0
 
         cards += f"""
@@ -956,7 +965,6 @@ def fuel():
 
 </div>
 
-
 <div class="info">
 
 <h2>Historia tankowania</h2>
@@ -972,33 +980,13 @@ Tutaj będziemy docelowo widzieć:
 
 <ul>
 
-<li>
-ilość zatankowanych litrów;
-</li>
-
-<li>
-datę i godzinę tankowania;
-</li>
-
-<li>
-miejsce tankowania;
-</li>
-
-<li>
-poziom paliwa przed i po tankowaniu;
-</li>
-
-<li>
-zużycie paliwa;
-</li>
-
-<li>
-koszt tankowania;
-</li>
-
-<li>
-historię dla każdego samochodu.
-</li>
+<li>ilość zatankowanych litrów;</li>
+<li>datę i godzinę tankowania;</li>
+<li>miejsce tankowania;</li>
+<li>poziom paliwa przed i po tankowaniu;</li>
+<li>zużycie paliwa;</li>
+<li>koszt tankowania;</li>
+<li>historię dla każdego samochodu.</li>
 
 </ul>
 
@@ -1039,32 +1027,19 @@ def gps():
             continue
 
         lon = coordinates[0]
-
         lat = coordinates[1]
 
         status = vehicle_status(state)
 
         if status.startswith("🟢"):
-
             color = "#16a34a"
-
         elif status.startswith("🟡"):
-
             color = "#eab308"
-
         else:
-
             color = "#dc2626"
 
-        safe_name = name.replace(
-            "'",
-            "\\'"
-        )
-
-        safe_status = status.replace(
-            "'",
-            "\\'"
-        )
+        safe_name = name.replace("'", "\\'")
+        safe_status = status.replace("'", "\\'")
 
         markers += f"""
 
@@ -1094,28 +1069,22 @@ def gps():
 
         """
 
-
     content = f"""
 
-<h1>🗺️ Navirec</h1>
-
-<div class="map-full">
-
-<div id="map"></div>
-
+<div class="gps-title">
+    🗺️ Navirec
 </div>
 
+<div id="map"></div>
 
 <link
 rel="stylesheet"
 href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
 />
 
-
 <script
 src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
 </script>
-
 
 <script>
 
@@ -1125,9 +1094,7 @@ var map = L.map('map').setView(
 );
 
 
-/*
-    STANDARDOWA MAPA
-*/
+/* STANDARD */
 
 var standard = L.tileLayer(
 
@@ -1145,9 +1112,7 @@ var standard = L.tileLayer(
 );
 
 
-/*
-    MAPA SATELITARNA
-*/
+/* SATELLITE */
 
 var satellite = L.tileLayer(
 
@@ -1165,9 +1130,7 @@ var satellite = L.tileLayer(
 );
 
 
-/*
-    MAPA TOPOGRAFICZNA
-*/
+/* TOPOGRAPHIC */
 
 var topographic = L.tileLayer(
 
@@ -1185,16 +1148,12 @@ var topographic = L.tileLayer(
 );
 
 
-/*
-    DOMYŚLNA MAPA
-*/
+/* DOMYŚLNA */
 
 standard.addTo(map);
 
 
-/*
-    PRZEŁĄCZNIK MAP
-*/
+/* PRZEŁĄCZNIK */
 
 var baseMaps = {{
 
@@ -1224,9 +1183,7 @@ L.control.layers(
 ).addTo(map);
 
 
-/*
-    SAMOCHODY
-*/
+/* POJAZDY */
 
 {markers}
 
@@ -1234,7 +1191,11 @@ L.control.layers(
 
 """
 
-    return page("Navirec", content)
+    return page(
+        "Navirec",
+        content,
+        gps_page=True
+    )
 
 
 @app.route("/health")
