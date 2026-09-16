@@ -362,6 +362,18 @@ a.vehicle-link:hover {
     font-size: 14px;
 }
 
+.test-json {
+    white-space: pre-wrap;
+    word-break: break-word;
+    background: #111827;
+    color: #e5e7eb;
+    padding: 20px;
+    border-radius: 12px;
+    overflow-x: auto;
+    font-family: Consolas, monospace;
+    font-size: 13px;
+}
+
 @media(max-width: 800px) {
 
     .cards,
@@ -557,8 +569,7 @@ button {
        placeholder="Login">
 
 <input name="password"
-       type="password"
-       placeholder="Hasło">
+       type="password">
 
 <button type="submit">
 Zaloguj
@@ -1432,6 +1443,115 @@ L.control.layers(
         content,
         gps_page=True
     )
+
+
+@app.route("/tachograph-test")
+def tachograph_test():
+
+    if not logged_in():
+        return redirect(url_for("login"))
+
+    if not NAVIREC_TOKEN:
+
+        return page(
+            "Tachograph Test",
+            """
+            <h1>⏱️ Test tachografu</h1>
+
+            <div class="info">
+                Brak NAVIREC_TOKEN w ustawieniach Render.
+            </div>
+            """
+        )
+
+    try:
+
+        response = requests.get(
+            f"{NAVIREC_API}/driver_states/",
+            headers=get_headers(),
+            params={"account": ACCOUNT_ID},
+            timeout=20,
+        )
+
+        content_type = response.headers.get(
+            "Content-Type",
+            ""
+        )
+
+        try:
+            data = response.json()
+        except Exception:
+            data = response.text
+
+        formatted = ""
+
+        if isinstance(data, (dict, list)):
+
+            import json
+
+            formatted = json.dumps(
+                data,
+                indent=2,
+                ensure_ascii=False
+            )
+
+        else:
+
+            formatted = str(data)
+
+        content = f"""
+
+<h1>⏱️ Test tachografu</h1>
+
+<div class="info">
+
+<h2>Odpowiedź Navirec</h2>
+
+<p>
+HTTP status: <b>{response.status_code}</b>
+</p>
+
+<p>
+Content-Type: <b>{content_type}</b>
+</p>
+
+</div>
+
+<div class="info">
+
+<h2>driver_states</h2>
+
+<pre class="test-json">{formatted}</pre>
+
+</div>
+
+"""
+
+        return page(
+            "Tachograph Test",
+            content
+        )
+
+    except Exception as error:
+
+        content = f"""
+
+<h1>⏱️ Test tachografu</h1>
+
+<div class="info">
+
+<h2>Błąd</h2>
+
+<pre class="test-json">{str(error)}</pre>
+
+</div>
+
+"""
+
+        return page(
+            "Tachograph Test",
+            content
+        )
 
 
 @app.route("/health")
