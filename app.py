@@ -9,7 +9,7 @@ TOKEN = os.getenv("NAVIREC_TOKEN")
 
 HEADERS = {
     "Authorization": f"Token {TOKEN}",
-    "Accept": "application/x-ndjson",
+    "Accept": "application/json; version=1.52.1",
     "User-Agent": "O-O-TRANS/1.0"
 }
 
@@ -39,8 +39,8 @@ def gps():
         )
 
         output = [
-            f"STATUS: {response.status_code}",
-            f"CONTENT-TYPE: {response.headers.get('Content-Type')}",
+            f"СТАТУС: {response.status_code}",
+            f"ТИП-ЗМІСТУ: {response.headers.get('Content-Type')}",
             "",
             "=== NAVIREC STREAM ==="
         ]
