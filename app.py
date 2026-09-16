@@ -26,10 +26,13 @@ VEHICLES = {
 def home():
     return """
     <h1>🚚 O&O TRANS</h1>
+
     <h2>Контроль автомобілів</h2>
 
     <p>
-        <a href="/gps">📍 Відкрити карту автомобілів</a>
+        <a href="/gps">
+            📍 Відкрити карту автомобілів
+        </a>
     </p>
     """
 
@@ -51,6 +54,7 @@ def gps():
         if response.status_code != 200:
             return f"""
             <h2>Помилка Navirec</h2>
+
             <pre>
 Статус: {response.status_code}
 
@@ -64,8 +68,16 @@ def gps():
 
         for vehicle in data:
 
-            vehicle_url = vehicle.get("vehicle", "")
-            vehicle_id = vehicle_url.rstrip("/").split("/")[-1]
+            vehicle_url = vehicle.get(
+                "vehicle",
+                ""
+            )
+
+            vehicle_id = (
+                vehicle_url
+                .rstrip("/")
+                .split("/")[-1]
+            )
 
             name = VEHICLES.get(
                 vehicle_id,
@@ -73,13 +85,12 @@ def gps():
             )
 
             time = vehicle.get(
-                "time",
-                "—"
+                "time"
             )
 
             speed = vehicle.get(
                 "speed",
-                "—"
+                0
             )
 
             heading = vehicle.get(
@@ -105,6 +116,7 @@ def gps():
             latitude = coordinates[1]
 
             markers.append({
+                "id": vehicle_id,
                 "name": name,
                 "lat": latitude,
                 "lon": longitude,
@@ -155,7 +167,7 @@ body {{
 
     height: 60px;
 
-    background: #222;
+    background: #202020;
 
     color: white;
 
@@ -192,9 +204,9 @@ body {{
 
 .car-wrapper {{
 
-    width: 46px;
+    width: 52px;
 
-    height: 46px;
+    height: 52px;
 
     display: flex;
 
@@ -202,11 +214,58 @@ body {{
 
     justify-content: center;
 
-    font-size: 34px;
+    font-size: 36px;
+
+    border-radius: 50%;
 
     filter:
         drop-shadow(
-            0px 3px 3px
+            0px 3px 4px
+            rgba(0,0,0,0.45)
+        );
+
+}}
+
+
+.car-green {{
+
+    filter:
+        sepia(1)
+        saturate(7)
+        hue-rotate(70deg)
+        brightness(0.9)
+        drop-shadow(
+            0px 3px 4px
+            rgba(0,0,0,0.45)
+        );
+
+}}
+
+
+.car-yellow {{
+
+    filter:
+        sepia(1)
+        saturate(8)
+        hue-rotate(355deg)
+        brightness(1.05)
+        drop-shadow(
+            0px 3px 4px
+            rgba(0,0,0,0.45)
+        );
+
+}}
+
+
+.car-red {{
+
+    filter:
+        sepia(1)
+        saturate(8)
+        hue-rotate(315deg)
+        brightness(0.9)
+        drop-shadow(
+            0px 3px 4px
             rgba(0,0,0,0.45)
         );
 
@@ -219,7 +278,7 @@ body {{
 
     line-height: 1.6;
 
-    min-width: 210px;
+    min-width: 240px;
 
 }}
 
@@ -232,6 +291,52 @@ body {{
 
 }}
 
+
+.status {{
+
+    font-size: 16px;
+
+    font-weight: bold;
+
+    margin-bottom: 8px;
+
+}}
+
+
+.legend {{
+
+    position: fixed;
+
+    bottom: 25px;
+
+    right: 25px;
+
+    background: white;
+
+    padding: 12px 18px;
+
+    border-radius: 10px;
+
+    box-shadow:
+        0 2px 10px
+        rgba(0,0,0,0.25);
+
+    z-index: 1000;
+
+    font-size: 14px;
+
+    line-height: 1.9;
+
+}}
+
+
+.legend-title {{
+
+    font-weight: bold;
+
+    margin-bottom: 4px;
+
+}}
 
 </style>
 
@@ -251,8 +356,26 @@ body {{
 <div id="map"></div>
 
 
-<script>
+<div class="legend">
 
+<div class="legend-title">
+СТАТУС АВТО
+</div>
+
+🟢 В русі
+
+<br>
+
+🟡 Стоїть / завантаження / пауза
+
+<br>
+
+🔴 Немає зв'язку
+
+</div>
+
+
+<script>
 
 const vehicles = {markers};
 
@@ -272,6 +395,7 @@ if (vehicles.length > 0) {{
         ],
 
         6
+
     );
 
 }} else {{
@@ -286,6 +410,7 @@ if (vehicles.length > 0) {{
         ],
 
         6
+
     );
 
 }}
@@ -314,59 +439,138 @@ vehicles.forEach(
 
     function(vehicle) {{
 
-        const carIcon = L.divIcon({{
+        let status;
 
-            className:
-                'car-marker',
-
-            html: `
-
-                <div
-                    class="car-wrapper"
-                    style="
-                        transform:
-                        rotate(${{vehicle.heading}}deg);
-                    "
-                >
-
-                    🚚
-
-                </div>
-
-            `,
-
-            iconSize: [
-                46,
-                46
-            ],
-
-            iconAnchor: [
-                23,
-                23
-            ],
-
-            popupAnchor: [
-                0,
-                -23
-            ]
-
-        }});
+        let statusClass;
 
 
-        const marker = L.marker(
+        /*
+         * Визначаємо, наскільки свіжий
+         * останній сигнал автомобіля.
+         */
 
-            [
-                vehicle.lat,
-                vehicle.lon
-            ],
+        let signalTime =
+            new Date(vehicle.time);
 
-            {{
+        let now =
+            new Date();
 
-                icon: carIcon
+        let minutesAgo =
+            (now - signalTime) / 60000;
 
-            }}
 
-        ).addTo(map);
+        /*
+         * Якщо сигнал старший за 30 хвилин:
+         * автомобіль вважаємо без зв'язку.
+         */
+
+        if (minutesAgo > 30) {{
+
+            status =
+                "🔴 Немає зв'язку";
+
+            statusClass =
+                "car-red";
+
+        }}
+
+        /*
+         * Якщо автомобіль передає сигнал
+         * і рухається:
+         */
+
+        else if (
+            vehicle.speed !== null &&
+            vehicle.speed > 3
+        ) {{
+
+            status =
+                "🟢 В русі";
+
+            statusClass =
+                "car-green";
+
+        }}
+
+        /*
+         * Якщо сигнал є, але автомобіль
+         * стоїть:
+         */
+
+        else {{
+
+            status =
+                "🟡 Стоїть / завантаження / пауза";
+
+            statusClass =
+                "car-yellow";
+
+        }}
+
+
+        /*
+         * Створюємо кольорову машинку.
+         *
+         * Машинку НЕ повертаємо за heading,
+         * щоб вона завжди була нормально
+         * поставлена на колеса.
+         */
+
+        const carIcon =
+            L.divIcon({{
+
+                className:
+                    'car-marker',
+
+                html: `
+
+                    <div
+                        class="
+                        car-wrapper
+                        ${{statusClass}}
+                        "
+                    >
+
+                        🚚
+
+                    </div>
+
+                `,
+
+                iconSize: [
+                    52,
+                    52
+                ],
+
+                iconAnchor: [
+                    26,
+                    26
+                ],
+
+                popupAnchor: [
+                    0,
+                    -26
+                ]
+
+            }});
+
+
+        const marker =
+            L.marker(
+
+                [
+                    vehicle.lat,
+                    vehicle.lon
+                ],
+
+                {{
+
+                    icon:
+                        carIcon
+
+                }}
+
+            ).addTo(map);
 
 
         const popup = `
@@ -380,6 +584,12 @@ vehicles.forEach(
                 </div>
 
                 <hr>
+
+                <div class="status">
+
+                    ${{status}}
+
+                </div>
 
                 <b>Швидкість:</b>
 
@@ -463,9 +673,7 @@ if (bounds.length > 1) {{
 
 }}
 
-
 </script>
-
 
 </body>
 
