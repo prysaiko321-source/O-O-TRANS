@@ -55,13 +55,10 @@ def get_states():
         return []
 
     try:
-        url = f"{NAVIREC_API}/last_vehicle_states/"
-        params = {"account": ACCOUNT_ID}
-
         response = requests.get(
-            url,
+            f"{NAVIREC_API}/last_vehicle_states/",
             headers=get_headers(),
-            params=params,
+            params={"account": ACCOUNT_ID},
             timeout=20,
         )
 
@@ -299,6 +296,40 @@ a.vehicle-link:hover {
     color: #2563eb;
 }
 
+.vehicle-map {
+    width: 100%;
+    height: 550px;
+    margin-top: 20px;
+    border-radius: 14px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+
+.vehicle-info-grid {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 15px;
+    margin-top: 20px;
+}
+
+.vehicle-stat {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+}
+
+.vehicle-stat-title {
+    color: #6b7280;
+    font-size: 14px;
+}
+
+.vehicle-stat-value {
+    font-size: 25px;
+    font-weight: bold;
+    margin-top: 8px;
+}
+
 .gps-title {
     margin: 0;
     padding: 12px 20px;
@@ -328,7 +359,8 @@ a.vehicle-link:hover {
 @media(max-width: 800px) {
 
     .cards,
-    .fuel-box {
+    .fuel-box,
+    .vehicle-info-grid {
         grid-template-columns: 1fr;
     }
 
@@ -352,6 +384,11 @@ a.vehicle-link:hover {
         height: calc(100vh - 210px);
         min-height: 500px;
     }
+
+    .vehicle-map {
+        height: 450px;
+    }
+
 }
 
 </style>
@@ -831,9 +868,173 @@ def vehicle(vehicle_id):
 
     gps = "—"
 
+    lat = None
+    lon = None
+
     if len(coordinates) >= 2:
 
-        gps = f"{coordinates[1]}, {coordinates[0]}"
+        lon = float(coordinates[0])
+        lat = float(coordinates[1])
+
+        gps = f"{lat}, {lon}"
+
+    status = vehicle_status(state)
+
+    if status.startswith("🟢"):
+        marker_color = "#16a34a"
+    elif status.startswith("🟡"):
+        marker_color = "#eab308"
+    else:
+        marker_color = "#dc2626"
+
+    map_html = ""
+
+    if lat is not None and lon is not None:
+
+        map_html = f"""
+
+        <link
+        rel="stylesheet"
+        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        />
+
+        <div id="vehicle-map"
+             class="vehicle-map">
+        </div>
+
+        <script
+        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+        </script>
+
+        <script>
+
+        var vehicleMap = L.map(
+            'vehicle-map'
+        ).setView(
+            [{lat}, {lon}],
+            12
+        );
+
+        var standard = L.tileLayer(
+
+            'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+
+            {{
+
+                maxZoom: 19,
+
+                attribution:
+                '&copy; OpenStreetMap contributors'
+
+            }}
+
+        );
+
+        var satellite = L.tileLayer(
+
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
+
+            {{
+
+                maxZoom: 19,
+
+                attribution:
+                'Tiles &copy; Esri'
+
+            }}
+
+        );
+
+        var topographic = L.tileLayer(
+
+            'https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',
+
+            {{
+
+                maxZoom: 17,
+
+                attribution:
+                '&copy; OpenTopoMap contributors'
+
+            }}
+
+        );
+
+        standard.addTo(vehicleMap);
+
+        var vehicleLayers = {{
+
+            "🗺️ Standard": standard,
+
+            "🛰️ Satellite": satellite,
+
+            "⛰️ Topographic": topographic
+
+        }};
+
+        L.control.layers(
+
+            vehicleLayers,
+            null,
+            {{
+                position: 'topright',
+                collapsed: false
+            }}
+
+        ).addTo(vehicleMap);
+
+        var vehicleIcon = L.divIcon({{
+
+            className: 'truck-marker',
+
+            html:
+            '<div style="font-size:42px;color:{marker_color};text-shadow:0 1px 4px rgba(0,0,0,.6);">🚚</div>',
+
+            iconSize: [50, 50],
+
+            iconAnchor: [25, 25]
+
+        }});
+
+        L.marker(
+
+            [{lat}, {lon}],
+
+            {{
+                icon: vehicleIcon
+            }}
+
+        )
+
+        .addTo(vehicleMap)
+
+        .bindPopup(
+
+            "<b>{name}</b><br>" +
+            "{status}<br>" +
+            "Prędkość: {speed:.1f} km/h<br>" +
+            "Paliwo: {format_fuel(state.get("fuel_level"))}<br>" +
+            "GPS: {lat}, {lon}"
+
+        )
+
+        .openPopup();
+
+        </script>
+
+        """
+
+    else:
+
+        map_html = """
+
+        <div class="info">
+
+            Brak współrzędnych GPS z Navirec.
+
+        </div>
+
+        """
 
     content = f"""
 
@@ -842,45 +1043,83 @@ def vehicle(vehicle_id):
    ← Samochody
 </a>
 
-<h1>{name}</h1>
+<h1>🚚 {name}</h1>
 
-<div class="info">
+{map_html}
 
-<p>Status</p>
+<div class="vehicle-info-grid">
 
-<h2>
-{vehicle_status(state)}
-</h2>
+    <div class="vehicle-stat">
 
-<p>Prędkość</p>
+        <div class="vehicle-stat-title">
+            Status
+        </div>
 
-<h2>
-{speed:.1f} km/h
-</h2>
+        <div class="vehicle-stat-value">
+            {status}
+        </div>
 
-<p>Poziom paliwa</p>
+    </div>
 
-<h2>
-{format_fuel(state.get("fuel_level"))}
-</h2>
+    <div class="vehicle-stat">
 
-<p>Przebieg</p>
+        <div class="vehicle-stat-title">
+            Prędkość
+        </div>
 
-<h2>
-{format_distance(state.get("total_distance"))}
-</h2>
+        <div class="vehicle-stat-value">
+            {speed:.1f} km/h
+        </div>
 
-<p>Ostatni sygnał</p>
+    </div>
 
-<h2>
-{state.get("time") or "—"}
-</h2>
+    <div class="vehicle-stat">
 
-<p>GPS</p>
+        <div class="vehicle-stat-title">
+            Poziom paliwa
+        </div>
 
-<h2>
-{gps}
-</h2>
+        <div class="vehicle-stat-value">
+            {format_fuel(state.get("fuel_level"))}
+        </div>
+
+    </div>
+
+    <div class="vehicle-stat">
+
+        <div class="vehicle-stat-title">
+            Przebieg
+        </div>
+
+        <div class="vehicle-stat-value">
+            {format_distance(state.get("total_distance"))}
+        </div>
+
+    </div>
+
+    <div class="vehicle-stat">
+
+        <div class="vehicle-stat-title">
+            Ostatni sygnał
+        </div>
+
+        <div class="vehicle-stat-value">
+            {state.get("time") or "—"}
+        </div>
+
+    </div>
+
+    <div class="vehicle-stat">
+
+        <div class="vehicle-stat-title">
+            GPS
+        </div>
+
+        <div class="vehicle-stat-value">
+            {gps}
+        </div>
+
+    </div>
 
 </div>
 
@@ -1093,9 +1332,6 @@ var map = L.map('map').setView(
     6
 );
 
-
-/* STANDARD */
-
 var standard = L.tileLayer(
 
     'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
@@ -1110,9 +1346,6 @@ var standard = L.tileLayer(
     }}
 
 );
-
-
-/* SATELLITE */
 
 var satellite = L.tileLayer(
 
@@ -1129,9 +1362,6 @@ var satellite = L.tileLayer(
 
 );
 
-
-/* TOPOGRAPHIC */
-
 var topographic = L.tileLayer(
 
     'https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',
@@ -1147,13 +1377,7 @@ var topographic = L.tileLayer(
 
 );
 
-
-/* DOMYŚLNA */
-
 standard.addTo(map);
-
-
-/* PRZEŁĄCZNIK */
 
 var baseMaps = {{
 
@@ -1165,13 +1389,10 @@ var baseMaps = {{
 
 }};
 
-
 L.control.layers(
 
     baseMaps,
-
     null,
-
     {{
 
         position: 'topright',
@@ -1181,9 +1402,6 @@ L.control.layers(
     }}
 
 ).addTo(map);
-
-
-/* POJAZDY */
 
 {markers}
 
