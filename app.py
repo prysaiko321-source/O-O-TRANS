@@ -1,6 +1,6 @@
 import os
 from datetime import datetime, timezone
-from flask import Flask, render_template_string, redirect, url_for, session, request
+from flask import Flask, redirect, url_for, session, request
 import requests
 
 app = Flask(__name__)
@@ -128,6 +128,11 @@ def format_fuel(value):
 
 BASE_STYLE = """
 <style>
+
+* {
+    box-sizing: border-box;
+}
+
 body {
     margin: 0;
     font-family: Arial, sans-serif;
@@ -215,7 +220,8 @@ table {
     overflow: hidden;
 }
 
-th, td {
+th,
+td {
     padding: 13px;
     border-bottom: 1px solid #e5e7eb;
     text-align: left;
@@ -284,66 +290,141 @@ a.vehicle-link:hover {
     color: #2563eb;
 }
 
+.map-full {
+    width: 100%;
+}
+
+#map {
+    width: 100%;
+    height: calc(100vh - 190px);
+    min-height: 650px;
+    border-radius: 15px;
+    overflow: hidden;
+    box-shadow: 0 2px 10px rgba(0,0,0,.12);
+}
+
+.truck-marker {
+    background: transparent;
+    border: none;
+}
+
+.leaflet-control-layers {
+    font-size: 14px;
+}
+
 @media(max-width: 800px) {
+
     .cards,
     .fuel-box {
         grid-template-columns: 1fr;
     }
+
+    .header {
+        padding: 15px;
+    }
+
+    .nav {
+        padding: 10px;
+    }
+
+    .container {
+        padding: 0 10px;
+    }
+
+    #map {
+        min-height: 500px;
+        height: calc(100vh - 230px);
+    }
 }
+
 </style>
 """
 
 
 NAV = """
 <div class="nav">
+
     <a href="/">🏠 Dashboard</a>
+
     <a href="/vehicles">🚚 Samochody</a>
+
     <a href="/gps">🗺️ Navirec</a>
+
     <a href="/fuel">⛽ Paliwo</a>
+
     <a href="#">📦 Trans.eu</a>
+
     <a href="#">💰 Finanse</a>
+
     <a href="#">🔧 Naprawy</a>
+
     <a href="#">📊 Raporty</a>
+
 </div>
 """
 
 
 def page(title, content):
+
     return f"""
 <!DOCTYPE html>
+
 <html lang="pl">
+
 <head>
+
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+
+<meta name="viewport"
+      content="width=device-width, initial-scale=1.0">
+
 <title>O&O TRANS - {title}</title>
+
 {BASE_STYLE}
+
 </head>
+
 <body>
 
 <div class="header">
-    <div class="logo">O&O TRANS</div>
-    <a class="logout" href="/logout">Wyloguj</a>
+
+    <div class="logo">
+        O&O TRANS
+    </div>
+
+    <a class="logout"
+       href="/logout">
+       Wyloguj
+    </a>
+
 </div>
 
 {NAV}
 
 <div class="container">
+
 {content}
+
 </div>
 
 </body>
+
 </html>
 """
 
 
 @app.route("/login", methods=["GET", "POST"])
 def login():
+
     if request.method == "POST":
+
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
         if username == ADMIN_USER and password == ADMIN_PASSWORD:
+
             session["logged_in"] = True
+
             return redirect(url_for("dashboard"))
 
         return """
@@ -353,11 +434,17 @@ def login():
 
     return """
 <!DOCTYPE html>
+
 <html lang="pl">
+
 <head>
+
 <meta charset="UTF-8">
+
 <title>O&O TRANS</title>
+
 <style>
+
 body {
     background:#111827;
     font-family:Arial;
@@ -365,19 +452,23 @@ body {
     justify-content:center;
     align-items:center;
     height:100vh;
+    margin:0;
 }
+
 .box {
     background:white;
     padding:35px;
     border-radius:15px;
     width:320px;
 }
+
 input {
     width:100%;
     padding:12px;
     margin:8px 0;
     box-sizing:border-box;
 }
+
 button {
     width:100%;
     padding:12px;
@@ -387,30 +478,51 @@ button {
     border-radius:8px;
     cursor:pointer;
 }
+
 </style>
+
 </head>
+
 <body>
+
 <div class="box">
+
 <h2>O&O TRANS</h2>
+
 <form method="post">
-<input name="username" placeholder="Login">
-<input name="password" type="password" placeholder="Hasło">
-<button type="submit">Zaloguj</button>
+
+<input name="username"
+       placeholder="Login">
+
+<input name="password"
+       type="password"
+       placeholder="Hasło">
+
+<button type="submit">
+Zaloguj
+</button>
+
 </form>
+
 </div>
+
 </body>
+
 </html>
 """
 
 
 @app.route("/logout")
 def logout():
+
     session.clear()
+
     return redirect(url_for("login"))
 
 
 @app.route("/")
 def dashboard():
+
     if not logged_in():
         return redirect(url_for("login"))
 
@@ -423,83 +535,147 @@ def dashboard():
     rows = ""
 
     for state in states:
+
         vehicle_id = get_vehicle_id(state)
-        name = VEHICLES.get(vehicle_id, vehicle_id or "Nieznany pojazd")
+
+        name = VEHICLES.get(
+            vehicle_id,
+            vehicle_id or "Nieznany pojazd"
+        )
 
         status = vehicle_status(state)
 
         if status.startswith("🟢"):
             moving += 1
+
         elif status.startswith("🟡"):
             stopped += 1
+
         else:
             offline += 1
 
         speed = float(state.get("speed") or 0)
+
         fuel = state.get("fuel_level")
+
         distance = state.get("total_distance")
+
         signal = state.get("time") or "—"
 
         rows += f"""
         <tr>
+
             <td>
                 <a class="vehicle-link"
                    href="/vehicle/{vehicle_id}">
                    {name}
                 </a>
             </td>
+
             <td>{status}</td>
+
             <td>{speed:.1f} km/h</td>
+
             <td>{format_fuel(fuel)}</td>
+
             <td>{format_distance(distance)}</td>
+
             <td>{signal}</td>
+
         </tr>
         """
 
     content = f"""
+
 <h1>Dashboard</h1>
 
 <div class="cards">
-    <div class="card">
-        <div class="card-title">Samochody</div>
-        <div class="card-number">{len(states)}</div>
-    </div>
 
     <div class="card">
-        <div class="card-title">W trasie</div>
-        <div class="card-number">{moving}</div>
+
+        <div class="card-title">
+            Samochody
+        </div>
+
+        <div class="card-number">
+            {len(states)}
+        </div>
+
     </div>
 
-    <div class="card">
-        <div class="card-title">Postój</div>
-        <div class="card-number">{stopped}</div>
-    </div>
 
     <div class="card">
-        <div class="card-title">Brak połączenia</div>
-        <div class="card-number">{offline}</div>
+
+        <div class="card-title">
+            W trasie
+        </div>
+
+        <div class="card-number">
+            {moving}
+        </div>
+
     </div>
+
+
+    <div class="card">
+
+        <div class="card-title">
+            Postój
+        </div>
+
+        <div class="card-number">
+            {stopped}
+        </div>
+
+    </div>
+
+
+    <div class="card">
+
+        <div class="card-title">
+            Brak połączenia
+        </div>
+
+        <div class="card-number">
+            {offline}
+        </div>
+
+    </div>
+
 </div>
 
+
 <div class="section">
+
 <h2>Samochody</h2>
 
 <table>
+
 <thead>
+
 <tr>
+
 <th>Samochód</th>
 <th>Status</th>
 <th>Prędkość</th>
 <th>Paliwo</th>
 <th>Przebieg</th>
 <th>Ostatni sygnał</th>
+
 </tr>
+
 </thead>
+
 <tbody>
+
 {rows}
+
 </tbody>
+
 </table>
+
 </div>
+
 """
 
     return page("Dashboard", content)
@@ -507,6 +683,7 @@ def dashboard():
 
 @app.route("/vehicles")
 def vehicles():
+
     if not logged_in():
         return redirect(url_for("login"))
 
@@ -515,39 +692,70 @@ def vehicles():
     rows = ""
 
     for state in states:
+
         vehicle_id = get_vehicle_id(state)
-        name = VEHICLES.get(vehicle_id, vehicle_id or "Nieznany pojazd")
+
+        name = VEHICLES.get(
+            vehicle_id,
+            vehicle_id or "Nieznany pojazd"
+        )
 
         rows += f"""
         <tr>
+
             <td>
+
                 <a class="vehicle-link"
                    href="/vehicle/{vehicle_id}">
+
                    {name}
+
                 </a>
+
             </td>
-            <td>{vehicle_status(state)}</td>
-            <td>{format_fuel(state.get("fuel_level"))}</td>
-            <td>{format_distance(state.get("total_distance"))}</td>
+
+            <td>
+                {vehicle_status(state)}
+            </td>
+
+            <td>
+                {format_fuel(state.get("fuel_level"))}
+            </td>
+
+            <td>
+                {format_distance(state.get("total_distance"))}
+            </td>
+
         </tr>
         """
 
     content = f"""
+
 <h1>🚚 Samochody</h1>
 
 <table>
+
 <thead>
+
 <tr>
+
 <th>Samochód</th>
 <th>Status</th>
 <th>Paliwo</th>
 <th>Przebieg</th>
+
 </tr>
+
 </thead>
+
 <tbody>
+
 {rows}
+
 </tbody>
+
 </table>
+
 """
 
     return page("Samochody", content)
@@ -555,6 +763,7 @@ def vehicles():
 
 @app.route("/vehicle/<vehicle_id>")
 def vehicle(vehicle_id):
+
     if not logged_in():
         return redirect(url_for("login"))
 
@@ -563,56 +772,108 @@ def vehicle(vehicle_id):
     state = None
 
     for item in states:
+
         if get_vehicle_id(item) == vehicle_id:
+
             state = item
+
             break
 
-    name = VEHICLES.get(vehicle_id, "Nieznany pojazd")
+    name = VEHICLES.get(
+        vehicle_id,
+        "Nieznany pojazd"
+    )
 
     if not state:
+
         content = f"""
-        <a class="back" href="/vehicles">← Samochody</a>
+
+        <a class="back"
+           href="/vehicles">
+           ← Samochody
+        </a>
+
         <h1>{name}</h1>
+
         <div class="info">
+
         Brak aktualnych danych z Navirec.
+
         </div>
+
         """
+
         return page(name, content)
 
     speed = float(state.get("speed") or 0)
 
     location = state.get("location") or {}
-    coordinates = location.get("coordinates", [])
+
+    coordinates = location.get(
+        "coordinates",
+        []
+    )
 
     gps = "—"
 
     if len(coordinates) >= 2:
+
         gps = f"{coordinates[1]}, {coordinates[0]}"
 
     content = f"""
-<a class="back" href="/vehicles">← Samochody</a>
+
+<a class="back"
+   href="/vehicles">
+   ← Samochody
+</a>
 
 <h1>{name}</h1>
 
 <div class="info">
+
 <p>Status</p>
-<h2>{vehicle_status(state)}</h2>
+
+<h2>
+{vehicle_status(state)}
+</h2>
+
 
 <p>Prędkość</p>
-<h2>{speed:.1f} km/h</h2>
+
+<h2>
+{speed:.1f} km/h
+</h2>
+
 
 <p>Poziom paliwa</p>
-<h2>{format_fuel(state.get("fuel_level"))}</h2>
+
+<h2>
+{format_fuel(state.get("fuel_level"))}
+</h2>
+
 
 <p>Przebieg</p>
-<h2>{format_distance(state.get("total_distance"))}</h2>
+
+<h2>
+{format_distance(state.get("total_distance"))}
+</h2>
+
 
 <p>Ostatni sygnał</p>
-<h2>{state.get("time") or "—"}</h2>
+
+<h2>
+{state.get("time") or "—"}
+</h2>
+
 
 <p>GPS</p>
-<h2>{gps}</h2>
+
+<h2>
+{gps}
+</h2>
+
 </div>
+
 """
 
     return page(name, content)
@@ -620,6 +881,7 @@ def vehicle(vehicle_id):
 
 @app.route("/fuel")
 def fuel():
+
     if not logged_in():
         return redirect(url_for("login"))
 
@@ -628,20 +890,34 @@ def fuel():
     cards = ""
 
     for state in states:
+
         vehicle_id = get_vehicle_id(state)
-        name = VEHICLES.get(vehicle_id, vehicle_id or "Nieznany pojazd")
+
+        name = VEHICLES.get(
+            vehicle_id,
+            vehicle_id or "Nieznany pojazd"
+        )
 
         fuel = state.get("fuel_level")
 
         try:
+
             fuel_value = float(fuel)
-            width = max(0, min(100, fuel_value))
+
+            width = max(
+                0,
+                min(100, fuel_value)
+            )
+
         except Exception:
+
             fuel_value = None
             width = 0
 
         cards += f"""
+
         <div class="fuel-card">
+
             <h2>{name}</h2>
 
             <div class="fuel-percent">
@@ -649,24 +925,42 @@ def fuel():
             </div>
 
             <div class="progress">
+
                 <div class="progress-bar"
-                     style="width:{width}%"></div>
+                     style="width:{width}%">
+                </div>
+
             </div>
 
-            <p>Przebieg: {format_distance(state.get("total_distance"))}</p>
-            <p>Ostatni sygnał: {state.get("time") or "—"}</p>
+            <p>
+            Przebieg:
+            {format_distance(state.get("total_distance"))}
+            </p>
+
+            <p>
+            Ostatni sygnał:
+            {state.get("time") or "—"}
+            </p>
+
         </div>
+
         """
 
     content = f"""
+
 <h1>⛽ Paliwo</h1>
 
 <div class="fuel-box">
+
 {cards}
+
 </div>
 
+
 <div class="info">
+
 <h2>Historia tankowania</h2>
+
 <p>
 Moduł jest przygotowany do dalszego podłączenia
 danych o tankowaniach z Navirec.
@@ -677,15 +971,39 @@ Tutaj będziemy docelowo widzieć:
 </p>
 
 <ul>
-<li>ilość zatankowanych litrów;</li>
-<li>datę i godzinę tankowania;</li>
-<li>miejsce tankowania;</li>
-<li>poziom paliwa przed i po tankowaniu;</li>
-<li>zużycie paliwa;</li>
-<li>koszt tankowania;</li>
-<li>historię dla każdego samochodu.</li>
+
+<li>
+ilość zatankowanych litrów;
+</li>
+
+<li>
+datę i godzinę tankowania;
+</li>
+
+<li>
+miejsce tankowania;
+</li>
+
+<li>
+poziom paliwa przed i po tankowaniu;
+</li>
+
+<li>
+zużycie paliwa;
+</li>
+
+<li>
+koszt tankowania;
+</li>
+
+<li>
+historię dla każdego samochodu.
+</li>
+
 </ul>
+
 </div>
+
 """
 
     return page("Paliwo", content)
@@ -693,6 +1011,7 @@ Tutaj będziemy docelowo widzieć:
 
 @app.route("/gps")
 def gps():
+
     if not logged_in():
         return redirect(url_for("login"))
 
@@ -701,62 +1020,218 @@ def gps():
     markers = ""
 
     for state in states:
+
         vehicle_id = get_vehicle_id(state)
-        name = VEHICLES.get(vehicle_id, vehicle_id or "Nieznany pojazd")
+
+        name = VEHICLES.get(
+            vehicle_id,
+            vehicle_id or "Nieznany pojazd"
+        )
 
         location = state.get("location") or {}
-        coordinates = location.get("coordinates", [])
+
+        coordinates = location.get(
+            "coordinates",
+            []
+        )
 
         if len(coordinates) < 2:
             continue
 
         lon = coordinates[0]
+
         lat = coordinates[1]
 
         status = vehicle_status(state)
 
         if status.startswith("🟢"):
-            color = "green"
+
+            color = "#16a34a"
+
         elif status.startswith("🟡"):
-            color = "orange"
+
+            color = "#eab308"
+
         else:
-            color = "red"
+
+            color = "#dc2626"
+
+        safe_name = name.replace(
+            "'",
+            "\\'"
+        )
+
+        safe_status = status.replace(
+            "'",
+            "\\'"
+        )
 
         markers += f"""
-        L.marker([{lat}, {lon}], {{
-            icon: L.divIcon({{
-                className: 'truck-icon',
-                html: '<div style="font-size:30px; filter: hue-rotate(0deg);">🚚</div>',
-                iconSize: [35,35]
-            }})
-        }})
+
+        L.marker(
+            [{lat}, {lon}],
+            {{
+                icon: L.divIcon({{
+                    className: 'truck-marker',
+
+                    html:
+                    '<div style="font-size:34px;color:{color};text-shadow:0 1px 3px rgba(0,0,0,.5);">🚚</div>',
+
+                    iconSize: [40, 40],
+
+                    iconAnchor: [20, 20]
+                }})
+            }}
+        )
+
         .addTo(map)
-        .bindPopup("<b>{name}</b><br>{status}<br>{lat}, {lon}");
+
+        .bindPopup(
+            "<b>{safe_name}</b><br>" +
+            "{safe_status}<br>" +
+            "GPS: {lat}, {lon}"
+        );
+
         """
 
+
     content = f"""
+
 <h1>🗺️ Navirec</h1>
 
-<div id="map" style="height:650px;border-radius:15px;"></div>
+<div class="map-full">
 
-<link rel="stylesheet"
-href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"/>
+<div id="map"></div>
 
-<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+</div>
+
+
+<link
+rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+/>
+
+
+<script
+src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
+
 
 <script>
-var map = L.map('map').setView([52.3, 13.4], 6);
 
-L.tileLayer(
-'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-{{
-    maxZoom: 19,
-    attribution: '&copy; OpenStreetMap'
-}}
+var map = L.map('map').setView(
+    [52.3, 13.4],
+    6
+);
+
+
+/*
+    STANDARDOWA MAPA
+*/
+
+var standard = L.tileLayer(
+
+    'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+
+    {{
+
+        maxZoom: 19,
+
+        attribution:
+        '&copy; OpenStreetMap contributors'
+
+    }}
+
+);
+
+
+/*
+    MAPA SATELITARNA
+*/
+
+var satellite = L.tileLayer(
+
+    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
+
+    {{
+
+        maxZoom: 19,
+
+        attribution:
+        'Tiles &copy; Esri'
+
+    }}
+
+);
+
+
+/*
+    MAPA TOPOGRAFICZNA
+*/
+
+var topographic = L.tileLayer(
+
+    'https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',
+
+    {{
+
+        maxZoom: 17,
+
+        attribution:
+        '&copy; OpenTopoMap contributors'
+
+    }}
+
+);
+
+
+/*
+    DOMYŚLNA MAPA
+*/
+
+standard.addTo(map);
+
+
+/*
+    PRZEŁĄCZNIK MAP
+*/
+
+var baseMaps = {{
+
+    "🗺️ Standard": standard,
+
+    "🛰️ Satellite": satellite,
+
+    "⛰️ Topographic": topographic
+
+}};
+
+
+L.control.layers(
+
+    baseMaps,
+
+    null,
+
+    {{
+
+        position: 'topright',
+
+        collapsed: false
+
+    }}
+
 ).addTo(map);
 
+
+/*
+    SAMOCHODY
+*/
+
 {markers}
+
 </script>
+
 """
 
     return page("Navirec", content)
@@ -764,11 +1239,21 @@ L.tileLayer(
 
 @app.route("/health")
 def health():
+
     return "O&O TRANS OK"
 
 
 if __name__ == "__main__":
+
     app.run(
+
         host="0.0.0.0",
-        port=int(os.environ.get("PORT", 10000))
+
+        port=int(
+            os.environ.get(
+                "PORT",
+                10000
+            )
+        )
+
     )
