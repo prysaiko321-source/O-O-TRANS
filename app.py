@@ -1,18 +1,21 @@
 import os
+import json
 from datetime import datetime, timezone
 from flask import Flask, redirect, url_for, session, request
 import requests
 
 app = Flask(__name__)
 
-app.secret_key = os.environ.get("SESSION_SECRET", "change-me")
+app.secret_key = os.environ.get(
+    "SESSION_SECRET",
+    "change-this-secret"
+)
 
+NAVIREC_TOKEN = os.environ.get("NAVIREC_TOKEN", "")
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-NAVIREC_TOKEN = os.environ.get("NAVIREC_TOKEN", "")
 
 NAVIREC_API = "https://api.navirec.com"
-
 ACCOUNT_ID = "5c980074-7a71-4c9b-b5a8-a7c45163adf5"
 
 VEHICLES = {
@@ -33,20 +36,10 @@ def get_headers():
     }
 
 
-def get_vehicle_id(state):
-    vehicle = state.get("vehicle")
-
-    if isinstance(vehicle, dict):
-        if vehicle.get("id"):
-            return vehicle["id"]
-
-        url = vehicle.get("url", "")
-        if url:
-            return url.rstrip("/").split("/")[-1]
-
-    if isinstance(vehicle, str):
-        return vehicle.rstrip("/").split("/")[-1]
-
+def get_vehicle_id(vehicle):
+    for vehicle_id, name in VEHICLES.items():
+        if name == vehicle:
+            return vehicle_id
     return None
 
 
@@ -62,7 +55,9 @@ def get_states():
             timeout=20,
         )
 
-        response.raise_for_status()
+        if response.status_code != 200:
+            return []
+
         data = response.json()
 
         if isinstance(data, dict):
@@ -74,32 +69,12 @@ def get_states():
         return []
 
 
-def vehicle_status(state):
-    speed = float(state.get("speed") or 0)
+def vehicle_status(vehicle_id, states):
+    for state in states:
+        if str(state.get("vehicle")) == str(vehicle_id):
+            return state
 
-    time_value = state.get("time")
-
-    if not time_value:
-        return "🔴 Brak połączenia"
-
-    try:
-        dt = datetime.fromisoformat(
-            time_value.replace("Z", "+00:00")
-        )
-
-        now = datetime.now(timezone.utc)
-        minutes = (now - dt).total_seconds() / 60
-
-        if minutes > 30:
-            return "🔴 Brak połączenia"
-
-    except Exception:
-        pass
-
-    if speed > 3:
-        return "🟢 W trasie"
-
-    return "🟡 Postój"
+    return None
 
 
 def format_distance(value):
@@ -107,10 +82,9 @@ def format_distance(value):
         return "—"
 
     try:
-        km = float(value) / 1000
-        return f"{km:,.1f}".replace(",", " ") + " km"
+        return f"{float(value):,.0f} km".replace(",", " ")
     except Exception:
-        return "—"
+        return str(value)
 
 
 def format_fuel(value):
@@ -118,372 +92,160 @@ def format_fuel(value):
         return "—"
 
     try:
-        return f"{float(value):.1f} %"
+        return f"{float(value):.0f}%"
     except Exception:
-        return "—"
+        return str(value)
 
 
-BASE_STYLE = """
+CSS = """
 <style>
 
-* {
-    box-sizing: border-box;
-}
-
-html,
 body {
     margin: 0;
-    padding: 0;
     font-family: Arial, sans-serif;
     background: #f3f5f7;
-    color: #1f2937;
+    color: #17202a;
 }
 
-.header {
+header {
     background: #111827;
     color: white;
-    padding: 18px 30px;
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
+    padding: 18px 28px;
 }
 
-.logo {
+header h1 {
+    margin: 0;
     font-size: 24px;
+}
+
+nav {
+    background: #1f2937;
+    padding: 12px 28px;
+}
+
+nav a {
+    color: white;
+    text-decoration: none;
+    margin-right: 20px;
     font-weight: bold;
 }
 
-.logout {
-    color: white;
-    text-decoration: none;
-    background: #374151;
-    padding: 9px 15px;
-    border-radius: 8px;
-}
-
-.nav {
-    background: white;
-    padding: 14px 25px;
-    border-bottom: 1px solid #ddd;
-    display: flex;
-    gap: 10px;
-    flex-wrap: wrap;
-}
-
-.nav a {
-    text-decoration: none;
-    color: #111827;
-    padding: 10px 13px;
-    border-radius: 8px;
-}
-
-.nav a:hover {
-    background: #e5e7eb;
-}
-
 .container {
-    max-width: 1200px;
+    max-width: 1400px;
     margin: 25px auto;
     padding: 0 20px;
 }
 
-.container.gps-container {
-    max-width: none;
-    width: 100%;
-    margin: 0;
-    padding: 0;
-}
-
 .cards {
     display: grid;
-    grid-template-columns: repeat(4, 1fr);
-    gap: 15px;
+    grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+    gap: 18px;
 }
 
 .card {
     background: white;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.08);
-}
-
-.card-title {
-    color: #6b7280;
-    font-size: 14px;
-}
-
-.card-number {
-    font-size: 30px;
-    font-weight: bold;
-    margin-top: 8px;
-}
-
-table {
-    width: 100%;
-    border-collapse: collapse;
-    background: white;
-    border-radius: 12px;
-    overflow: hidden;
-}
-
-th,
-td {
-    padding: 13px;
-    border-bottom: 1px solid #e5e7eb;
-    text-align: left;
-}
-
-th {
-    background: #f9fafb;
-}
-
-a.vehicle-link {
-    color: #111827;
-    font-weight: bold;
-    text-decoration: none;
-}
-
-a.vehicle-link:hover {
-    text-decoration: underline;
-}
-
-.section {
-    margin-top: 25px;
-}
-
-.fuel-box {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 18px;
-}
-
-.fuel-card {
-    background: white;
     border-radius: 14px;
     padding: 22px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.08);
+    box-shadow: 0 3px 12px rgba(0,0,0,0.08);
 }
 
-.fuel-percent {
-    font-size: 36px;
-    font-weight: bold;
-    margin: 10px 0;
-}
-
-.progress {
-    height: 14px;
-    background: #e5e7eb;
-    border-radius: 10px;
-    overflow: hidden;
-}
-
-.progress-bar {
-    height: 100%;
-    background: #16a34a;
+.card h2 {
+    margin-top: 0;
 }
 
 .info {
     background: white;
-    border-radius: 12px;
+    border-radius: 14px;
     padding: 20px;
-    margin-top: 20px;
-}
-
-.back {
-    display: inline-block;
     margin-bottom: 20px;
-    text-decoration: none;
-    color: #2563eb;
+    box-shadow: 0 3px 12px rgba(0,0,0,0.08);
 }
 
-.vehicle-map {
+.vehicle-link {
+    display: block;
+    text-decoration: none;
+    color: inherit;
+}
+
+.status {
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 8px;
+    background: #e5e7eb;
+}
+
+.map {
     width: 100%;
-    height: 550px;
-    margin-top: 20px;
+    height: 600px;
     border-radius: 14px;
     overflow: hidden;
-    box-shadow: 0 2px 8px rgba(0,0,0,.08);
-}
-
-.vehicle-info-grid {
-    display: grid;
-    grid-template-columns: repeat(3, 1fr);
-    gap: 15px;
     margin-top: 20px;
-}
-
-.vehicle-stat {
-    background: white;
-    border-radius: 12px;
-    padding: 20px;
-    box-shadow: 0 2px 8px rgba(0,0,0,.08);
-}
-
-.vehicle-stat-title {
-    color: #6b7280;
-    font-size: 14px;
-}
-
-.vehicle-stat-value {
-    font-size: 25px;
-    font-weight: bold;
-    margin-top: 8px;
-}
-
-.gps-title {
-    margin: 0;
-    padding: 12px 20px;
-    background: #f3f5f7;
-    font-size: 24px;
-}
-
-#map {
-    width: 100%;
-    height: calc(100vh - 150px);
-    min-height: 700px;
-    margin: 0;
-    padding: 0;
-    border-radius: 0;
-    overflow: hidden;
-}
-
-.truck-marker {
-    background: transparent;
-    border: none;
-}
-
-.leaflet-control-layers {
-    font-size: 14px;
-}
-
-.refresh-info {
-    margin-top: 12px;
-    color: #6b7280;
-    font-size: 14px;
 }
 
 .test-json {
-    white-space: pre-wrap;
-    word-break: break-word;
     background: #111827;
     color: #e5e7eb;
     padding: 20px;
-    border-radius: 12px;
+    border-radius: 10px;
     overflow-x: auto;
-    font-family: Consolas, monospace;
-    font-size: 13px;
+    white-space: pre-wrap;
+    word-break: break-word;
 }
 
-@media(max-width: 800px) {
+input {
+    padding: 10px;
+    width: 280px;
+    margin-bottom: 10px;
+}
 
-    .cards,
-    .fuel-box,
-    .vehicle-info-grid {
-        grid-template-columns: 1fr;
-    }
-
-    .header {
-        padding: 15px;
-    }
-
-    .nav {
-        padding: 10px;
-    }
-
-    .container {
-        padding: 0 10px;
-    }
-
-    .container.gps-container {
-        padding: 0;
-    }
-
-    #map {
-        height: calc(100vh - 210px);
-        min-height: 500px;
-    }
-
-    .vehicle-map {
-        height: 450px;
-    }
-
+button {
+    padding: 10px 18px;
+    cursor: pointer;
 }
 
 </style>
 """
 
 
-NAV = """
-<div class="nav">
+def page(title, content):
 
-    <a href="/">🏠 Dashboard</a>
-
-    <a href="/vehicles">🚚 Samochody</a>
-
-    <a href="/gps">🗺️ Navirec</a>
-
-    <a href="/fuel">⛽ Paliwo</a>
-
-    <a href="#">📦 Trans.eu</a>
-
-    <a href="#">💰 Finanse</a>
-
-    <a href="#">🔧 Naprawy</a>
-
-    <a href="#">📊 Raporty</a>
-
-</div>
-"""
-
-
-def page(title, content, gps_page=False):
-
-    container_class = "container gps-container" if gps_page else "container"
+    nav = """
+    <nav>
+        <a href="/">🏠 Dashboard</a>
+        <a href="/vehicles">🚚 Samochody</a>
+        <a href="/gps">🗺️ GPS</a>
+        <a href="/fuel">⛽ Paliwo</a>
+        <a href="/tachograph-test">⏱️ Tachograf</a>
+        <a href="/health">❤️ Health</a>
+        <a href="/logout">Wyloguj</a>
+    </nav>
+    """
 
     return f"""
-<!DOCTYPE html>
+    <!DOCTYPE html>
+    <html lang="pl">
+    <head>
+        <meta charset="UTF-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <title>{title} — O&O TRANS</title>
+        {CSS}
+    </head>
 
-<html lang="pl">
+    <body>
 
-<head>
+        <header>
+            <h1>O&O TRANS</h1>
+        </header>
 
-<meta charset="UTF-8">
+        {nav}
 
-<meta name="viewport" content="width=device-width, initial-scale=1.0">
+        <div class="container">
+            {content}
+        </div>
 
-<title>O&O TRANS - {title}</title>
-
-{BASE_STYLE}
-
-</head>
-
-<body>
-
-<div class="header">
-
-    <div class="logo">
-        O&O TRANS
-    </div>
-
-    <a class="logout"
-       href="/logout">
-       Wyloguj
-    </a>
-
-</div>
-
-{NAV}
-
-<div class="{container_class}">
-
-{content}
-
-</div>
-
-</body>
-
-</html>
-"""
+    </body>
+    </html>
+    """
 
 
 @app.route("/login", methods=["GET", "POST"])
@@ -498,90 +260,77 @@ def login():
 
             session["logged_in"] = True
 
-            return redirect(url_for("dashboard"))
+            return redirect(url_for("home"))
 
-        return """
-        <h2>Nieprawidłowy login lub hasło</h2>
-        <a href="/login">Wróć</a>
+        return page(
+            "Logowanie",
+            """
+            <h1>Logowanie</h1>
+
+            <div class="info">
+                Nieprawidłowy login lub hasło.
+            </div>
+
+            <form method="post">
+
+                <input
+                    type="text"
+                    name="username"
+                    placeholder="Login"
+                >
+
+                <br>
+
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Hasło"
+                >
+
+                <br>
+
+                <button type="submit">
+                    Zaloguj
+                </button>
+
+            </form>
+            """
+        )
+
+    return page(
+        "Logowanie",
         """
+        <h1>🔐 O&O TRANS</h1>
 
-    return """
-<!DOCTYPE html>
+        <div class="info">
 
-<html lang="pl">
+            <form method="post">
 
-<head>
+                <input
+                    type="text"
+                    name="username"
+                    placeholder="Login"
+                >
 
-<meta charset="UTF-8">
+                <br>
 
-<title>O&O TRANS</title>
+                <input
+                    type="password"
+                    name="password"
+                    placeholder="Hasło"
+                >
 
-<style>
+                <br>
 
-body {
-    background:#111827;
-    font-family:Arial;
-    display:flex;
-    justify-content:center;
-    align-items:center;
-    height:100vh;
-    margin:0;
-}
+                <button type="submit">
+                    Zaloguj
+                </button>
 
-.box {
-    background:white;
-    padding:35px;
-    border-radius:15px;
-    width:320px;
-}
+            </form>
 
-input {
-    width:100%;
-    padding:12px;
-    margin:8px 0;
-    box-sizing:border-box;
-}
-
-button {
-    width:100%;
-    padding:12px;
-    background:#111827;
-    color:white;
-    border:0;
-    border-radius:8px;
-    cursor:pointer;
-}
-
-</style>
-
-</head>
-
-<body>
-
-<div class="box">
-
-<h2>O&O TRANS</h2>
-
-<form method="post">
-
-<input name="username"
-       placeholder="Login">
-
-<input name="password"
-       type="password">
-
-<button type="submit">
-Zaloguj
-</button>
-
-</form>
-
-</div>
-
-</body>
-
-</html>
-"""
+        </div>
+        """
+    )
 
 
 @app.route("/logout")
@@ -593,160 +342,94 @@ def logout():
 
 
 @app.route("/")
-def dashboard():
+def home():
 
     if not logged_in():
         return redirect(url_for("login"))
 
     states = get_states()
 
-    moving = 0
-    stopped = 0
-    offline = 0
+    cards = ""
 
-    rows = ""
+    for vehicle_id, vehicle_name in VEHICLES.items():
 
-    for state in states:
+        state = vehicle_status(vehicle_id, states)
 
-        vehicle_id = get_vehicle_id(state)
+        if state:
 
-        name = VEHICLES.get(
-            vehicle_id,
-            vehicle_id or "Nieznany pojazd"
-        )
+            speed = state.get("speed")
 
-        status = vehicle_status(state)
+            if speed is not None:
+                speed_text = f"{speed} km/h"
+            else:
+                speed_text = "—"
 
-        if status.startswith("🟢"):
-            moving += 1
+            fuel = format_fuel(
+                state.get("fuel_level")
+            )
 
-        elif status.startswith("🟡"):
-            stopped += 1
+            distance = format_distance(
+                state.get("total_distance")
+            )
+
+            time_value = state.get("time", "—")
 
         else:
-            offline += 1
 
-        speed = float(state.get("speed") or 0)
+            speed_text = "—"
+            fuel = "—"
+            distance = "—"
+            time_value = "Brak danych"
 
-        fuel = state.get("fuel_level")
+        cards += f"""
 
-        distance = state.get("total_distance")
+        <a class="vehicle-link"
+           href="/vehicle/{vehicle_id}">
 
-        signal = state.get("time") or "—"
+            <div class="card">
 
-        rows += f"""
-        <tr>
+                <h2>🚚 {vehicle_name}</h2>
 
-            <td>
-                <a class="vehicle-link"
-                   href="/vehicle/{vehicle_id}">
-                   {name}
-                </a>
-            </td>
+                <p>
+                    <b>Prędkość:</b>
+                    {speed_text}
+                </p>
 
-            <td>{status}</td>
+                <p>
+                    <b>Paliwo:</b>
+                    {fuel}
+                </p>
 
-            <td>{speed:.1f} km/h</td>
+                <p>
+                    <b>Przebieg:</b>
+                    {distance}
+                </p>
 
-            <td>{format_fuel(fuel)}</td>
+                <p>
+                    <b>Ostatni sygnał:</b>
+                    {time_value}
+                </p>
 
-            <td>{format_distance(distance)}</td>
+            </div>
 
-            <td>{signal}</td>
+        </a>
 
-        </tr>
         """
 
     content = f"""
 
-<h1>Dashboard</h1>
+    <h1>🏠 Dashboard</h1>
 
-<div class="cards">
-
-    <div class="card">
-
-        <div class="card-title">
-            Samochody
-        </div>
-
-        <div class="card-number">
-            {len(states)}
-        </div>
-
+    <div class="cards">
+        {cards}
     </div>
 
-    <div class="card">
+    """
 
-        <div class="card-title">
-            W trasie
-        </div>
-
-        <div class="card-number">
-            {moving}
-        </div>
-
-    </div>
-
-    <div class="card">
-
-        <div class="card-title">
-            Postój
-        </div>
-
-        <div class="card-number">
-            {stopped}
-        </div>
-
-    </div>
-
-    <div class="card">
-
-        <div class="card-title">
-            Brak połączenia
-        </div>
-
-        <div class="card-number">
-            {offline}
-        </div>
-
-    </div>
-
-</div>
-
-<div class="section">
-
-<h2>Samochody</h2>
-
-<table>
-
-<thead>
-
-<tr>
-
-<th>Samochód</th>
-<th>Status</th>
-<th>Prędkość</th>
-<th>Paliwo</th>
-<th>Przebieg</th>
-<th>Ostatni sygnał</th>
-
-</tr>
-
-</thead>
-
-<tbody>
-
-{rows}
-
-</tbody>
-
-</table>
-
-</div>
-
-"""
-
-    return page("Dashboard", content)
+    return page(
+        "Dashboard",
+        content
+    )
 
 
 @app.route("/vehicles")
@@ -757,76 +440,71 @@ def vehicles():
 
     states = get_states()
 
-    rows = ""
+    cards = ""
 
-    for state in states:
+    for vehicle_id, vehicle_name in VEHICLES.items():
 
-        vehicle_id = get_vehicle_id(state)
-
-        name = VEHICLES.get(
+        state = vehicle_status(
             vehicle_id,
-            vehicle_id or "Nieznany pojazd"
+            states
         )
 
-        rows += f"""
-        <tr>
+        if state:
 
-            <td>
+            speed = state.get("speed")
 
-                <a class="vehicle-link"
-                   href="/vehicle/{vehicle_id}">
+            if speed is not None:
+                speed_text = f"{speed} km/h"
+            else:
+                speed_text = "—"
 
-                   {name}
+            fuel = format_fuel(
+                state.get("fuel_level")
+            )
 
-                </a>
+            distance = format_distance(
+                state.get("total_distance")
+            )
 
-            </td>
+        else:
 
-            <td>
-                {vehicle_status(state)}
-            </td>
+            speed_text = "—"
+            fuel = "—"
+            distance = "—"
 
-            <td>
-                {format_fuel(state.get("fuel_level"))}
-            </td>
+        cards += f"""
 
-            <td>
-                {format_distance(state.get("total_distance"))}
-            </td>
+        <a class="vehicle-link"
+           href="/vehicle/{vehicle_id}">
 
-        </tr>
+            <div class="card">
+
+                <h2>🚚 {vehicle_name}</h2>
+
+                <p>Prędkość: {speed_text}</p>
+
+                <p>Paliwo: {fuel}</p>
+
+                <p>Przebieg: {distance}</p>
+
+            </div>
+
+        </a>
+
         """
 
-    content = f"""
+    return page(
+        "Samochody",
+        f"""
 
-<h1>🚚 Samochody</h1>
+        <h1>🚚 Samochody</h1>
 
-<table>
+        <div class="cards">
+            {cards}
+        </div>
 
-<thead>
-
-<tr>
-
-<th>Samochód</th>
-<th>Status</th>
-<th>Paliwo</th>
-<th>Przebieg</th>
-
-</tr>
-
-</thead>
-
-<tbody>
-
-{rows}
-
-</tbody>
-
-</table>
-
-"""
-
-    return page("Samochody", content)
+        """
+    )
 
 
 @app.route("/vehicle/<vehicle_id>")
@@ -835,205 +513,87 @@ def vehicle(vehicle_id):
     if not logged_in():
         return redirect(url_for("login"))
 
+    vehicle_name = VEHICLES.get(
+        vehicle_id,
+        "Nieznany samochód"
+    )
+
     states = get_states()
 
-    state = None
-
-    for item in states:
-
-        if get_vehicle_id(item) == vehicle_id:
-
-            state = item
-
-            break
-
-    name = VEHICLES.get(
+    state = vehicle_status(
         vehicle_id,
-        "Nieznany pojazd"
+        states
     )
 
-    if not state:
+    latitude = None
+    longitude = None
 
-        content = f"""
+    speed = "—"
+    fuel = "—"
+    distance = "—"
+    signal_time = "—"
 
-        <a class="back"
-           href="/vehicles">
-           ← Samochody
-        </a>
+    if state:
 
-        <h1>{name}</h1>
+        location = state.get("location")
 
-        <div class="info">
+        if isinstance(location, dict):
 
-        Brak aktualnych danych z Navirec.
+            coordinates = location.get(
+                "coordinates"
+            )
 
-        </div>
+            if (
+                isinstance(coordinates, list)
+                and len(coordinates) >= 2
+            ):
 
-        """
+                longitude = coordinates[0]
+                latitude = coordinates[1]
 
-        return page(name, content)
+        if state.get("speed") is not None:
+            speed = f"{state.get('speed')} km/h"
 
-    speed = float(state.get("speed") or 0)
+        fuel = format_fuel(
+            state.get("fuel_level")
+        )
 
-    location = state.get("location") or {}
+        distance = format_distance(
+            state.get("total_distance")
+        )
 
-    coordinates = location.get(
-        "coordinates",
-        []
-    )
+        signal_time = state.get(
+            "time",
+            "—"
+        )
 
-    gps = "—"
-
-    lat = None
-    lon = None
-
-    if len(coordinates) >= 2:
-
-        lon = float(coordinates[0])
-        lat = float(coordinates[1])
-
-        gps = f"{lat}, {lon}"
-
-    status = vehicle_status(state)
-
-    if status.startswith("🟢"):
-        marker_color = "#16a34a"
-    elif status.startswith("🟡"):
-        marker_color = "#eab308"
-    else:
-        marker_color = "#dc2626"
-
-    map_html = ""
-
-    if lat is not None and lon is not None:
+    if latitude is not None and longitude is not None:
 
         map_html = f"""
 
-        <link
-        rel="stylesheet"
-        href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-        />
-
-        <div id="vehicle-map"
-             class="vehicle-map">
-        </div>
-
-        <script
-        src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
-        </script>
+        <div id="map" class="map"></div>
 
         <script>
 
-        var vehicleMap = L.map(
-            'vehicle-map'
-        ).setView(
-            [{lat}, {lon}],
-            12
+        const map = L.map('map').setView(
+            [{latitude}, {longitude}],
+            8
         );
 
-        var standard = L.tileLayer(
-
+        L.tileLayer(
             'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-
             {{
-
                 maxZoom: 19,
-
-                attribution:
-                '&copy; OpenStreetMap contributors'
-
+                attribution: '&copy; OpenStreetMap'
             }}
-
-        );
-
-        var satellite = L.tileLayer(
-
-            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
-
-            {{
-
-                maxZoom: 19,
-
-                attribution:
-                'Tiles &copy; Esri'
-
-            }}
-
-        );
-
-        var topographic = L.tileLayer(
-
-            'https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',
-
-            {{
-
-                maxZoom: 17,
-
-                attribution:
-                '&copy; OpenTopoMap contributors'
-
-            }}
-
-        );
-
-        standard.addTo(vehicleMap);
-
-        var vehicleLayers = {{
-
-            "🗺️ Standard": standard,
-
-            "🛰️ Satellite": satellite,
-
-            "⛰️ Topographic": topographic
-
-        }};
-
-        L.control.layers(
-
-            vehicleLayers,
-            null,
-            {{
-                position: 'topright',
-                collapsed: false
-            }}
-
-        ).addTo(vehicleMap);
-
-        var vehicleIcon = L.divIcon({{
-
-            className: 'truck-marker',
-
-            html:
-            '<div style="font-size:42px;color:{marker_color};text-shadow:0 1px 4px rgba(0,0,0,.6);">🚚</div>',
-
-            iconSize: [50, 50],
-
-            iconAnchor: [25, 25]
-
-        }});
+        ).addTo(map);
 
         L.marker(
-
-            [{lat}, {lon}],
-
-            {{
-                icon: vehicleIcon
-            }}
-
-        )
-
-        .addTo(vehicleMap)
-
+            [{latitude}, {longitude}]
+        ).addTo(map)
         .bindPopup(
-
-            "<b>{name}</b><br>" +
-            "{status}<br>" +
-            "Prędkość: {speed:.1f} km/h<br>" +
-            "Paliwo: {format_fuel(state.get("fuel_level"))}<br>" +
-            "GPS: {lat}, {lon}"
-
+            "{vehicle_name}"
         )
-
         .openPopup();
 
         </script>
@@ -1046,114 +606,57 @@ def vehicle(vehicle_id):
 
         <div class="info">
 
-            Brak współrzędnych GPS z Navirec.
+            Brak aktualnej lokalizacji GPS.
 
         </div>
 
         """
 
-    content = f"""
+    return page(
+        vehicle_name,
+        f"""
 
-<a class="back"
-   href="/vehicles">
-   ← Samochody
-</a>
+        <h1>🚚 {vehicle_name}</h1>
 
-<h1>🚚 {name}</h1>
+        <div class="cards">
 
-{map_html}
+            <div class="card">
+                <h2>Prędkość</h2>
+                <p>{speed}</p>
+            </div>
 
-<div class="refresh-info">
-    🔄 Dane aktualizują się automatycznie co 30 sekund.
-</div>
+            <div class="card">
+                <h2>Paliwo</h2>
+                <p>{fuel}</p>
+            </div>
 
-<div class="vehicle-info-grid">
+            <div class="card">
+                <h2>Przebieg</h2>
+                <p>{distance}</p>
+            </div>
 
-    <div class="vehicle-stat">
+            <div class="card">
+                <h2>Ostatni sygnał</h2>
+                <p>{signal_time}</p>
+            </div>
 
-        <div class="vehicle-stat-title">
-            Status
         </div>
 
-        <div class="vehicle-stat-value">
-            {status}
-        </div>
+        {map_html}
 
-    </div>
+        <script>
 
-    <div class="vehicle-stat">
+        setTimeout(
+            function() {{
+                location.reload();
+            }},
+            30000
+        );
 
-        <div class="vehicle-stat-title">
-            Prędkość
-        </div>
+        </script>
 
-        <div class="vehicle-stat-value">
-            {speed:.1f} km/h
-        </div>
-
-    </div>
-
-    <div class="vehicle-stat">
-
-        <div class="vehicle-stat-title">
-            Poziom paliwa
-        </div>
-
-        <div class="vehicle-stat-value">
-            {format_fuel(state.get("fuel_level"))}
-        </div>
-
-    </div>
-
-    <div class="vehicle-stat">
-
-        <div class="vehicle-stat-title">
-            Przebieg
-        </div>
-
-        <div class="vehicle-stat-value">
-            {format_distance(state.get("total_distance"))}
-        </div>
-
-    </div>
-
-    <div class="vehicle-stat">
-
-        <div class="vehicle-stat-title">
-            Ostatni sygnał
-        </div>
-
-        <div class="vehicle-stat-value">
-            {state.get("time") or "—"}
-        </div>
-
-    </div>
-
-    <div class="vehicle-stat">
-
-        <div class="vehicle-stat-title">
-            GPS
-        </div>
-
-        <div class="vehicle-stat-value">
-            {gps}
-        </div>
-
-    </div>
-
-</div>
-
-<script>
-
-setTimeout(function() {{
-    window.location.reload();
-}}, 30000);
-
-</script>
-
-"""
-
-    return page(name, content)
+        """
+    )
 
 
 @app.route("/fuel")
@@ -1164,104 +667,73 @@ def fuel():
 
     states = get_states()
 
-    cards = ""
+    rows = ""
 
-    for state in states:
+    for vehicle_id, vehicle_name in VEHICLES.items():
 
-        vehicle_id = get_vehicle_id(state)
-
-        name = VEHICLES.get(
+        state = vehicle_status(
             vehicle_id,
-            vehicle_id or "Nieznany pojazd"
+            states
         )
 
-        fuel = state.get("fuel_level")
+        if state:
 
-        try:
-
-            fuel_value = float(fuel)
-
-            width = max(
-                0,
-                min(100, fuel_value)
+            fuel_level = format_fuel(
+                state.get("fuel_level")
             )
 
-        except Exception:
+            distance = format_distance(
+                state.get("total_distance")
+            )
 
-            width = 0
+            signal_time = state.get(
+                "time",
+                "—"
+            )
 
-        cards += f"""
+        else:
 
-        <div class="fuel-card">
+            fuel_level = "—"
+            distance = "—"
+            signal_time = "—"
 
-            <h2>{name}</h2>
+        rows += f"""
 
-            <div class="fuel-percent">
-                {format_fuel(fuel)}
-            </div>
+        <div class="card">
 
-            <div class="progress">
-
-                <div class="progress-bar"
-                     style="width:{width}%">
-                </div>
-
-            </div>
+            <h2>🚚 {vehicle_name}</h2>
 
             <p>
-            Przebieg:
-            {format_distance(state.get("total_distance"))}
+                <b>Paliwo:</b>
+                {fuel_level}
             </p>
 
             <p>
-            Ostatni sygnał:
-            {state.get("time") or "—"}
+                <b>Przebieg:</b>
+                {distance}
+            </p>
+
+            <p>
+                <b>Ostatni sygnał:</b>
+                {signal_time}
             </p>
 
         </div>
 
         """
 
-    content = f"""
+    return page(
+        "Paliwo",
+        f"""
 
-<h1>⛽ Paliwo</h1>
+        <h1>⛽ Paliwo</h1>
 
-<div class="fuel-box">
+        <div class="cards">
+            {rows}
+        </div>
 
-{cards}
-
-</div>
-
-<div class="info">
-
-<h2>Historia tankowania</h2>
-
-<p>
-Moduł jest przygotowany do dalszego podłączenia
-danych o tankowaniach z Navirec.
-</p>
-
-<p>
-Tutaj będziemy docelowo widzieć:
-</p>
-
-<ul>
-
-<li>ilość zatankowanych litrów;</li>
-<li>datę i godzinę tankowania;</li>
-<li>miejsce tankowania;</li>
-<li>poziom paliwa przed i po tankowaniu;</li>
-<li>zużycie paliwa;</li>
-<li>koszt tankowania;</li>
-<li>historię dla każdego samochodu.</li>
-
-</ul>
-
-</div>
-
-"""
-
-    return page("Paliwo", content)
+        """
+    )
 
 
 @app.route("/gps")
@@ -1274,173 +746,82 @@ def gps():
 
     markers = ""
 
-    for state in states:
+    for vehicle_id, vehicle_name in VEHICLES.items():
 
-        vehicle_id = get_vehicle_id(state)
-
-        name = VEHICLES.get(
+        state = vehicle_status(
             vehicle_id,
-            vehicle_id or "Nieznany pojazd"
+            states
         )
 
-        location = state.get("location") or {}
-
-        coordinates = location.get(
-            "coordinates",
-            []
-        )
-
-        if len(coordinates) < 2:
+        if not state:
             continue
 
-        lon = coordinates[0]
-        lat = coordinates[1]
+        location = state.get("location")
 
-        status = vehicle_status(state)
+        if not isinstance(location, dict):
+            continue
 
-        if status.startswith("🟢"):
-            color = "#16a34a"
-        elif status.startswith("🟡"):
-            color = "#eab308"
-        else:
-            color = "#dc2626"
+        coordinates = location.get(
+            "coordinates"
+        )
 
-        safe_name = name.replace("'", "\\'")
-        safe_status = status.replace("'", "\\'")
+        if (
+            not isinstance(coordinates, list)
+            or len(coordinates) < 2
+        ):
+            continue
+
+        longitude = coordinates[0]
+        latitude = coordinates[1]
 
         markers += f"""
 
         L.marker(
-            [{lat}, {lon}],
-            {{
-                icon: L.divIcon({{
-                    className: 'truck-marker',
-
-                    html:
-                    '<div style="font-size:34px;color:{color};text-shadow:0 1px 3px rgba(0,0,0,.5);">🚚</div>',
-
-                    iconSize: [40, 40],
-
-                    iconAnchor: [20, 20]
-                }})
-            }}
+            [{latitude}, {longitude}]
         )
-
         .addTo(map)
-
         .bindPopup(
-            "<b>{safe_name}</b><br>" +
-            "{safe_status}<br>" +
-            "GPS: {lat}, {lon}"
+            "{vehicle_name}"
         );
 
         """
 
-    content = f"""
-
-<div class="gps-title">
-    🗺️ Navirec
-</div>
-
-<div id="map"></div>
-
-<link
-rel="stylesheet"
-href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
-/>
-
-<script
-src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
-</script>
-
-<script>
-
-var map = L.map('map').setView(
-    [52.3, 13.4],
-    6
-);
-
-var standard = L.tileLayer(
-
-    'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
-
-    {{
-
-        maxZoom: 19,
-
-        attribution:
-        '&copy; OpenStreetMap contributors'
-
-    }}
-
-);
-
-var satellite = L.tileLayer(
-
-    'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
-
-    {{
-
-        maxZoom: 19,
-
-        attribution:
-        'Tiles &copy; Esri'
-
-    }}
-
-);
-
-var topographic = L.tileLayer(
-
-    'https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',
-
-    {{
-
-        maxZoom: 17,
-
-        attribution:
-        '&copy; OpenTopoMap contributors'
-
-    }}
-
-);
-
-standard.addTo(map);
-
-var baseMaps = {{
-
-    "🗺️ Standard": standard,
-
-    "🛰️ Satellite": satellite,
-
-    "⛰️ Topographic": topographic
-
-}};
-
-L.control.layers(
-
-    baseMaps,
-    null,
-    {{
-
-        position: 'topright',
-
-        collapsed: false
-
-    }}
-
-).addTo(map);
-
-{markers}
-
-</script>
-
-"""
-
     return page(
-        "Navirec",
-        content,
-        gps_page=True
+        "GPS",
+        f"""
+
+        <h1>🗺️ GPS — wszystkie samochody</h1>
+
+        <div id="map" class="map"></div>
+
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        >
+
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+        </script>
+
+        <script>
+
+        const map = L.map('map').setView(
+            [51.1, 17.0],
+            6
+        );
+
+        L.tileLayer(
+            'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+            {{
+                maxZoom: 19,
+                attribution: '&copy; OpenStreetMap'
+            }}
+        ).addTo(map);
+
+        {markers}
+
+        </script>
+
+        """
     )
 
 
@@ -1465,11 +846,17 @@ def tachograph_test():
 
     try:
 
+        stream_headers = {
+            "Authorization": f"Token {NAVIREC_TOKEN}",
+            "Accept": "application/x-ndjson",
+        }
+
         response = requests.get(
             f"{NAVIREC_API}/streams/driver_states/",
-            headers=get_headers(),
+            headers=stream_headers,
             params={"account": ACCOUNT_ID},
-            timeout=20,
+            stream=True,
+            timeout=(10, 20),
         )
 
         content_type = response.headers.get(
@@ -1477,54 +864,76 @@ def tachograph_test():
             ""
         )
 
-        try:
-            data = response.json()
-        except Exception:
-            data = response.text
+        lines = []
 
-        formatted = ""
+        if response.status_code == 200:
 
-        if isinstance(data, (dict, list)):
+            for line in response.iter_lines(
+                decode_unicode=True
+            ):
 
-            import json
+                if line:
+
+                    lines.append(line)
+
+                if len(lines) >= 10:
+                    break
+
+        response.close()
+
+        parsed = []
+
+        for line in lines:
+
+            try:
+                parsed.append(
+                    json.loads(line)
+                )
+
+            except Exception:
+                parsed.append(line)
+
+        if parsed:
 
             formatted = json.dumps(
-                data,
+                parsed,
                 indent=2,
                 ensure_ascii=False
             )
 
         else:
 
-            formatted = str(data)
+            formatted = response.text
 
         content = f"""
 
-<h1>⏱️ Test tachografu</h1>
+        <h1>⏱️ Test tachografu</h1>
 
-<div class="info">
+        <div class="info">
 
-<h2>Odpowiedź Navirec</h2>
+            <h2>Odpowiedź Navirec</h2>
 
-<p>
-HTTP status: <b>{response.status_code}</b>
-</p>
+            <p>
+                HTTP status:
+                <b>{response.status_code}</b>
+            </p>
 
-<p>
-Content-Type: <b>{content_type}</b>
-</p>
+            <p>
+                Content-Type:
+                <b>{content_type}</b>
+            </p>
 
-</div>
+        </div>
 
-<div class="info">
+        <div class="info">
 
-<h2>driver_states</h2>
+            <h2>driver_states</h2>
 
-<pre class="test-json">{formatted}</pre>
+            <pre class="test-json">{formatted}</pre>
 
-</div>
+        </div>
 
-"""
+        """
 
         return page(
             "Tachograph Test",
@@ -1535,17 +944,17 @@ Content-Type: <b>{content_type}</b>
 
         content = f"""
 
-<h1>⏱️ Test tachografu</h1>
+        <h1>⏱️ Test tachografu</h1>
 
-<div class="info">
+        <div class="info">
 
-<h2>Błąd</h2>
+            <h2>Błąd</h2>
 
-<pre class="test-json">{str(error)}</pre>
+            <pre class="test-json">{str(error)}</pre>
 
-</div>
+        </div>
 
-"""
+        """
 
         return page(
             "Tachograph Test",
@@ -1556,17 +965,12 @@ Content-Type: <b>{content_type}</b>
 @app.route("/health")
 def health():
 
-    return "O&O TRANS OK"
+    return "O&O TRANS bot працює!"
 
 
 if __name__ == "__main__":
 
     app.run(
         host="0.0.0.0",
-        port=int(
-            os.environ.get(
-                "PORT",
-                10000
-            )
-        )
+        port=10000
     )
