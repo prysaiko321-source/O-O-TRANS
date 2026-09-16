@@ -1,15 +1,11 @@
 import os
 import json
-from datetime import datetime, timezone
 from flask import Flask, redirect, url_for, session, request
 import requests
 
 app = Flask(__name__)
 
-app.secret_key = os.environ.get(
-    "SESSION_SECRET",
-    "change-this-secret"
-)
+app.secret_key = os.environ.get("SESSION_SECRET", "change-this-secret")
 
 NAVIREC_TOKEN = os.environ.get("NAVIREC_TOKEN", "")
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
@@ -34,13 +30,6 @@ def get_headers():
         "Authorization": f"Token {NAVIREC_TOKEN}",
         "Accept": "application/json; version=1.52.1",
     }
-
-
-def get_vehicle_id(vehicle):
-    for vehicle_id, name in VEHICLES.items():
-        if name == vehicle:
-            return vehicle_id
-    return None
 
 
 def get_states():
@@ -99,7 +88,6 @@ def format_fuel(value):
 
 CSS = """
 <style>
-
 body {
     margin: 0;
     font-family: Arial, sans-serif;
@@ -167,13 +155,6 @@ nav a {
     color: inherit;
 }
 
-.status {
-    display: inline-block;
-    padding: 6px 10px;
-    border-radius: 8px;
-    background: #e5e7eb;
-}
-
 .map {
     width: 100%;
     height: 600px;
@@ -202,7 +183,6 @@ button {
     padding: 10px 18px;
     cursor: pointer;
 }
-
 </style>
 """
 
@@ -364,14 +344,8 @@ def home():
             else:
                 speed_text = "—"
 
-            fuel = format_fuel(
-                state.get("fuel_level")
-            )
-
-            distance = format_distance(
-                state.get("total_distance")
-            )
-
+            fuel = format_fuel(state.get("fuel_level"))
+            distance = format_distance(state.get("total_distance"))
             time_value = state.get("time", "—")
 
         else:
@@ -383,32 +357,16 @@ def home():
 
         cards += f"""
 
-        <a class="vehicle-link"
-           href="/vehicle/{vehicle_id}">
+        <a class="vehicle-link" href="/vehicle/{vehicle_id}">
 
             <div class="card">
 
                 <h2>🚚 {vehicle_name}</h2>
 
-                <p>
-                    <b>Prędkość:</b>
-                    {speed_text}
-                </p>
-
-                <p>
-                    <b>Paliwo:</b>
-                    {fuel}
-                </p>
-
-                <p>
-                    <b>Przebieg:</b>
-                    {distance}
-                </p>
-
-                <p>
-                    <b>Ostatni sygnał:</b>
-                    {time_value}
-                </p>
+                <p><b>Prędkość:</b> {speed_text}</p>
+                <p><b>Paliwo:</b> {fuel}</p>
+                <p><b>Przebieg:</b> {distance}</p>
+                <p><b>Ostatni sygnał:</b> {time_value}</p>
 
             </div>
 
@@ -416,19 +374,15 @@ def home():
 
         """
 
-    content = f"""
-
-    <h1>🏠 Dashboard</h1>
-
-    <div class="cards">
-        {cards}
-    </div>
-
-    """
-
     return page(
         "Dashboard",
-        content
+        f"""
+        <h1>🏠 Dashboard</h1>
+
+        <div class="cards">
+            {cards}
+        </div>
+        """
     )
 
 
@@ -444,10 +398,7 @@ def vehicles():
 
     for vehicle_id, vehicle_name in VEHICLES.items():
 
-        state = vehicle_status(
-            vehicle_id,
-            states
-        )
+        state = vehicle_status(vehicle_id, states)
 
         if state:
 
@@ -458,13 +409,8 @@ def vehicles():
             else:
                 speed_text = "—"
 
-            fuel = format_fuel(
-                state.get("fuel_level")
-            )
-
-            distance = format_distance(
-                state.get("total_distance")
-            )
+            fuel = format_fuel(state.get("fuel_level"))
+            distance = format_distance(state.get("total_distance"))
 
         else:
 
@@ -474,17 +420,14 @@ def vehicles():
 
         cards += f"""
 
-        <a class="vehicle-link"
-           href="/vehicle/{vehicle_id}">
+        <a class="vehicle-link" href="/vehicle/{vehicle_id}">
 
             <div class="card">
 
                 <h2>🚚 {vehicle_name}</h2>
 
                 <p>Prędkość: {speed_text}</p>
-
                 <p>Paliwo: {fuel}</p>
-
                 <p>Przebieg: {distance}</p>
 
             </div>
@@ -496,13 +439,11 @@ def vehicles():
     return page(
         "Samochody",
         f"""
-
         <h1>🚚 Samochody</h1>
 
         <div class="cards">
             {cards}
         </div>
-
         """
     )
 
@@ -527,7 +468,6 @@ def vehicle(vehicle_id):
 
     latitude = None
     longitude = None
-
     speed = "—"
     fuel = "—"
     distance = "—"
@@ -539,9 +479,7 @@ def vehicle(vehicle_id):
 
         if isinstance(location, dict):
 
-            coordinates = location.get(
-                "coordinates"
-            )
+            coordinates = location.get("coordinates")
 
             if (
                 isinstance(coordinates, list)
@@ -554,24 +492,22 @@ def vehicle(vehicle_id):
         if state.get("speed") is not None:
             speed = f"{state.get('speed')} km/h"
 
-        fuel = format_fuel(
-            state.get("fuel_level")
-        )
-
-        distance = format_distance(
-            state.get("total_distance")
-        )
-
-        signal_time = state.get(
-            "time",
-            "—"
-        )
+        fuel = format_fuel(state.get("fuel_level"))
+        distance = format_distance(state.get("total_distance"))
+        signal_time = state.get("time", "—")
 
     if latitude is not None and longitude is not None:
 
         map_html = f"""
 
         <div id="map" class="map"></div>
+
+        <link
+            rel="stylesheet"
+            href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+        >
+
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
         <script>
 
@@ -591,9 +527,7 @@ def vehicle(vehicle_id):
         L.marker(
             [{latitude}, {longitude}]
         ).addTo(map)
-        .bindPopup(
-            "{vehicle_name}"
-        )
+        .bindPopup("{vehicle_name}")
         .openPopup();
 
         </script>
@@ -603,13 +537,9 @@ def vehicle(vehicle_id):
     else:
 
         map_html = """
-
         <div class="info">
-
             Brak aktualnej lokalizacji GPS.
-
         </div>
-
         """
 
     return page(
@@ -678,18 +608,9 @@ def fuel():
 
         if state:
 
-            fuel_level = format_fuel(
-                state.get("fuel_level")
-            )
-
-            distance = format_distance(
-                state.get("total_distance")
-            )
-
-            signal_time = state.get(
-                "time",
-                "—"
-            )
+            fuel_level = format_fuel(state.get("fuel_level"))
+            distance = format_distance(state.get("total_distance"))
+            signal_time = state.get("time", "—")
 
         else:
 
@@ -703,20 +624,9 @@ def fuel():
 
             <h2>🚚 {vehicle_name}</h2>
 
-            <p>
-                <b>Paliwo:</b>
-                {fuel_level}
-            </p>
-
-            <p>
-                <b>Przebieg:</b>
-                {distance}
-            </p>
-
-            <p>
-                <b>Ostatni sygnał:</b>
-                {signal_time}
-            </p>
+            <p><b>Paliwo:</b> {fuel_level}</p>
+            <p><b>Przebieg:</b> {distance}</p>
+            <p><b>Ostatni sygnał:</b> {signal_time}</p>
 
         </div>
 
@@ -761,9 +671,7 @@ def gps():
         if not isinstance(location, dict):
             continue
 
-        coordinates = location.get(
-            "coordinates"
-        )
+        coordinates = location.get("coordinates")
 
         if (
             not isinstance(coordinates, list)
@@ -780,9 +688,7 @@ def gps():
             [{latitude}, {longitude}]
         )
         .addTo(map)
-        .bindPopup(
-            "{vehicle_name}"
-        );
+        .bindPopup("{vehicle_name}");
 
         """
 
@@ -799,8 +705,7 @@ def gps():
             href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
         >
 
-        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
-        </script>
+        <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 
         <script>
 
@@ -848,7 +753,7 @@ def tachograph_test():
 
         stream_headers = {
             "Authorization": f"Token {NAVIREC_TOKEN}",
-            "Accept": "application/x-ndjson",
+            "Accept": "application/x-ndjson; version=1.0",
         }
 
         response = requests.get(
@@ -873,7 +778,6 @@ def tachograph_test():
             ):
 
                 if line:
-
                     lines.append(line)
 
                 if len(lines) >= 10:
@@ -886,10 +790,7 @@ def tachograph_test():
         for line in lines:
 
             try:
-                parsed.append(
-                    json.loads(line)
-                )
-
+                parsed.append(json.loads(line))
             except Exception:
                 parsed.append(line)
 
@@ -903,7 +804,7 @@ def tachograph_test():
 
         else:
 
-            formatted = response.text
+            formatted = "Brak danych."
 
         content = f"""
 
@@ -942,29 +843,26 @@ def tachograph_test():
 
     except Exception as error:
 
-        content = f"""
-
-        <h1>⏱️ Test tachografu</h1>
-
-        <div class="info">
-
-            <h2>Błąd</h2>
-
-            <pre class="test-json">{str(error)}</pre>
-
-        </div>
-
-        """
-
         return page(
             "Tachograph Test",
-            content
+            f"""
+
+            <h1>⏱️ Test tachografu</h1>
+
+            <div class="info">
+
+                <h2>Błąd</h2>
+
+                <pre class="test-json">{str(error)}</pre>
+
+            </div>
+
+            """
         )
 
 
 @app.route("/health")
 def health():
-
     return "O&O TRANS bot працює!"
 
 
