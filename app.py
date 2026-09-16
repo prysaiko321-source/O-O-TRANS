@@ -2,6 +2,7 @@ import os
 from functools import wraps
 from flask import Flask, request, redirect, url_for, session, render_template_string
 import requests
+from datetime import datetime, timezone
 
 app = Flask(__name__)
 
@@ -9,7 +10,7 @@ app = Flask(__name__)
 # O&O TRANS SETTINGS
 # =========================
 
-app.secret_key = os.getenv("SESSION_SECRET", "oo-trans-session-change-me")
+app.secret_key = os.getenv("SESSION_SECRET", "change-this-secret")
 
 ADMIN_USER = os.getenv("ADMIN_USER", "admin")
 ADMIN_PASSWORD = os.getenv("ADMIN_PASSWORD", "")
@@ -27,7 +28,7 @@ VEHICLES = {
 
 
 # =========================
-# AUTH
+# LOGIN
 # =========================
 
 def login_required(function):
@@ -40,87 +41,13 @@ def login_required(function):
     return wrapper
 
 
-# =========================
-# NAVIREC
-# =========================
-
-def navirec_states():
-    if not NAVIREC_TOKEN:
-        return []
-
-    url = f"{NAVIREC_API}/last_vehicle_states/"
-
-    headers = {
-        "Authorization": f"Token {NAVIREC_TOKEN}",
-        "Accept": "application/json; version=1.52.1",
-    }
-
-    params = {
-        "account": ACCOUNT_ID
-    }
-
-    try:
-        response = requests.get(
-            url,
-            headers=headers,
-            params=params,
-            timeout=20
-        )
-
-        if response.status_code != 200:
-            return []
-
-        data = response.json()
-
-        if isinstance(data, dict):
-            return data.get("results", [])
-
-        return data
-
-    except Exception:
-        return []
-
-
-def vehicle_status(vehicle):
-    speed = vehicle.get("speed") or 0
-    time_value = vehicle.get("time")
-
-    if not time_value:
-        return "🔴 Brak sygnału", "red"
-
-    try:
-        from datetime import datetime, timezone
-
-        last_time = datetime.fromisoformat(
-            time_value.replace("Z", "+00:00")
-        )
-
-        now = datetime.now(timezone.utc)
-        minutes = (now - last_time).total_seconds() / 60
-
-        if minutes > 30:
-            return "🔴 Brak połączenia", "red"
-
-    except Exception:
-        pass
-
-    if speed > 3:
-        return "🟢 W trasie", "green"
-
-    return "🟡 Postój", "yellow"
-
-
-# =========================
-# LOGIN PAGE
-# =========================
-
 LOGIN_HTML = """
 <!doctype html>
-<html lang="uk">
+<html lang="pl">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>O&O TRANS — Login</title>
+<title>O&O TRANS — Logowanie</title>
 
 <style>
 body {
@@ -215,7 +142,7 @@ button {
 >
 
 <button type="submit">
-    Zaloguj się
+Zaloguj się
 </button>
 
 </form>
@@ -263,12 +190,143 @@ def logout():
 
 
 # =========================
-# MAIN DASHBOARD
+# NAVIREC
+# =========================
+
+def navirec_states():
+
+    if not NAVIREC_TOKEN:
+        return []
+
+    url = f"{NAVIREC_API}/last_vehicle_states/"
+
+    headers = {
+        "Authorization": f"Token {NAVIREC_TOKEN}",
+        "Accept": "application/json; version=1.52.1",
+    }
+
+    params = {
+        "account": ACCOUNT_ID
+    }
+
+    try:
+
+        response = requests.get(
+            url,
+            headers=headers,
+            params=params,
+            timeout=20
+        )
+
+        if response.status_code != 200:
+            return []
+
+        data = response.json()
+
+        if isinstance(data, dict):
+            return data.get("results", [])
+
+        return data
+
+    except Exception:
+        return []
+
+
+def get_vehicle_id(state):
+
+    vehicle = state.get("vehicle")
+
+    if isinstance(vehicle, dict):
+
+        vehicle_id = vehicle.get("id")
+
+        if vehicle_id:
+            return vehicle_id
+
+        vehicle_url = vehicle.get("url")
+
+        if vehicle_url:
+            return vehicle_url.rstrip("/").split("/")[-1]
+
+    if isinstance(vehicle, str):
+
+        if "/vehicles/" in vehicle:
+            return vehicle.rstrip("/").split("/")[-1]
+
+        return vehicle
+
+    return None
+
+
+def vehicle_status(vehicle):
+
+    speed = float(vehicle.get("speed") or 0)
+
+    time_value = vehicle.get("time")
+
+    if not time_value:
+        return "🔴 Brak połączenia", "red"
+
+    try:
+
+        last_time = datetime.fromisoformat(
+            time_value.replace("Z", "+00:00")
+        )
+
+        now = datetime.now(timezone.utc)
+
+        minutes = (
+            now - last_time
+        ).total_seconds() / 60
+
+        if minutes > 30:
+            return "🔴 Brak połączenia", "red"
+
+    except Exception:
+        pass
+
+    if speed > 3:
+        return "🟢 W trasie", "green"
+
+    return "🟡 Postój", "yellow"
+
+
+def format_distance(value):
+
+    if value is None:
+        return "—"
+
+    try:
+
+        # Navirec zwraca total_distance w metrach.
+        # Zamieniamy na kilometry.
+        km = float(value) / 1000
+
+        return f"{km:,.1f}".replace(",", " ")
+
+    except Exception:
+
+        return "—"
+
+
+def format_fuel(value):
+
+    if value is None:
+        return "—"
+
+    try:
+        return f"{float(value):.1f}"
+    except Exception:
+        return "—"
+
+
+# =========================
+# DASHBOARD
 # =========================
 
 DASHBOARD_HTML = """
 <!doctype html>
-<html lang="uk">
+<html lang="pl">
 
 <head>
 
@@ -330,7 +388,7 @@ body {
     color:#64748b;
     font-size:12px;
     text-transform:uppercase;
-    margin:12px 12px;
+    margin:12px;
 }
 
 .menu a {
@@ -525,7 +583,6 @@ O&O TRANS
 
 </div>
 
-
 <div class="table-box">
 
 <h2>Samochody</h2>
@@ -611,34 +668,49 @@ def dashboard():
 
     for state in states:
 
-        vehicle_id = state.get("vehicle")
-
-        if isinstance(vehicle_id, dict):
-            vehicle_id = vehicle_id.get("id")
+        vehicle_id = get_vehicle_id(state)
 
         name = VEHICLES.get(
             vehicle_id,
-            str(vehicle_id or "Nieznany")
+            "Nieznany samochód"
         )
 
         status, status_color = vehicle_status(state)
 
         if status_color == "green":
             moving += 1
+
         elif status_color == "yellow":
             stopped += 1
+
         else:
             offline += 1
 
         vehicles.append({
+
             "id": vehicle_id,
+
             "name": name,
+
             "status": status,
+
             "status_color": status_color,
-            "speed": round(float(state.get("speed") or 0), 1),
-            "fuel": state.get("fuel_level") if state.get("fuel_level") is not None else "—",
-            "distance": round(float(state.get("total_distance") or 0), 1),
+
+            "speed": round(
+                float(state.get("speed") or 0),
+                1
+            ),
+
+            "fuel": format_fuel(
+                state.get("fuel_level")
+            ),
+
+            "distance": format_distance(
+                state.get("total_distance")
+            ),
+
             "time": state.get("time") or "—",
+
         })
 
     return render_template_string(
@@ -652,12 +724,13 @@ def dashboard():
 
 
 # =========================
-# VEHICLES PAGE
+# VEHICLES
 # =========================
 
 @app.route("/vehicles")
 @login_required
 def vehicles_page():
+
     return redirect(url_for("dashboard"))
 
 
@@ -667,12 +740,15 @@ def vehicles_page():
 
 VEHICLE_HTML = """
 <!doctype html>
-<html lang="uk">
+
+<html lang="pl">
 
 <head>
 
 <meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
+
+<meta name="viewport"
+content="width=device-width,initial-scale=1">
 
 <title>{{ name }} — O&O TRANS</title>
 
@@ -791,10 +867,7 @@ def vehicle(vehicle_id):
 
     for state in states:
 
-        current_id = state.get("vehicle")
-
-        if isinstance(current_id, dict):
-            current_id = current_id.get("id")
+        current_id = get_vehicle_id(state)
 
         if current_id == vehicle_id:
             selected = state
@@ -826,16 +899,27 @@ def vehicle(vehicle_id):
 
     gps = "—"
 
-    if coordinates:
-        gps = f"{coordinates[1]}, {coordinates[0]}"
+    if coordinates and len(coordinates) >= 2:
+
+        gps = (
+            f"{coordinates[1]}, "
+            f"{coordinates[0]}"
+        )
 
     return render_template_string(
         VEHICLE_HTML,
         name=name,
         status=status,
-        speed=round(float(selected.get("speed") or 0), 1),
-        fuel=selected.get("fuel_level") if selected.get("fuel_level") is not None else "—",
-        distance=round(float(selected.get("total_distance") or 0), 1),
+        speed=round(
+            float(selected.get("speed") or 0),
+            1
+        ),
+        fuel=format_fuel(
+            selected.get("fuel_level")
+        ),
+        distance=format_distance(
+            selected.get("total_distance")
+        ),
         time=selected.get("time") or "—",
         gps=gps
     )
@@ -848,7 +932,7 @@ def vehicle(vehicle_id):
 GPS_HTML = """
 <!doctype html>
 
-<html lang="uk">
+<html lang="pl">
 
 <head>
 
@@ -890,10 +974,6 @@ body {
     height:calc(100vh - 65px);
 }
 
-.truck {
-    font-size:28px;
-}
-
 </style>
 
 </head>
@@ -929,7 +1009,12 @@ const markers = [];
 
 vehicles.forEach(v => {
 
-    if (!v.lat || !v.lon) {
+    if (
+        v.lat === null ||
+        v.lon === null ||
+        v.lat === undefined ||
+        v.lon === undefined
+    ) {
         return;
     }
 
@@ -944,7 +1029,9 @@ vehicles.forEach(v => {
     }
 
     const icon = L.divIcon({
+
         className:'',
+
         html:`<div style="
             font-size:32px;
             filter:
@@ -955,25 +1042,40 @@ vehicles.forEach(v => {
                 : 'grayscale(1) saturate(8)'
             };
         ">🚚</div>`,
+
         iconSize:[40,40],
+
         iconAnchor:[20,20]
+
     });
 
     const marker = L.marker(
-        [v.lat,v.lon],
+        [v.lat, v.lon],
         {icon:icon}
     ).addTo(map);
 
     marker.bindPopup(`
+
         <b>${v.name}</b><br>
+
         ${v.status}<br>
-        Prędkość: ${v.speed} km/h<br>
-        Paliwo: ${v.fuel}%<br>
-        Przebieg: ${v.distance} km<br>
-        Ostatni sygnał: ${v.time}<br><br>
+
+        Prędkość:
+        ${v.speed} km/h<br>
+
+        Paliwo:
+        ${v.fuel}%<br>
+
+        Przebieg:
+        ${v.distance} km<br>
+
+        Ostatni sygnał:
+        ${v.time}<br><br>
+
         <a href="/vehicle/${v.id}">
         Otwórz szczegóły
         </a>
+
     `);
 
     markers.push(marker);
@@ -982,7 +1084,8 @@ vehicles.forEach(v => {
 
 if (markers.length > 0) {
 
-    const group = L.featureGroup(markers);
+    const group =
+        L.featureGroup(markers);
 
     map.fitBounds(
         group.getBounds().pad(.15)
@@ -1007,36 +1110,54 @@ def gps():
 
     for state in states:
 
-        vehicle_id = state.get("vehicle")
-
-        if isinstance(vehicle_id, dict):
-            vehicle_id = vehicle_id.get("id")
+        vehicle_id = get_vehicle_id(state)
 
         name = VEHICLES.get(
             vehicle_id,
-            str(vehicle_id or "Nieznany")
+            "Nieznany samochód"
         )
 
         location = state.get("location") or {}
 
         coordinates = location.get("coordinates")
 
-        if not coordinates:
+        if (
+            not coordinates
+            or len(coordinates) < 2
+        ):
             continue
 
         status, status_color = vehicle_status(state)
 
         vehicles.append({
+
             "id": vehicle_id,
+
             "name": name,
+
             "lat": coordinates[1],
+
             "lon": coordinates[0],
+
             "status": status,
+
             "status_color": status_color,
-            "speed": round(float(state.get("speed") or 0), 1),
-            "fuel": state.get("fuel_level") if state.get("fuel_level") is not None else "—",
-            "distance": round(float(state.get("total_distance") or 0), 1),
+
+            "speed": round(
+                float(state.get("speed") or 0),
+                1
+            ),
+
+            "fuel": format_fuel(
+                state.get("fuel_level")
+            ),
+
+            "distance": format_distance(
+                state.get("total_distance")
+            ),
+
             "time": state.get("time") or "—",
+
         })
 
     return render_template_string(
@@ -1051,6 +1172,7 @@ def gps():
 
 @app.route("/health")
 def health():
+
     return "O&O TRANS OK"
 
 
