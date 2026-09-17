@@ -32,7 +32,38 @@ COMPANY_NAME = os.environ.get("COMPANY_NAME", "O&O TRANS")
 COMPANY_ID = os.environ.get("COMPANY_ID", "O&O-TRANS")
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+DISPATCHER_USER = os.environ.get("DISPATCHER_USER", "")
+DISPATCHER_PASSWORD = os.environ.get("DISPATCHER_PASSWORD", "")
+DRIVER_USER = os.environ.get("DRIVER_USER", "")
+DRIVER_PASSWORD = os.environ.get("DRIVER_PASSWORD", "")
 POLAND_TZ = ZoneInfo("Europe/Warsaw")
+
+ROLE_LABELS = {
+    "director": "Директор",
+    "dispatcher": "Логіст",
+    "driver": "Водій"
+}
+
+ROLE_HOME_ENDPOINTS = {
+    "director": "home",
+    "dispatcher": "dispatcher_dashboard",
+    "driver": "driver_dashboard"
+}
+
+ROLE_ENDPOINTS = {
+    "dispatcher": {
+        "dispatcher_dashboard",
+        "vehicles",
+        "vehicle_page",
+        "gps",
+        "history",
+        "fuel",
+        "tachograph"
+    },
+    "driver": {
+        "driver_dashboard"
+    }
+}
 
 VEHICLES = [
     {
@@ -52,6 +83,28 @@ VEHICLES = [
 
 def is_logged_in():
     return bool(session.get("logged_in"))
+
+
+def current_role():
+    if not is_logged_in():
+        return ""
+
+    role = session.get("role")
+
+    if role in ROLE_LABELS:
+        return role
+
+    # Сумісність зі старими сесіями директора.
+    return "director"
+
+
+def role_home_url(role=None):
+    selected_role = role or current_role() or "director"
+    endpoint = ROLE_HOME_ENDPOINTS.get(
+        selected_role,
+        "home"
+    )
+    return url_for(endpoint)
 
 
 def vehicle_by_id(vehicle_id):
@@ -744,26 +797,61 @@ def get_total_number(data, names):
 
 
 def page(title, body, active=""):
-    nav = """
-    <nav class="nav">
-        <a href="/" class="{0}">Головна</a>
-        <a href="/vehicles" class="{1}">Автомобілі</a>
-        <a href="/gps" class="{2}">GPS</a>
-        <a href="/history" class="{3}">Історія маршрутів</a>
-        <a href="/fuel" class="{4}">Паливо</a>
-        <a href="/tachograph" class="{5}">Тахограф</a>
-        <a href="/health" class="{6}">Health</a>
-        <a href="/logout">Вийти</a>
-    </nav>
-    """.format(
-        "active" if active == "home" else "",
-        "active" if active == "vehicles" else "",
-        "active" if active == "gps" else "",
-        "active" if active == "history" else "",
-        "active" if active == "fuel" else "",
-        "active" if active == "tachograph" else "",
-        "active" if active == "health" else ""
+    role = current_role()
+
+    if role == "driver":
+        nav_items = [
+            ("driver", "/driver", "Мої рейси")
+        ]
+    elif role == "dispatcher":
+        nav_items = [
+            ("dispatcher", "/dispatcher", "Робоча панель"),
+            ("vehicles", "/vehicles", "Автомобілі"),
+            ("gps", "/gps", "GPS"),
+            ("history", "/history", "Історія маршрутів"),
+            ("fuel", "/fuel", "Паливо"),
+            ("tachograph", "/tachograph", "Тахограф")
+        ]
+    elif role == "director":
+        nav_items = [
+            ("home", "/", "Головна"),
+            ("vehicles", "/vehicles", "Автомобілі"),
+            ("gps", "/gps", "GPS"),
+            ("history", "/history", "Історія маршрутів"),
+            ("fuel", "/fuel", "Паливо"),
+            ("tachograph", "/tachograph", "Тахограф"),
+            ("health", "/health", "Health")
+        ]
+    else:
+        nav_items = []
+
+    nav_links = []
+
+    for item_active, href, label in nav_items:
+        css_class = "active" if active == item_active else ""
+        nav_links.append(
+            '<a href="{}" class="{}">{}</a>'.format(
+                href,
+                css_class,
+                label
+            )
+        )
+
+    if role:
+        nav_links.append('<a href="/logout">Вийти</a>')
+
+    nav = '<nav class="nav">{}</nav>'.format(
+        "".join(nav_links)
     )
+
+    role_badge = ""
+
+    if role:
+        role_badge = (
+            '<div class="small" style="margin-top:5px;color:#dfe6e9">'
+            'Роль: <strong>{}</strong>'
+            '</div>'
+        ).format(ROLE_LABELS.get(role, role))
 
     return """
 <!doctype html>
@@ -1046,6 +1134,7 @@ button,
 
 <div class="topbar">
     <div class="brand">{company}</div>
+    {role_badge}
     {nav}
 </div>
 
@@ -1060,36 +1149,79 @@ button,
         title=title,
         company=COMPANY_NAME,
         nav=nav,
+        role_badge=role_badge,
         body=body,
         extra_head=""
     )
 
 
-@app.route("/login", methods=["GET", "POST"])
-def login():
+@app.route(
+    "/login",
+    defaults={"role": None},
+    methods=["GET", "POST"]
+)
+@app.route("/login/<role>", methods=["GET", "POST"])
+def login(role):
+    if role is None:
+        body = """
+        <div class="grid">
+            <div class="card">
+                <h2>Директор</h2>
+                <p>Повний доступ до всієї системи.</p>
+                <a class="button" href="/login/director">Увійти</a>
+            </div>
+            <div class="card">
+                <h2>Логіст</h2>
+                <p>Рейси, автомобілі, GPS і робочі документи.</p>
+                <a class="button" href="/login/dispatcher">Увійти</a>
+            </div>
+            <div class="card">
+                <h2>Водій</h2>
+                <p>Власні завдання, статуси рейсу та CMR.</p>
+                <a class="button" href="/login/driver">Увійти</a>
+            </div>
+        </div>
+        """
+        return page("Виберіть вхід", body)
+
+    if role not in ROLE_LABELS:
+        return redirect(url_for("login"))
+
+    credentials = {
+        "director": (ADMIN_USER, ADMIN_PASSWORD),
+        "dispatcher": (
+            DISPATCHER_USER,
+            DISPATCHER_PASSWORD
+        ),
+        "driver": (DRIVER_USER, DRIVER_PASSWORD)
+    }
+
+    expected_user, expected_password = credentials[role]
+
     if request.method == "POST":
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
         credentials_configured = bool(
-            ADMIN_USER and ADMIN_PASSWORD
+            expected_user and expected_password
         )
 
         credentials_valid = (
             credentials_configured
-            and hmac.compare_digest(username, ADMIN_USER)
-            and hmac.compare_digest(password, ADMIN_PASSWORD)
+            and hmac.compare_digest(username, expected_user)
+            and hmac.compare_digest(password, expected_password)
         )
 
         if credentials_valid:
             session["logged_in"] = True
-            return redirect(url_for("home"))
+            session["role"] = role
+            session["username"] = username
+            return redirect(role_home_url(role))
 
         if not credentials_configured:
             error = (
                 "<p class='error'>"
-                "Вхід тимчасово недоступний: адміністратор "
-                "ще не налаштував ADMIN_USER і ADMIN_PASSWORD."
+                "Цей вхід ще не налаштований адміністратором."
                 "</p>"
             )
         else:
@@ -1130,7 +1262,10 @@ def login():
     </div>
     """.format(error=error)
 
-    return page("Вхід", body)
+    return page(
+        "Вхід: " + ROLE_LABELS[role],
+        body
+    )
 
 
 @app.route("/logout")
@@ -1141,18 +1276,77 @@ def logout():
 
 @app.before_request
 def require_login():
-    public_paths = {
-        "/login",
-        "/health"
-    }
-
-    if request.path in public_paths:
+    if (
+        request.path == "/health"
+        or request.path == "/login"
+        or request.path.startswith("/login/")
+    ):
         return None
 
     if not is_logged_in():
         return redirect(url_for("login"))
 
-    return None
+    role = current_role()
+
+    if role == "director":
+        return None
+
+    allowed_endpoints = ROLE_ENDPOINTS.get(role, set())
+
+    if (
+        request.endpoint in allowed_endpoints
+        or request.endpoint == "logout"
+    ):
+        return None
+
+    return redirect(role_home_url(role))
+
+
+@app.route("/director")
+def director_dashboard():
+    return redirect(url_for("home"))
+
+
+@app.route("/dispatcher")
+def dispatcher_dashboard():
+    body = """
+    <div class="card">
+        <h2>Робоча панель логіста</h2>
+        <p>
+            Тут будуть замовлення, призначення автомобілів і водіїв,
+            статуси рейсів та транспортні документи.
+        </p>
+        <p class="small">
+            Фінанси директора й особистий кабінет водія недоступні.
+        </p>
+    </div>
+    """
+    return page(
+        "Кабінет логіста",
+        body,
+        "dispatcher"
+    )
+
+
+@app.route("/driver")
+def driver_dashboard():
+    body = """
+    <div class="card">
+        <h2>Мої рейси</h2>
+        <p>
+            Тут водій отримуватиме роботу, змінюватиме статус рейсу
+            та завантажуватиме CMR, фотографії й скани документів.
+        </p>
+        <p class="small">
+            Інформація інших водіїв, логіста та директора недоступна.
+        </p>
+    </div>
+    """
+    return page(
+        "Кабінет водія",
+        body,
+        "driver"
+    )
 
 
 @app.route("/")
