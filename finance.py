@@ -839,7 +839,28 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 },
                 timeout=30
             )
-            response.raise_for_status()
+            if not response.ok:
+                try:
+                    error_data = response.json()
+                    error_name = clean_text(
+                        error_data.get("error"),
+                        80
+                    )
+                    error_description = clean_text(
+                        error_data.get("error_description"),
+                        300
+                    )
+                    detail = ": ".join(
+                        value
+                        for value in (error_name, error_description)
+                        if value
+                    )
+                except Exception:
+                    detail = clean_text(response.text, 300)
+
+                raise RuntimeError(
+                    detail or f"Google OAuth HTTP {response.status_code}"
+                )
             token_data = response.json()
             access_token = token_data.get("access_token", "")
             profile = gmail_request("profile", access_token)
