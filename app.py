@@ -11,22 +11,22 @@ app = Flask(__name__)
 # O&O TRANS TRANSPORT PLATFORM
 # =========================================================
 #
-# Основа майбутнього окремого транспортного додатка.
+# Standalone transport management platform.
 #
-# Архітектура:
+# Architecture:
 #
-# Компанія
-#    ↓
-# Користувачі
-#    ↓
-# Автомобілі
-#    ↓
+# Company
+#   ↓
+# Users
+#   ↓
+# Vehicles
+#   ↓
 # Navirec
-#    ↓
-# GPS / Паливо / Маршрути / Тахограф
+#   ↓
+# GPS / Fuel / Routes / Tachograph
 #
-# У майбутньому кожна транспортна фірма матиме
-# власні автомобілі та власні дані.
+# O&O TRANS is the first company.
+# The platform is prepared for future multi-company use.
 # =========================================================
 
 
@@ -806,6 +806,413 @@ def format_number(value):
 
 
 # =========================================================
+# HISTORY / TRAIL HELPERS
+# =========================================================
+
+def normalize_history_point(point):
+
+    """
+    Converts different possible Navirec trail point structures
+    into a simple internal format:
+
+    {
+        lat,
+        lon,
+        time,
+        speed,
+        fuel,
+        heading,
+        activity
+    }
+    """
+
+    if not isinstance(point, dict):
+
+        return None
+
+    # -----------------------------------------
+    # LOCATION
+    # -----------------------------------------
+
+    latitude = None
+    longitude = None
+
+    location = point.get("location")
+
+    if isinstance(location, dict):
+
+        coordinates = location.get(
+            "coordinates"
+        )
+
+        if (
+            isinstance(coordinates, list)
+            and len(coordinates) >= 2
+        ):
+
+            try:
+
+                longitude = float(
+                    coordinates[0]
+                )
+
+                latitude = float(
+                    coordinates[1]
+                )
+
+            except Exception:
+
+                pass
+
+        else:
+
+            try:
+
+                if location.get("latitude") is not None:
+
+                    latitude = float(
+                        location.get("latitude")
+                    )
+
+                if location.get("longitude") is not None:
+
+                    longitude = float(
+                        location.get("longitude")
+                    )
+
+            except Exception:
+
+                pass
+
+    # -----------------------------------------
+    # DIRECT COORDINATES
+    # -----------------------------------------
+
+    if latitude is None:
+
+        for key in (
+            "latitude",
+            "lat"
+        ):
+
+            if point.get(key) is not None:
+
+                try:
+
+                    latitude = float(
+                        point.get(key)
+                    )
+
+                    break
+
+                except Exception:
+
+                    pass
+
+    if longitude is None:
+
+        for key in (
+            "longitude",
+            "lon",
+            "lng"
+        ):
+
+            if point.get(key) is not None:
+
+                try:
+
+                    longitude = float(
+                        point.get(key)
+                    )
+
+                    break
+
+                except Exception:
+
+                    pass
+
+    if latitude is None or longitude is None:
+
+        return None
+
+    # -----------------------------------------
+    # TIME
+    # -----------------------------------------
+
+    point_time = (
+        point.get("time")
+        or point.get("timestamp")
+        or point.get("datetime")
+        or point.get("received_at")
+    )
+
+    # -----------------------------------------
+    # SPEED
+    # -----------------------------------------
+
+    point_speed = (
+        point.get("speed")
+        or point.get("vehicle_speed")
+    )
+
+    try:
+
+        if point_speed is not None:
+
+            point_speed = round(
+                float(point_speed),
+                1
+            )
+
+    except Exception:
+
+        pass
+
+    # -----------------------------------------
+    # FUEL
+    # -----------------------------------------
+
+    point_fuel = (
+        point.get("fuel_level")
+        or point.get("fuel")
+    )
+
+    try:
+
+        if point_fuel is not None:
+
+            point_fuel = round(
+                float(point_fuel),
+                1
+            )
+
+    except Exception:
+
+        pass
+
+    # -----------------------------------------
+    # HEADING
+    # -----------------------------------------
+
+    point_heading = (
+        point.get("heading")
+        or point.get("course")
+    )
+
+    # -----------------------------------------
+    # ACTIVITY
+    # -----------------------------------------
+
+    point_activity = point.get(
+        "activity"
+    )
+
+    return {
+
+        "lat":
+            latitude,
+
+        "lon":
+            longitude,
+
+        "time":
+            point_time,
+
+        "speed":
+            point_speed,
+
+        "fuel":
+            point_fuel,
+
+        "heading":
+            point_heading,
+
+        "activity":
+            point_activity,
+
+    }
+
+
+def extract_trail_from_state(state):
+
+    """
+    Reads the currently available Navirec trail.
+
+    The live /last_vehicle_states/ response can contain
+    a recent trail. This function deliberately accepts
+    several possible structures so the application does
+    not break if Navirec returns the trail differently.
+    """
+
+    if not isinstance(state, dict):
+
+        return []
+
+    possible_keys = (
+        "trail",
+        "track",
+        "route",
+        "history",
+        "points",
+    )
+
+    raw_trail = None
+
+    for key in possible_keys:
+
+        value = state.get(key)
+
+        if isinstance(value, list):
+
+            raw_trail = value
+
+            break
+
+        if isinstance(value, dict):
+
+            for nested_key in (
+                "points",
+                "trail",
+                "track",
+                "route",
+                "history",
+            ):
+
+                nested = value.get(
+                    nested_key
+                )
+
+                if isinstance(nested, list):
+
+                    raw_trail = nested
+
+                    break
+
+        if raw_trail is not None:
+
+            break
+
+    if not raw_trail:
+
+        return []
+
+    result = []
+
+    for point in raw_trail:
+
+        normalized = normalize_history_point(
+            point
+        )
+
+        if normalized:
+
+            result.append(
+                normalized
+            )
+
+    return result
+
+
+def calculate_trail_distance(trail):
+
+    """
+    Calculates approximate distance between
+    consecutive GPS points using the Haversine formula.
+    """
+
+    if not isinstance(trail, list):
+
+        return 0.0
+
+    if len(trail) < 2:
+
+        return 0.0
+
+    from math import radians, sin, cos, sqrt, atan2
+
+    earth_radius = 6371.0
+
+    total = 0.0
+
+    for index in range(
+        1,
+        len(trail)
+    ):
+
+        previous = trail[index - 1]
+        current = trail[index]
+
+        try:
+
+            lat1 = radians(
+                float(previous["lat"])
+            )
+
+            lon1 = radians(
+                float(previous["lon"])
+            )
+
+            lat2 = radians(
+                float(current["lat"])
+            )
+
+            lon2 = radians(
+                float(current["lon"])
+            )
+
+            dlat = lat2 - lat1
+            dlon = lon2 - lon1
+
+            a = (
+                sin(dlat / 2) ** 2
+                +
+                cos(lat1)
+                *
+                cos(lat2)
+                *
+                sin(dlon / 2) ** 2
+            )
+
+            c = 2 * atan2(
+                sqrt(a),
+                sqrt(1 - a)
+            )
+
+            total += earth_radius * c
+
+        except Exception:
+
+            continue
+
+    return round(
+        total,
+        2
+    )
+
+
+def get_trail_start_time(trail):
+
+    if not trail:
+
+        return None
+
+    return trail[0].get(
+        "time"
+    )
+
+
+def get_trail_end_time(trail):
+
+    if not trail:
+
+        return None
+
+    return trail[-1].get(
+        "time"
+    )
+
+
+# =========================================================
 # HOME
 # =========================================================
 
@@ -1146,7 +1553,7 @@ Transport Management System
 <h2>Історія маршрутів</h2>
 
 <p>
-Майбутній модуль історії руху
+Маршрути та GPS-трек автомобілів
 </p>
 
 </a>
@@ -1971,6 +2378,12 @@ a {{
 
 <br>
 
+<a href="/history?vehicle={vehicle_id}">
+🛣️ Історія маршруту
+</a>
+
+&nbsp;&nbsp;
+
 <a href="/vehicles">
 ← До машин
 </a>
@@ -2235,6 +2648,14 @@ vehicles.forEach(
 
         </a>
 
+        <br><br>
+
+        <a href="/history?vehicle=${{vehicle.id}}">
+
+        🛣️ Історія маршруту
+
+        </a>
+
         </div>
 
         `;
@@ -2459,7 +2880,7 @@ a {{
 
 
 # =========================================================
-# HISTORY PLACEHOLDER
+# HISTORY
 # =========================================================
 
 @app.route("/history")
@@ -2470,6 +2891,298 @@ def history():
         return redirect(
             url_for("login")
         )
+
+    selected_vehicle = request.args.get(
+        "vehicle",
+        ""
+    )
+
+    if selected_vehicle not in VEHICLES:
+
+        selected_vehicle = next(
+            iter(VEHICLES)
+        )
+
+    selected_date = request.args.get(
+        "date",
+        datetime.now().strftime("%Y-%m-%d")
+    )
+
+    vehicle_name = VEHICLES[
+        selected_vehicle
+    ]["name"]
+
+    states, error = get_vehicle_states()
+
+    state = find_vehicle_state(
+        states,
+        selected_vehicle
+    )
+
+    trail = extract_trail_from_state(
+        state
+    )
+
+    trail_distance = calculate_trail_distance(
+        trail
+    )
+
+    start_time = get_trail_start_time(
+        trail
+    )
+
+    end_time = get_trail_end_time(
+        trail
+    )
+
+    trail_json = json.dumps(
+        trail,
+        ensure_ascii=False
+    )
+
+    vehicle_options = ""
+
+    for vehicle_id, vehicle_info in VEHICLES.items():
+
+        selected = (
+            "selected"
+            if vehicle_id == selected_vehicle
+            else ""
+        )
+
+        vehicle_options += f"""
+
+<option
+value="{vehicle_id}"
+{selected}
+>
+{vehicle_info["name"]}
+</option>
+
+"""
+
+    error_box = ""
+
+    if error:
+
+        error_box = f"""
+
+<div class="warning">
+
+⚠️ <b>Navirec:</b> {error}
+
+</div>
+
+"""
+
+    if trail:
+
+        route_content = f"""
+
+<div class="summary">
+
+<div>
+
+<span>
+Автомобіль
+</span>
+
+<strong>
+{vehicle_name}
+</strong>
+
+</div>
+
+<div>
+
+<span>
+GPS точок
+</span>
+
+<strong>
+{len(trail)}
+</strong>
+
+</div>
+
+<div>
+
+<span>
+Довжина доступного треку
+</span>
+
+<strong>
+{trail_distance} км
+</strong>
+
+</div>
+
+<div>
+
+<span>
+Початок доступного треку
+</span>
+
+<strong>
+{format_time(start_time)}
+</strong>
+
+</div>
+
+<div>
+
+<span>
+Кінець доступного треку
+</span>
+
+<strong>
+{format_time(end_time)}
+</strong>
+
+</div>
+
+</div>
+
+<div id="map"></div>
+
+<div class="points">
+
+<h2>
+📍 GPS точки
+</h2>
+
+<table>
+
+<thead>
+
+<tr>
+
+<th>
+#
+</th>
+
+<th>
+Час
+</th>
+
+<th>
+Швидкість
+</th>
+
+<th>
+Паливо
+</th>
+
+<th>
+Широта
+</th>
+
+<th>
+Довгота
+</th>
+
+</tr>
+
+</thead>
+
+<tbody>
+
+"""
+
+        for index, point in enumerate(
+            trail,
+            start=1
+        ):
+
+            speed_value = point.get(
+                "speed"
+            )
+
+            fuel_value = point.get(
+                "fuel"
+            )
+
+            route_content += f"""
+
+<tr>
+
+<td>
+{index}
+</td>
+
+<td>
+{format_time(point.get("time"))}
+</td>
+
+<td>
+{speed_value if speed_value is not None else "—"}
+км/год
+</td>
+
+<td>
+{fuel_value if fuel_value is not None else "—"}
+%
+</td>
+
+<td>
+{point.get("lat", "—")}
+</td>
+
+<td>
+{point.get("lon", "—")}
+</td>
+
+</tr>
+
+"""
+
+        route_content += """
+
+</tbody>
+
+</table>
+
+</div>
+
+"""
+
+    else:
+
+        route_content = """
+
+<div class="empty">
+
+<div class="empty-icon">
+🛣️
+</div>
+
+<h2>
+GPS-трек зараз недоступний
+</h2>
+
+<p>
+
+Navirec не передав у поточному
+стані автомобіля історичні точки
+для побудови маршруту.
+
+</p>
+
+<p>
+
+Це <b>не означає, що історії немає
+в Navirec</b>.
+
+Повна історія поїздок існує
+в самому Navirec, але для її
+отримання через API нам потрібен
+окремий історичний endpoint.
+
+</p>
+
+</div>
+
+"""
 
     return f"""
 <!doctype html>
@@ -2485,32 +3198,250 @@ name="viewport"
 content="width=device-width, initial-scale=1"
 >
 
-<title>Історія — {COMPANY_NAME}</title>
+<title>
+Історія маршрутів — {COMPANY_NAME}
+</title>
+
+<link
+rel="stylesheet"
+href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"
+>
+
+<script
+src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js">
+</script>
 
 <style>
 
 body {{
+
     margin:0;
-    font-family:Arial;
+
+    font-family:Arial,sans-serif;
+
     background:#f3f4f6;
+
+    color:#111827;
+
 }}
 
 .container {{
-    max-width:900px;
+
+    max-width:1250px;
+
     margin:auto;
-    padding:30px;
+
+    padding:25px;
+
 }}
 
-.box {{
+.header {{
+
     background:white;
-    padding:30px;
+
+    padding:25px;
+
     border-radius:16px;
+
+    margin-bottom:20px;
+
+}}
+
+.filters {{
+
+    background:white;
+
+    padding:20px;
+
+    border-radius:16px;
+
+    margin-bottom:20px;
+
+    display:flex;
+
+    gap:15px;
+
+    flex-wrap:wrap;
+
+    align-items:end;
+
+}}
+
+.field {{
+
+    display:flex;
+
+    flex-direction:column;
+
+    gap:7px;
+
+}}
+
+.field label {{
+
+    color:#6b7280;
+
+    font-size:13px;
+
+}}
+
+select,
+input,
+button {{
+
+    padding:11px;
+
+    border-radius:9px;
+
+    border:1px solid #d1d5db;
+
+    font-size:15px;
+
+}}
+
+button {{
+
+    background:#2563eb;
+
+    color:white;
+
+    border:0;
+
+    font-weight:bold;
+
+    cursor:pointer;
+
+}}
+
+.warning {{
+
+    background:#fff7ed;
+
+    border:1px solid #fdba74;
+
+    padding:15px;
+
+    border-radius:12px;
+
+    margin-bottom:20px;
+
+}}
+
+.summary {{
+
+    display:grid;
+
+    grid-template-columns:
+    repeat(auto-fit,minmax(180px,1fr));
+
+    gap:15px;
+
+    margin-bottom:20px;
+
+}}
+
+.summary div {{
+
+    background:white;
+
+    padding:20px;
+
+    border-radius:14px;
+
+}}
+
+.summary span {{
+
+    display:block;
+
+    color:#6b7280;
+
+    font-size:13px;
+
+    margin-bottom:8px;
+
+}}
+
+.summary strong {{
+
+    font-size:16px;
+
+}}
+
+#map {{
+
+    width:100%;
+
+    height:550px;
+
+    border-radius:16px;
+
+    overflow:hidden;
+
+    margin-bottom:20px;
+
+}}
+
+.points {{
+
+    background:white;
+
+    padding:20px;
+
+    border-radius:16px;
+
+    overflow:auto;
+
+}}
+
+table {{
+
+    width:100%;
+
+    border-collapse:collapse;
+
+}}
+
+th,
+td {{
+
+    padding:12px;
+
+    border-bottom:
+    1px solid #e5e7eb;
+
+    text-align:left;
+
+    white-space:nowrap;
+
+}}
+
+.empty {{
+
+    background:white;
+
+    padding:45px;
+
+    border-radius:16px;
+
+    text-align:center;
+
+}}
+
+.empty-icon {{
+
+    font-size:55px;
+
 }}
 
 a {{
+
     color:#2563eb;
+
     text-decoration:none;
+
     font-weight:bold;
+
 }}
 
 </style>
@@ -2521,53 +3452,152 @@ a {{
 
 <div class="container">
 
-<div class="box">
+<div class="header">
 
-<h1>🛣️ Історія маршрутів</h1>
-
-<p>
-
-Цей модуль буде використовуватися
-для перегляду історії руху автомобіля
-за вибраний день.
-
-</p>
+<h1>
+🛣️ Історія маршрутів
+</h1>
 
 <p>
-
-Наступний етап:
-
+Перегляд доступного GPS-треку автомобіля
 </p>
 
-<ul>
+</div>
 
-<li>вибір автомобіля</li>
+{error_box}
 
-<li>вибір дати</li>
+<form
+method="get"
+class="filters"
+>
 
-<li>отримання історичного маршруту</li>
+<div class="field">
 
-<li>показ маршруту на карті</li>
+<label>
+Автомобіль
+</label>
 
-<li>кілометри</li>
+<select name="vehicle">
 
-<li>зупинки</li>
+{vehicle_options}
 
-<li>час руху</li>
+</select>
 
-<li>час стоянки</li>
+</div>
 
-</ul>
+<div class="field">
+
+<label>
+Дата
+</label>
+
+<input
+type="date"
+name="date"
+value="{selected_date}"
+>
+
+</div>
+
+<div class="field">
+
+<button type="submit">
+Показати
+</button>
+
+</div>
+
+</form>
+
+{route_content}
 
 <br>
 
+<a href="/vehicles">
+← Машини
+</a>
+
+&nbsp;&nbsp;
+
 <a href="/">
-← Головна
+Головна
 </a>
 
 </div>
 
-</div>
+<script>
+
+const trail = {trail_json};
+
+if (trail.length > 0) {{
+
+    const first = trail[0];
+
+    const map = L.map(
+        "map"
+    ).setView(
+        [
+            first.lat,
+            first.lon
+        ],
+        12
+    );
+
+    L.tileLayer(
+        "https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png",
+        {{
+            maxZoom:19,
+            attribution:"&copy; OpenStreetMap"
+        }}
+    ).addTo(map);
+
+    const coordinates = trail.map(
+        point => [
+            point.lat,
+            point.lon
+        ]
+    );
+
+    const route = L.polyline(
+        coordinates,
+        {{
+            weight:5
+        }}
+    ).addTo(map);
+
+    const start = trail[0];
+
+    const finish =
+        trail[trail.length - 1];
+
+    L.marker([
+        start.lat,
+        start.lon
+    ])
+    .addTo(map)
+    .bindPopup(
+        "Початок доступного треку"
+    );
+
+    L.marker([
+        finish.lat,
+        finish.lon
+    ])
+    .addTo(map)
+    .bindPopup(
+        "Остання доступна точка"
+    );
+
+    map.fitBounds(
+        route.getBounds(),
+        {{
+            padding:[40,40]
+        }}
+    );
+
+}}
+
+</script>
 
 </body>
 
