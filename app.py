@@ -1878,7 +1878,7 @@ def history():
                         )
                     );
                 }}
-            }
+            }}
         );
 
         map.fitBounds(
