@@ -1,7 +1,8 @@
 import os
 import json
 import math
-from datetime import datetime
+from datetime import datetime, timezone
+from html import escape
 from zoneinfo import ZoneInfo
 
 from flask import Flask, request, redirect, url_for, session, jsonify
@@ -58,6 +59,13 @@ def normalize_vehicle_id(value):
     if "/vehicles/" in value:
         value = value.rstrip("/").split("/vehicles/")[-1]
     return value.rstrip("/")
+
+
+def normalize_api_id(value):
+    if not value:
+        return ""
+
+    return str(value).strip().rstrip("/").split("/")[-1]
 
 
 def extract_coordinates(location):
@@ -148,6 +156,40 @@ def format_duration(seconds):
     hours, remainder = divmod(total_seconds, 3600)
     minutes, seconds = divmod(remainder, 60)
     return f"{hours}:{minutes:02d}:{seconds:02d}"
+
+
+def format_duration_short(seconds):
+    try:
+        total_minutes = max(
+            0,
+            int(round(float(seconds) / 60))
+        )
+    except (TypeError, ValueError):
+        return "—"
+
+    hours, minutes = divmod(total_minutes, 60)
+    return f"{hours} год {minutes:02d} хв"
+
+
+def format_date(value):
+    if not value:
+        return "—"
+
+    text = str(value)
+
+    try:
+        return datetime.fromisoformat(
+            text.replace("Z", "+00:00")
+        ).strftime("%d.%m.%Y")
+    except ValueError:
+        return text[:10]
+
+
+def html_text(value, default="—"):
+    if value is None or value == "":
+        return default
+
+    return escape(str(value))
 
 
 def format_number(value, decimals=1):
@@ -323,6 +365,181 @@ def get_vehicle_states():
 
     except Exception:
         return []
+
+
+def navirec_list(endpoint, params=None, timeout=25):
+    if not NAVIREC_TOKEN:
+        return {
+            "ok": False,
+            "items": [],
+            "error": "NAVIREC_TOKEN не налаштований."
+        }
+
+    try:
+        response = requests.get(
+            f"{NAVIREC_API}/{endpoint.strip('/')}/",
+            headers=navirec_headers(),
+            params=params or {},
+            timeout=timeout
+        )
+
+        if response.status_code != 200:
+            return {
+                "ok": False,
+                "items": [],
+                "error": (
+                    f"Navirec HTTP {response.status_code}: "
+                    f"{response.text[:300]}"
+                )
+            }
+
+        data = response.json()
+
+        if isinstance(data, list):
+            items = data
+        elif isinstance(data, dict):
+            items = (
+                data.get("results")
+                or data.get("items")
+                or data.get("data")
+                or []
+            )
+        else:
+            items = []
+
+        return {
+            "ok": True,
+            "items": [
+                item
+                for item in items
+                if isinstance(item, dict)
+            ],
+            "error": None
+        }
+
+    except Exception as exc:
+        return {
+            "ok": False,
+            "items": [],
+            "error": f"Помилка Navirec: {exc}"
+        }
+
+
+def get_driver_states_result():
+    return navirec_list(
+        "last_driver_states",
+        {"account": NAVIREC_ACCOUNT_ID}
+    )
+
+
+def get_drivers_result():
+    return navirec_list(
+        "drivers",
+        {
+            "account": NAVIREC_ACCOUNT_ID,
+            "active": "true",
+            "page_size": 500
+        }
+    )
+
+
+def get_tachograph_cards_result():
+    return navirec_list(
+        "tachograph_cards",
+        {
+            "account": NAVIREC_ACCOUNT_ID,
+            "active": "true",
+            "page_size": 500
+        }
+    )
+
+
+def working_state_label(value):
+    states = {
+        0: "Відпочинок",
+        1: "Готовність",
+        2: "Інша робота",
+        3: "Керування"
+    }
+
+    try:
+        code = int(value)
+    except (TypeError, ValueError):
+        return "Немає даних"
+
+    return states.get(code, f"Невідомий стан ({code})")
+
+
+def working_state_class(value):
+    try:
+        code = int(value)
+    except (TypeError, ValueError):
+        return "badge-muted"
+
+    return {
+        0: "badge-rest",
+        1: "badge-ready",
+        2: "badge-work",
+        3: "badge-drive"
+    }.get(code, "badge-warning")
+
+
+def tachograph_time_state_label(value):
+    try:
+        code = int(value)
+    except (TypeError, ValueError):
+        return "Немає даних"
+
+    if code == 0:
+        return "Без попереджень"
+
+    return f"Попередження тахографа (код {code})"
+
+
+def get_first_value(data, names):
+    if not isinstance(data, dict):
+        return None
+
+    for name in names:
+        value = data.get(name)
+
+        if value is not None and value != "":
+            return value
+
+    return None
+
+
+def get_duration_value(data, names):
+    return safe_float(get_first_value(data, names))
+
+
+def merge_tachograph_state(vehicle_state, driver_state):
+    merged = {}
+
+    if isinstance(vehicle_state, dict):
+        merged.update(vehicle_state)
+
+    if isinstance(driver_state, dict):
+        for key, value in driver_state.items():
+            if value is not None:
+                merged[key] = value
+
+    return merged
+
+
+def state_age_seconds(value):
+    dt = parse_time(value)
+
+    if dt is None:
+        return None
+
+    if dt.tzinfo is None:
+        dt = dt.replace(tzinfo=timezone.utc)
+
+    return max(
+        0,
+        (datetime.now(timezone.utc) - dt).total_seconds()
+    )
 
 
 def get_vehicle_history(vehicle_id, date_string):
@@ -524,7 +741,7 @@ def page(title, body, active=""):
         <a href="/gps" class="{2}">GPS</a>
         <a href="/history" class="{3}">Історія маршрутів</a>
         <a href="/fuel" class="{4}">Паливо</a>
-        <a href="/tachograph-test" class="{5}">Тахограф</a>
+        <a href="/tachograph" class="{5}">Тахограф</a>
         <a href="/health" class="{6}">Health</a>
         <a href="/logout">Вийти</a>
     </nav>
@@ -697,6 +914,88 @@ button,
 .error {{
     color: #b42318;
     font-weight: 700;
+}}
+
+.section-title {{
+    margin: 0 0 12px;
+}}
+
+.vehicle-header {{
+    display: flex;
+    flex-wrap: wrap;
+    justify-content: space-between;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 14px;
+}}
+
+.vehicle-header h2 {{
+    margin: 0;
+    font-size: 21px;
+}}
+
+.badge {{
+    display: inline-block;
+    padding: 6px 10px;
+    border-radius: 999px;
+    font-size: 13px;
+    font-weight: 700;
+}}
+
+.badge-rest {{ background: #e8f5e9; color: #17652c; }}
+.badge-ready {{ background: #e3f2fd; color: #145a86; }}
+.badge-work {{ background: #fff3cd; color: #7a5500; }}
+.badge-drive {{ background: #e8eaf6; color: #303f9f; }}
+.badge-warning {{ background: #fdecec; color: #a61b1b; }}
+.badge-muted {{ background: #eceff1; color: #5f6b72; }}
+
+.detail-grid {{
+    display: grid;
+    grid-template-columns:
+        repeat(auto-fit, minmax(185px, 1fr));
+    gap: 10px;
+}}
+
+.detail {{
+    padding: 12px;
+    border: 1px solid #e3e7ea;
+    border-radius: 9px;
+    background: #fafbfc;
+}}
+
+.detail .label {{
+    color: #687078;
+    font-size: 12px;
+}}
+
+.detail .value {{
+    margin-top: 5px;
+    font-size: 17px;
+    font-weight: 700;
+}}
+
+.alert {{
+    padding: 11px 13px;
+    border-radius: 8px;
+    margin-top: 12px;
+}}
+
+.alert-warning {{
+    background: #fff4e5;
+    color: #7a4300;
+    border: 1px solid #ffd49a;
+}}
+
+.alert-error {{
+    background: #fdecec;
+    color: #8d1717;
+    border: 1px solid #f3b8b8;
+}}
+
+.alert-ok {{
+    background: #eaf7ef;
+    color: #17652c;
+    border: 1px solid #b9e2c7;
 }}
 
 .vehicle-link {{
@@ -2087,28 +2386,712 @@ def fuel():
     )
 
 
+@app.route("/tachograph")
 @app.route("/tachograph-test")
-def tachograph_test():
+def tachograph():
+    vehicle_states = get_vehicle_states()
+    vehicle_state_map = state_map_by_vehicle(
+        vehicle_states
+    )
+
+    driver_states_result = get_driver_states_result()
+    drivers_result = get_drivers_result()
+    cards_result = get_tachograph_cards_result()
+
+    driver_states = driver_states_result["items"]
+    drivers = drivers_result["items"]
+    cards = cards_result["items"]
+
+    driver_states_by_vehicle = {}
+    driver_states_by_driver = {}
+
+    for state in driver_states:
+        vehicle_id = normalize_api_id(
+            state.get("vehicle")
+        )
+        driver_id = normalize_api_id(
+            state.get("driver")
+        )
+
+        if vehicle_id:
+            driver_states_by_vehicle[vehicle_id] = state
+
+        if driver_id:
+            driver_states_by_driver[driver_id] = state
+
+    drivers_by_id = {
+        normalize_api_id(driver.get("id") or driver.get("url")): driver
+        for driver in drivers
+        if normalize_api_id(
+            driver.get("id") or driver.get("url")
+        )
+    }
+
+    cards_by_driver = {}
+    cards_by_number = {}
+
+    for card in cards:
+        driver_id = normalize_api_id(
+            card.get("driver")
+        )
+        card_number = str(
+            card.get("number") or ""
+        ).strip()
+
+        if driver_id:
+            cards_by_driver[driver_id] = card
+
+        if card_number:
+            cards_by_number[card_number] = card
+
+    api_errors = []
+
+    for title, result in (
+        ("стани водіїв", driver_states_result),
+        ("список водіїв", drivers_result),
+        ("картки тахографа", cards_result)
+    ):
+        if not result["ok"]:
+            api_errors.append(
+                f"Не вдалося отримати {title}: "
+                f"{result['error']}"
+            )
+
+    vehicle_blocks = []
+    vehicles_with_cards = 0
+    warning_count = 0
+
+    for vehicle in VEHICLES:
+        vehicle_id = vehicle["id"]
+        vehicle_state = vehicle_state_map.get(
+            vehicle_id,
+            {}
+        )
+
+        driver_id = normalize_api_id(
+            vehicle_state.get("driver")
+        )
+
+        driver_state = driver_states_by_vehicle.get(
+            vehicle_id
+        )
+
+        if not driver_state and driver_id:
+            driver_state = driver_states_by_driver.get(
+                driver_id
+            )
+
+        if driver_state:
+            driver_id = normalize_api_id(
+                driver_state.get("driver")
+            ) or driver_id
+
+        combined = merge_tachograph_state(
+            vehicle_state,
+            driver_state
+        )
+
+        driver = drivers_by_id.get(
+            driver_id,
+            {}
+        )
+
+        card_number = str(
+            get_first_value(
+                combined,
+                [
+                    "driver_1_card_id",
+                    "driver_code"
+                ]
+            )
+            or ""
+        ).strip()
+
+        card = cards_by_driver.get(driver_id)
+
+        if not card and card_number:
+            card = cards_by_number.get(
+                card_number,
+                {}
+            )
+
+        card = card or {}
+
+        if not card_number:
+            card_number = str(
+                card.get("number") or ""
+            ).strip()
+
+        driver_name = str(
+            driver.get("name") or ""
+        ).strip()
+
+        if not driver_name:
+            first_name = str(
+                combined.get("driver_name") or ""
+            ).strip()
+            surname = str(
+                combined.get("driver_surname") or ""
+            ).strip()
+            driver_name = " ".join(
+                part
+                for part in (first_name, surname)
+                if part
+            )
+
+        if not driver_name:
+            driver_name = str(
+                card.get("name") or ""
+            ).strip()
+
+        if not driver_name:
+            driver_name = "Водія не визначено"
+
+        working_state = get_first_value(
+            combined,
+            [
+                "driver_working_state",
+                "driver_1_working_state"
+            ]
+        )
+        time_state = get_first_value(
+            combined,
+            [
+                "driver_time_state",
+                "driver_1_time_state"
+            ]
+        )
+        card_present = get_first_value(
+            combined,
+            ["driver_1_card_present"]
+        )
+
+        if card_present is None and card_number:
+            card_present = True
+
+        if card_present:
+            vehicles_with_cards += 1
+
+        update_time = get_first_value(
+            combined,
+            ["time", "updated_at", "received_at"]
+        )
+        age_seconds = state_age_seconds(update_time)
+
+        current_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_current_driving_time",
+                "driver_1_remaining_current_driving_time"
+            ]
+        )
+        daily_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_daily_driving_time",
+                "driver_1_remaining_daily_driving_time"
+            ]
+        )
+        shift_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_shift_driving_time",
+                "driver_1_remaining_shift_driving_time"
+            ]
+        )
+        weekly_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_weekly_driving_time",
+                "driver_1_remaining_weekly_driving_time"
+            ]
+        )
+        time_until_break = get_duration_value(
+            combined,
+            [
+                "driver_time_until_next_break",
+                "driver_1_time_until_next_break"
+            ]
+        )
+        time_until_daily_rest = get_duration_value(
+            combined,
+            [
+                "driver_time_until_next_daily_rest",
+                "driver_1_time_until_next_daily_rest_period"
+            ]
+        )
+        time_until_weekly_rest = get_duration_value(
+            combined,
+            [
+                "driver_time_until_next_weekly_rest",
+                "driver_1_time_until_next_weekly_rest_period"
+            ]
+        )
+        daily_driving = get_duration_value(
+            combined,
+            [
+                "driver_daily_driving_time",
+                "driver_1_daily_driving_time"
+            ]
+        )
+        weekly_driving = get_duration_value(
+            combined,
+            [
+                "driver_weekly_driving_time",
+                "driver_1_weekly_driving_time"
+            ]
+        )
+        two_weekly_driving = get_duration_value(
+            combined,
+            [
+                "driver_two_weekly_driving_time",
+                "driver_1_two_weekly_driving_time"
+            ]
+        )
+        daily_work = get_duration_value(
+            combined,
+            [
+                "driver_daily_work_time",
+                "driver_1_daily_work_time"
+            ]
+        )
+        current_rest_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_current_rest_time",
+                "driver_1_remaining_current_rest_time"
+            ]
+        )
+        break_time = get_duration_value(
+            combined,
+            [
+                "driver_break_time",
+                "driver_cumulative_break_time",
+                "driver_1_cumulative_break_time"
+            ]
+        )
+
+        warnings = []
+
+        if not driver_state:
+            warnings.append((
+                "warning",
+                "Navirec не повернув повний стан водія. "
+                "Показані лише дані, наявні в автомобілі."
+            ))
+
+        if card_present is False:
+            warnings.append((
+                "error",
+                "Картка водія не вставлена в тахограф."
+            ))
+
+        if age_seconds is None:
+            warnings.append((
+                "warning",
+                "Немає часу останнього оновлення тахографа."
+            ))
+        elif age_seconds > 1800:
+            warnings.append((
+                "error",
+                "Дані тахографа застарілі: останнє "
+                f"оновлення {format_time(update_time)}."
+            ))
+
+        try:
+            numeric_time_state = int(time_state)
+        except (TypeError, ValueError):
+            numeric_time_state = None
+
+        if numeric_time_state not in (None, 0):
+            warnings.append((
+                "error",
+                tachograph_time_state_label(time_state)
+            ))
+
+        for label, value in (
+            ("безперервного керування", current_drive_remaining),
+            ("денного керування", daily_drive_remaining),
+            ("часу до обов'язкової перерви", time_until_break),
+            ("часу до денного відпочинку", time_until_daily_rest)
+        ):
+            if value is not None and value <= 1800:
+                warnings.append((
+                    "warning",
+                    f"Залишилося мало {label}: "
+                    f"{format_duration_short(value)}."
+                ))
+
+        valid_until = card.get("valid_until")
+
+        if valid_until:
+            try:
+                valid_date = datetime.fromisoformat(
+                    str(valid_until)[:10]
+                ).date()
+                days_left = (
+                    valid_date
+                    - datetime.now(POLAND_TZ).date()
+                ).days
+
+                if days_left < 0:
+                    warnings.append((
+                        "error",
+                        "Термін дії картки водія закінчився."
+                    ))
+                elif days_left <= 30:
+                    warnings.append((
+                        "warning",
+                        "Термін дії картки закінчується "
+                        f"через {days_left} дн."
+                    ))
+            except ValueError:
+                pass
+
+        warning_count += len(warnings)
+
+        if warnings:
+            warning_html = "".join(
+                """
+                <div class="alert alert-{kind}">
+                    {text}
+                </div>
+                """.format(
+                    kind=(
+                        "error"
+                        if kind == "error"
+                        else "warning"
+                    ),
+                    text=html_text(text)
+                )
+                for kind, text in warnings
+            )
+        else:
+            warning_html = """
+            <div class="alert alert-ok">
+                Активних попереджень немає.
+            </div>
+            """
+
+        card_status = (
+            "Вставлена"
+            if card_present is True
+            else "Не вставлена"
+            if card_present is False
+            else "Немає даних"
+        )
+
+        second_card_present = combined.get(
+            "driver_2_card_present"
+        )
+        second_card_number = combined.get(
+            "driver_2_card_id"
+        )
+        second_state = combined.get(
+            "driver_2_working_state"
+        )
+
+        second_driver_block = ""
+
+        if second_card_present or second_card_number:
+            second_driver_block = """
+            <div class="alert alert-warning">
+                <strong>Другий водій:</strong>
+                картка {card}, стан — {state}.
+            </div>
+            """.format(
+                card=html_text(second_card_number),
+                state=html_text(
+                    working_state_label(second_state)
+                )
+            )
+
+        vehicle_blocks.append(
+            """
+            <div class="card">
+
+                <div class="vehicle-header">
+                    <h2>{vehicle}</h2>
+                    <span class="badge {state_class}">
+                        {working_state}
+                    </span>
+                </div>
+
+                <div class="detail-grid">
+
+                    <div class="detail">
+                        <div class="label">Водій</div>
+                        <div class="value">{driver}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Картка водія</div>
+                        <div class="value">{card_number}</div>
+                        <div class="small">{card_status}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Оновлено</div>
+                        <div class="value">{updated}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Стан часу</div>
+                        <div class="value">{time_state}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">До наступної перерви</div>
+                        <div class="value">{until_break}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Залишок безперервного керування</div>
+                        <div class="value">{current_remaining}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Залишок керування сьогодні</div>
+                        <div class="value">{daily_remaining}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Залишок у зміні</div>
+                        <div class="value">{shift_remaining}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Залишок керування цього тижня</div>
+                        <div class="value">{weekly_remaining}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">До денного відпочинку</div>
+                        <div class="value">{until_daily_rest}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">До тижневого відпочинку</div>
+                        <div class="value">{until_weekly_rest}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Керування сьогодні</div>
+                        <div class="value">{daily_driving}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Керування за тиждень</div>
+                        <div class="value">{weekly_driving}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Керування за два тижні</div>
+                        <div class="value">{two_weekly_driving}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Робота сьогодні</div>
+                        <div class="value">{daily_work}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Перерва / відпочинок</div>
+                        <div class="value">{break_time}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Залишок поточного відпочинку</div>
+                        <div class="value">{rest_remaining}</div>
+                    </div>
+
+                    <div class="detail">
+                        <div class="label">Картка дійсна до</div>
+                        <div class="value">{valid_until}</div>
+                    </div>
+
+                </div>
+
+                {second_driver}
+                {warnings}
+
+            </div>
+            """.format(
+                vehicle=html_text(vehicle["name"]),
+                state_class=working_state_class(
+                    working_state
+                ),
+                working_state=html_text(
+                    working_state_label(working_state)
+                ),
+                driver=html_text(driver_name),
+                card_number=html_text(card_number),
+                card_status=html_text(card_status),
+                updated=html_text(format_time(update_time)),
+                time_state=html_text(
+                    tachograph_time_state_label(time_state)
+                ),
+                until_break=format_duration_short(
+                    time_until_break
+                ),
+                current_remaining=format_duration_short(
+                    current_drive_remaining
+                ),
+                daily_remaining=format_duration_short(
+                    daily_drive_remaining
+                ),
+                shift_remaining=format_duration_short(
+                    shift_drive_remaining
+                ),
+                weekly_remaining=format_duration_short(
+                    weekly_drive_remaining
+                ),
+                until_daily_rest=format_duration_short(
+                    time_until_daily_rest
+                ),
+                until_weekly_rest=format_duration_short(
+                    time_until_weekly_rest
+                ),
+                daily_driving=format_duration_short(
+                    daily_driving
+                ),
+                weekly_driving=format_duration_short(
+                    weekly_driving
+                ),
+                two_weekly_driving=format_duration_short(
+                    two_weekly_driving
+                ),
+                daily_work=format_duration_short(
+                    daily_work
+                ),
+                break_time=format_duration_short(
+                    break_time
+                ),
+                rest_remaining=format_duration_short(
+                    current_rest_remaining
+                ),
+                valid_until=html_text(
+                    format_date(valid_until)
+                ),
+                second_driver=second_driver_block,
+                warnings=warning_html
+            )
+        )
+
+    error_block = ""
+
+    if api_errors:
+        error_block = """
+        <div class="card">
+            <h3 class="section-title">Помилки Navirec</h3>
+            {errors}
+        </div>
+        """.format(
+            errors="".join(
+                "<div class='alert alert-error'>"
+                + html_text(error)
+                + "</div>"
+                for error in api_errors
+            )
+        )
+
     body = """
     <div class="card">
-
-        <h3>Тахограф</h3>
-
         <p>
-            Модуль підготовлений під подальше
-            підключення даних тахографа.
+            Дані отримуються безпосередньо з Navirec:
+            водії, картки та last_driver_states.
         </p>
-
         <p class="small">
-            На цьому етапі не вигадуємо дані,
-            яких Navirec ще не передав.
+            Час тахографа не вираховується з GPS.
+            Саме ці значення надалі використовуватимуться
+            для перевірки, чи можна брати рейс Trans.eu.
         </p>
 
+        <a class="button" href="/tachograph-debug">
+            Технічна перевірка даних
+        </a>
     </div>
-    """
+
+    {error_block}
+
+    <div class="grid">
+        <div class="stat">
+            <div class="label">Автомобілі</div>
+            <div class="value">{vehicles}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Картка вставлена</div>
+            <div class="value">{cards_present}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Станів водіїв Navirec</div>
+            <div class="value">{driver_states}</div>
+        </div>
+        <div class="stat">
+            <div class="label">Попередження</div>
+            <div class="value">{warnings}</div>
+        </div>
+    </div>
+
+    <div style="height:18px"></div>
+
+    {vehicle_blocks}
+    """.format(
+        error_block=error_block,
+        vehicles=len(VEHICLES),
+        cards_present=vehicles_with_cards,
+        driver_states=len(driver_states),
+        warnings=warning_count,
+        vehicle_blocks="".join(vehicle_blocks)
+    )
 
     return page(
-        "Тахограф",
+        "Тахограф і час водіїв",
+        body,
+        "tachograph"
+    )
+
+
+@app.route("/tachograph-debug")
+def tachograph_debug():
+    vehicle_states = get_vehicle_states()
+    driver_states_result = get_driver_states_result()
+    drivers_result = get_drivers_result()
+    cards_result = get_tachograph_cards_result()
+
+    debug_data = {
+        "account": NAVIREC_ACCOUNT_ID,
+        "vehicle_states": vehicle_states,
+        "driver_states": driver_states_result,
+        "drivers": drivers_result,
+        "tachograph_cards": cards_result
+    }
+
+    body = """
+    <div class="card">
+        <p class="small">
+            Тут показані сирі дані Navirec без секретного токена.
+            Вони потрібні лише для перевірки полів тахографа.
+        </p>
+
+        <a class="button" href="/tachograph">
+            Назад до тахографа
+        </a>
+
+        <pre style="white-space:pre-wrap;overflow:auto">{data}</pre>
+    </div>
+    """.format(
+        data=html_text(
+            json.dumps(
+                debug_data,
+                ensure_ascii=False,
+                indent=2
+            )[:100000]
+        )
+    )
+
+    return page(
+        "Тахограф — технічні дані",
         body,
         "tachograph"
     )
