@@ -1,6 +1,8 @@
 import os
 import json
 import math
+import hmac
+import secrets
 from datetime import datetime, timezone
 from html import escape
 from zoneinfo import ZoneInfo
@@ -9,7 +11,15 @@ from flask import Flask, request, redirect, url_for, session, jsonify
 import requests
 
 app = Flask(__name__)
-app.secret_key = os.environ.get("SESSION_SECRET", "change-this-secret")
+
+SESSION_SECRET = os.environ.get("SESSION_SECRET", "").strip()
+
+if not SESSION_SECRET:
+    # Безпечний тимчасовий ключ. Після перезапуску Render сесії
+    # завершаться, але застосунок не працюватиме зі стандартним паролем.
+    SESSION_SECRET = secrets.token_hex(32)
+
+app.secret_key = SESSION_SECRET
 
 NAVIREC_API = "https://api.navirec.com"
 NAVIREC_TOKEN = os.environ.get("NAVIREC_TOKEN", "")
@@ -1061,15 +1071,33 @@ def login():
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
-        if username == ADMIN_USER and password == ADMIN_PASSWORD:
+        credentials_configured = bool(
+            ADMIN_USER and ADMIN_PASSWORD
+        )
+
+        credentials_valid = (
+            credentials_configured
+            and hmac.compare_digest(username, ADMIN_USER)
+            and hmac.compare_digest(password, ADMIN_PASSWORD)
+        )
+
+        if credentials_valid:
             session["logged_in"] = True
             return redirect(url_for("home"))
 
-        error = (
-            "<p class='error'>"
-            "Неправильний логін або пароль."
-            "</p>"
-        )
+        if not credentials_configured:
+            error = (
+                "<p class='error'>"
+                "Вхід тимчасово недоступний: адміністратор "
+                "ще не налаштував ADMIN_USER і ADMIN_PASSWORD."
+                "</p>"
+            )
+        else:
+            error = (
+                "<p class='error'>"
+                "Неправильний логін або пароль."
+                "</p>"
+            )
     else:
         error = ""
 
