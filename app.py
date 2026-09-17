@@ -1,6 +1,8 @@
 import os
 import json
+import math
 from datetime import datetime
+from zoneinfo import ZoneInfo
 
 from flask import Flask, request, redirect, url_for, session, jsonify
 import requests
@@ -19,6 +21,7 @@ COMPANY_NAME = os.environ.get("COMPANY_NAME", "O&O TRANS")
 COMPANY_ID = os.environ.get("COMPANY_ID", "O&O-TRANS")
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+POLAND_TZ = ZoneInfo("Europe/Warsaw")
 
 VEHICLES = [
     {
@@ -109,17 +112,42 @@ def get_activity(item):
     return activity or ""
 
 
-def format_time(value):
+def parse_time(value):
     if not value:
-        return "—"
+        return None
 
     text = str(value)
 
     try:
-        dt = datetime.fromisoformat(text.replace("Z", "+00:00"))
-        return dt.strftime("%d.%m.%Y %H:%M:%S")
+        return datetime.fromisoformat(text.replace("Z", "+00:00"))
     except ValueError:
+        return None
+
+
+def format_time(value):
+    dt = parse_time(value)
+
+    if dt is None:
+        if not value:
+            return "—"
+        text = str(value)
         return text.replace("T", " ")[:19]
+
+    if dt.tzinfo is not None:
+        dt = dt.astimezone(POLAND_TZ)
+
+    return dt.strftime("%d.%m.%Y %H:%M:%S")
+
+
+def format_duration(seconds):
+    try:
+        total_seconds = max(0, int(round(float(seconds))))
+    except (TypeError, ValueError):
+        return "—"
+
+    hours, remainder = divmod(total_seconds, 3600)
+    minutes, seconds = divmod(remainder, 60)
+    return f"{hours}:{minutes:02d}:{seconds:02d}"
 
 
 def format_number(value, decimals=1):
@@ -139,6 +167,98 @@ def safe_float(value):
         return float(value)
     except (TypeError, ValueError):
         return None
+
+
+def haversine_km(first, second):
+    lat1 = safe_float(first.get("latitude"))
+    lon1 = safe_float(first.get("longitude"))
+    lat2 = safe_float(second.get("latitude"))
+    lon2 = safe_float(second.get("longitude"))
+
+    if None in (lat1, lon1, lat2, lon2):
+        return 0.0
+
+    radius_km = 6371.0088
+    phi1 = math.radians(lat1)
+    phi2 = math.radians(lat2)
+    delta_phi = math.radians(lat2 - lat1)
+    delta_lambda = math.radians(lon2 - lon1)
+
+    value = (
+        math.sin(delta_phi / 2) ** 2
+        + math.cos(phi1)
+        * math.cos(phi2)
+        * math.sin(delta_lambda / 2) ** 2
+    )
+
+    return 2 * radius_km * math.atan2(
+        math.sqrt(value),
+        math.sqrt(max(0.0, 1 - value))
+    )
+
+
+def calculate_history_metrics(points):
+    metrics = {
+        "distance_km": 0.0,
+        "driving_seconds": 0.0,
+        "parking_seconds": 0.0,
+        "idling_seconds": 0.0
+    }
+
+    for index in range(len(points) - 1):
+        point = points[index]
+        next_point = points[index + 1]
+
+        current_time = parse_time(point.get("time"))
+        next_time = parse_time(next_point.get("time"))
+
+        if current_time is None or next_time is None:
+            continue
+
+        seconds = (next_time - current_time).total_seconds()
+
+        if seconds <= 0 or seconds > 86400:
+            continue
+
+        activity = str(
+            point.get("activity") or ""
+        ).strip().lower()
+
+        speed = safe_float(point.get("speed")) or 0.0
+        next_speed = safe_float(
+            next_point.get("speed")
+        ) or 0.0
+
+        is_idling = (
+            "idling" in activity
+            or "idle" in activity
+        )
+        is_driving = (
+            "driving" in activity
+            or "moving" in activity
+            or speed > 2
+        )
+
+        if is_idling:
+            metrics["idling_seconds"] += seconds
+        elif is_driving:
+            metrics["driving_seconds"] += seconds
+        else:
+            metrics["parking_seconds"] += seconds
+
+        segment_km = haversine_km(point, next_point)
+
+        if (
+            segment_km <= 50
+            and (
+                is_driving
+                or speed > 2
+                or next_speed > 2
+            )
+        ):
+            metrics["distance_km"] += segment_km
+
+    return metrics
 
 
 def state_for_vehicle(vehicle_id, states=None):
@@ -214,8 +334,20 @@ def get_vehicle_history(vehicle_id, date_string):
         }
 
     try:
-        start_time = f"{date_string}T00:00:00+02:00"
-        end_time = f"{date_string}T23:59:59+02:00"
+        selected_date = datetime.strptime(
+            date_string,
+            "%Y-%m-%d"
+        ).date()
+        start_time = datetime.combine(
+            selected_date,
+            datetime.min.time(),
+            tzinfo=POLAND_TZ
+        ).isoformat()
+        end_time = datetime.combine(
+            selected_date,
+            datetime.max.time().replace(microsecond=0),
+            tzinfo=POLAND_TZ
+        ).isoformat()
 
         url = f"{NAVIREC_API}/vehicle_history/"
 
@@ -315,8 +447,20 @@ def get_vehicle_timeline_totals(vehicle_id, date_string):
         return None
 
     try:
-        start_time = f"{date_string}T00:00:00+02:00"
-        end_time = f"{date_string}T23:59:59+02:00"
+        selected_date = datetime.strptime(
+            date_string,
+            "%Y-%m-%d"
+        ).date()
+        start_time = datetime.combine(
+            selected_date,
+            datetime.min.time(),
+            tzinfo=POLAND_TZ
+        ).isoformat()
+        end_time = datetime.combine(
+            selected_date,
+            datetime.max.time().replace(microsecond=0),
+            tzinfo=POLAND_TZ
+        ).isoformat()
 
         url = f"{NAVIREC_API}/vehicle_timeline/totals/"
 
@@ -1327,7 +1471,7 @@ def history():
 
     date_string = request.args.get(
         "date",
-        datetime.now().strftime("%Y-%m-%d")
+        datetime.now(POLAND_TZ).strftime("%Y-%m-%d")
     )
 
     result = get_vehicle_history(
@@ -1341,6 +1485,8 @@ def history():
         selected_id,
         date_string
     )
+
+    metrics = calculate_history_metrics(points)
 
     if points:
         start_point = points[0]
@@ -1388,24 +1534,10 @@ def history():
         fuel_start = None
         fuel_end = None
 
-    distance_value = None
-
-    if totals:
-        distance_value = get_total_number(
-            totals,
-            [
-                "driving_distance",
-                "drivingDistance",
-                "distance"
-            ]
-        )
-
-    if distance_value is None and points:
-        distance_value = safe_float(
-            end_point.get(
-                "accumulated_driving_distance"
-            )
-        )
+    distance_value = (
+        metrics["distance_km"]
+        if points else None
+    )
 
     points_count_text = format_number(
         len(points),
@@ -1464,54 +1596,26 @@ def history():
     else:
         fuel_end_text = "—"
 
-    driving_distance_text = "—"
-    driving_time_text = "—"
-    parking_time_text = "—"
-    idling_time_text = "—"
+    driving_distance_text = (
+        format_number(distance_value, 2) + " км"
+        if distance_value is not None
+        else "—"
+    )
+    driving_time_text = (
+        format_duration(metrics["driving_seconds"])
+        if points else "—"
+    )
+    parking_time_text = (
+        format_duration(metrics["parking_seconds"])
+        if points else "—"
+    )
+    idling_time_text = (
+        format_duration(metrics["idling_seconds"])
+        if points else "—"
+    )
     fuel_per_100_text = "—"
 
     if totals:
-        driving_distance = get_total_number(
-            totals,
-            [
-                "driving_distance",
-                "drivingDistance"
-            ]
-        )
-
-        if driving_distance is not None:
-            driving_distance_text = (
-                format_number(
-                    driving_distance,
-                    2
-                )
-                + " км"
-            )
-
-        driving_time = find_value(
-            totals,
-            [
-                "driving_time",
-                "drivingTime"
-            ]
-        )
-
-        parking_time = find_value(
-            totals,
-            [
-                "parking_time",
-                "parkingTime"
-            ]
-        )
-
-        idling_time = find_value(
-            totals,
-            [
-                "idling_time",
-                "idlingTime"
-            ]
-        )
-
         fuel_per_100 = get_total_number(
             totals,
             [
@@ -1520,21 +1624,6 @@ def history():
                 "fuel_consumption"
             ]
         )
-
-        if driving_time is not None:
-            driving_time_text = str(
-                driving_time
-            )
-
-        if parking_time is not None:
-            parking_time_text = str(
-                parking_time
-            )
-
-        if idling_time is not None:
-            idling_time_text = str(
-                idling_time
-            )
 
         if fuel_per_100 is not None:
             fuel_per_100_text = (
