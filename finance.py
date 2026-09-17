@@ -1,10 +1,12 @@
 import os
 import uuid
+import hmac
+import hashlib
 from datetime import date
 from decimal import Decimal, InvalidOperation
 from html import escape
 
-from flask import request, redirect, url_for
+from flask import request, redirect, url_for, jsonify
 
 try:
     import psycopg
@@ -15,6 +17,10 @@ except ImportError:
 
 
 DATABASE_URL = os.environ.get("DATABASE_URL", "").strip()
+FINANCE_IMPORT_SECRET = os.environ.get(
+    "FINANCE_IMPORT_SECRET",
+    ""
+).strip()
 
 FINANCE_CATEGORIES = {
     "transport": "Дохід за перевезення",
@@ -91,6 +97,38 @@ def ensure_finance_schema():
                     )
                     WHERE invoice_number IS NOT NULL
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS email_invoice_queue (
+                        id UUID PRIMARY KEY,
+                        external_key TEXT NOT NULL UNIQUE,
+                        source_message_id TEXT,
+                        sender_email TEXT,
+                        email_subject TEXT,
+                        attachment_name TEXT,
+                        invoice_date DATE,
+                        due_date DATE,
+                        contractor_name TEXT,
+                        invoice_number TEXT,
+                        description TEXT NOT NULL,
+                        category TEXT NOT NULL DEFAULT 'other',
+                        amount_net NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                        amount_vat NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                        amount_gross NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                        currency TEXT NOT NULL DEFAULT 'PLN',
+                        vehicle_id TEXT,
+                        payment_status TEXT NOT NULL DEFAULT 'unpaid',
+                        review_status TEXT NOT NULL DEFAULT 'pending',
+                        duplicate_reason TEXT,
+                        imported_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        reviewed_at TIMESTAMPTZ,
+                        finance_entry_id UUID
+                    )
+                """)
+                cursor.execute("""
+                    CREATE INDEX IF NOT EXISTS
+                    email_invoice_queue_status_idx
+                    ON email_invoice_queue (review_status, imported_at DESC)
+                """)
         return True, ""
     except Exception as exc:
         return False, f"Помилка PostgreSQL: {exc}"
@@ -111,7 +149,257 @@ def money(value, currency):
     return f"{number:,.2f} {escape(currency)}".replace(",", " ")
 
 
+def clean_text(value, limit=500):
+    return str(value or "").strip()[:limit]
+
+
+def optional_date(value):
+    text = clean_text(value, 10)
+    if not text:
+        return None
+
+    try:
+        return date.fromisoformat(text).isoformat()
+    except ValueError:
+        return None
+
+
+def import_is_authorized():
+    if not FINANCE_IMPORT_SECRET:
+        return False
+
+    supplied = request.headers.get("X-Import-Secret", "").strip()
+    authorization = request.headers.get("Authorization", "").strip()
+
+    if authorization.lower().startswith("bearer "):
+        supplied = authorization[7:].strip()
+
+    return bool(
+        supplied
+        and hmac.compare_digest(supplied, FINANCE_IMPORT_SECRET)
+    )
+
+
+def make_external_key(data):
+    explicit = clean_text(data.get("external_key"), 300)
+    if explicit:
+        return explicit
+
+    source = "|".join([
+        clean_text(data.get("source_message_id"), 300),
+        clean_text(data.get("attachment_name"), 300),
+        clean_text(data.get("invoice_number"), 200),
+        clean_text(data.get("contractor_name"), 300),
+        str(decimal_value(data.get("amount_gross"))),
+        clean_text(data.get("currency"), 3).upper()
+    ])
+    return hashlib.sha256(source.encode("utf-8")).hexdigest()
+
+
 def register_finance_routes(app, page_renderer, vehicles, html_text):
+    @app.route("/api/finance/email-invoices/import", methods=["POST"])
+    def finance_email_import():
+        if not import_is_authorized():
+            return jsonify({
+                "ok": False,
+                "error": "Немає дозволу на імпорт."
+            }), 401
+
+        schema_ok, schema_error = ensure_finance_schema()
+        if not schema_ok:
+            return jsonify({"ok": False, "error": schema_error}), 503
+
+        data = request.get_json(silent=True) or {}
+        currency = clean_text(data.get("currency") or "PLN", 3).upper()
+        if currency not in {"PLN", "EUR", "USD", "GBP"}:
+            currency = "PLN"
+
+        category = clean_text(data.get("category") or "other", 40)
+        if category not in FINANCE_CATEGORIES:
+            category = "other"
+
+        contractor = clean_text(data.get("contractor_name"), 300)
+        invoice_number = clean_text(data.get("invoice_number"), 200)
+        description = clean_text(
+            data.get("description") or "Фактура з Gmail",
+            500
+        )
+        external_key = make_external_key(data)
+        gross = decimal_value(data.get("amount_gross"))
+
+        duplicate_reason = None
+        try:
+            with connect_database() as connection:
+                with connection.cursor() as cursor:
+                    if invoice_number:
+                        cursor.execute("""
+                            SELECT id
+                            FROM finance_entries
+                            WHERE contractor_name = %s
+                              AND invoice_number = %s
+                              AND amount_gross = %s
+                              AND currency = %s
+                            LIMIT 1
+                        """, (
+                            contractor or None,
+                            invoice_number,
+                            gross,
+                            currency
+                        ))
+                        if cursor.fetchone():
+                            duplicate_reason = (
+                                "Така фактура вже є у фінансових операціях."
+                            )
+
+                    cursor.execute("""
+                        INSERT INTO email_invoice_queue (
+                            id, external_key, source_message_id,
+                            sender_email, email_subject, attachment_name,
+                            invoice_date, due_date, contractor_name,
+                            invoice_number, description, category,
+                            amount_net, amount_vat, amount_gross,
+                            currency, vehicle_id, payment_status,
+                            review_status, duplicate_reason
+                        ) VALUES (
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s,
+                            %s, %s
+                        )
+                        ON CONFLICT (external_key) DO NOTHING
+                        RETURNING id
+                    """, (
+                        str(uuid.uuid4()),
+                        external_key,
+                        clean_text(data.get("source_message_id"), 300) or None,
+                        clean_text(data.get("sender_email"), 300) or None,
+                        clean_text(data.get("email_subject"), 500) or None,
+                        clean_text(data.get("attachment_name"), 300) or None,
+                        optional_date(data.get("invoice_date")),
+                        optional_date(data.get("due_date")),
+                        contractor or None,
+                        invoice_number or None,
+                        description,
+                        category,
+                        decimal_value(data.get("amount_net")),
+                        decimal_value(data.get("amount_vat")),
+                        gross,
+                        currency,
+                        clean_text(data.get("vehicle_id"), 100) or None,
+                        "unpaid",
+                        "duplicate" if duplicate_reason else "pending",
+                        duplicate_reason
+                    ))
+                    inserted = cursor.fetchone()
+
+            if not inserted:
+                return jsonify({
+                    "ok": True,
+                    "duplicate": True,
+                    "message": "Цей файл уже був імпортований."
+                }), 200
+
+            return jsonify({
+                "ok": True,
+                "id": str(inserted["id"]),
+                "review_status": (
+                    "duplicate" if duplicate_reason else "pending"
+                )
+            }), 201
+        except Exception as exc:
+            return jsonify({
+                "ok": False,
+                "error": f"Не вдалося імпортувати фактуру: {exc}"
+            }), 500
+
+    @app.route(
+        "/finance/email-invoices/<invoice_id>/approve",
+        methods=["POST"]
+    )
+    def finance_email_approve(invoice_id):
+        schema_ok, _ = ensure_finance_schema()
+        if not schema_ok:
+            return redirect(url_for("finance_dashboard", error="database"))
+
+        try:
+            with connect_database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM email_invoice_queue
+                        WHERE id = %s AND review_status = 'pending'
+                        FOR UPDATE
+                    """, (invoice_id,))
+                    item = cursor.fetchone()
+
+                    if not item:
+                        return redirect(url_for(
+                            "finance_dashboard",
+                            error="invoice_not_pending"
+                        ))
+
+                    entry_id = str(uuid.uuid4())
+                    cursor.execute("""
+                        INSERT INTO finance_entries (
+                            id, entry_kind, entry_date, description,
+                            category, amount_net, amount_vat,
+                            amount_gross, currency, vehicle_id,
+                            contractor_name, invoice_number, due_date,
+                            payment_status, source, source_message_id,
+                            attachment_name, review_status
+                        ) VALUES (
+                            %s, 'expense', %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, 'gmail', %s, %s, 'approved'
+                        )
+                    """, (
+                        entry_id,
+                        item["invoice_date"] or date.today(),
+                        item["description"],
+                        item["category"],
+                        item["amount_net"],
+                        item["amount_vat"],
+                        item["amount_gross"],
+                        item["currency"],
+                        item["vehicle_id"],
+                        item["contractor_name"],
+                        item["invoice_number"],
+                        item["due_date"],
+                        item["payment_status"],
+                        item["source_message_id"],
+                        item["attachment_name"]
+                    ))
+                    cursor.execute("""
+                        UPDATE email_invoice_queue
+                        SET review_status = 'approved',
+                            reviewed_at = NOW(),
+                            finance_entry_id = %s
+                        WHERE id = %s
+                    """, (entry_id, invoice_id))
+
+            return redirect(url_for("finance_dashboard", approved="1"))
+        except Exception:
+            return redirect(url_for("finance_dashboard", error="duplicate"))
+
+    @app.route(
+        "/finance/email-invoices/<invoice_id>/reject",
+        methods=["POST"]
+    )
+    def finance_email_reject(invoice_id):
+        schema_ok, _ = ensure_finance_schema()
+        if schema_ok:
+            try:
+                with connect_database() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE email_invoice_queue
+                            SET review_status = 'rejected', reviewed_at = NOW()
+                            WHERE id = %s AND review_status = 'pending'
+                        """, (invoice_id,))
+            except Exception:
+                pass
+
+        return redirect(url_for("finance_dashboard", rejected="1"))
+
     @app.route("/finance", methods=["GET", "POST"])
     def finance_dashboard():
         schema_ok, schema_error = ensure_finance_schema()
@@ -198,7 +486,30 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 "</div>"
             )
 
+        if request.args.get("approved") == "1":
+            message = (
+                "<div class='alert alert-ok'>"
+                "Фактуру підтверджено та додано у витрати."
+                "</div>"
+            )
+
+        if request.args.get("rejected") == "1":
+            message = (
+                "<div class='alert alert-warning'>"
+                "Фактуру відхилено. У фінанси її не додано."
+                "</div>"
+            )
+
+        if request.args.get("error"):
+            message = (
+                "<div class='alert alert-error'>"
+                "Не вдалося виконати дію. Можливо, фактура вже оброблена "
+                "або дублюється."
+                "</div>"
+            )
+
         rows = []
+        email_invoices = []
         totals = {}
 
         if schema_ok:
@@ -231,6 +542,20 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         """)
                         for total in cursor.fetchall():
                             totals[total["currency"]] = total
+
+                        cursor.execute("""
+                            SELECT *
+                            FROM email_invoice_queue
+                            ORDER BY
+                                CASE review_status
+                                    WHEN 'pending' THEN 0
+                                    WHEN 'duplicate' THEN 1
+                                    ELSE 2
+                                END,
+                                imported_at DESC
+                            LIMIT 100
+                        """)
+                        email_invoices = cursor.fetchall()
             except Exception as exc:
                 schema_ok = False
                 schema_error = f"Помилка читання PostgreSQL: {exc}"
@@ -312,6 +637,63 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         if not table_rows:
             table_rows.append("""
                 <tr><td colspan="7">Операцій ще немає.</td></tr>
+            """)
+
+        email_rows = []
+        status_labels = {
+            "pending": "На перевірку",
+            "approved": "Підтверджено",
+            "rejected": "Відхилено",
+            "duplicate": "Дублікат"
+        }
+
+        for item in email_invoices:
+            actions = "—"
+            if item["review_status"] == "pending":
+                actions = """
+                    <form method="post" action="/finance/email-invoices/{id}/approve" style="display:inline">
+                        <button type="submit">Підтвердити</button>
+                    </form>
+                    <form method="post" action="/finance/email-invoices/{id}/reject" style="display:inline">
+                        <button type="submit" style="background:#8d1717">Відхилити</button>
+                    </form>
+                """.format(id=escape(str(item["id"])))
+
+            warning = ""
+            if item["duplicate_reason"]:
+                warning = "<br><span class='error'>{}</span>".format(
+                    html_text(item["duplicate_reason"])
+                )
+
+            email_rows.append("""
+                <tr>
+                    <td>{date}</td>
+                    <td>{contractor}<br><span class="small">{sender}</span></td>
+                    <td>{number}<br><span class="small">{attachment}</span></td>
+                    <td>{description}</td>
+                    <td>{gross}</td>
+                    <td>{status}{warning}</td>
+                    <td>{actions}</td>
+                </tr>
+            """.format(
+                date=html_text(item["invoice_date"]),
+                contractor=html_text(item["contractor_name"]),
+                sender=html_text(item["sender_email"], ""),
+                number=html_text(item["invoice_number"]),
+                attachment=html_text(item["attachment_name"], ""),
+                description=html_text(item["description"]),
+                gross=money(item["amount_gross"], item["currency"]),
+                status=html_text(status_labels.get(
+                    item["review_status"],
+                    item["review_status"]
+                )),
+                warning=warning,
+                actions=actions
+            ))
+
+        if not email_rows:
+            email_rows.append("""
+                <tr><td colspan="7">Фактур із пошти ще немає.</td></tr>
             """)
 
         vehicle_options = [
@@ -400,13 +782,23 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         <div class="card">
             <h2>Фактури з пошти</h2>
             <p>
-                Після підключення Gmail вкладення PDF, JPG і XML
-                потраплятимуть сюди зі статусом «На перевірку».
+                Вкладення PDF, JPG і XML потрапляють сюди спочатку
+                зі статусом «На перевірку».
             </p>
             <p class="small">
                 Програма перевірятиме дублікати за контрагентом,
                 номером фактури, сумою та валютою.
             </p>
+            <div style="overflow-x:auto">
+                <table>
+                    <tr>
+                        <th>Дата</th><th>Контрагент</th>
+                        <th>Фактура / файл</th><th>Опис</th>
+                        <th>Brutto</th><th>Статус</th><th>Дія</th>
+                    </tr>
+                    {email_rows}
+                </table>
+            </div>
         </div>
         """.format(
             database_alert=database_alert,
@@ -416,7 +808,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             today=date.today().isoformat(),
             categories="".join(category_options),
             vehicles="".join(vehicle_options),
-            rows="".join(table_rows)
+            rows="".join(table_rows),
+            email_rows="".join(email_rows)
         )
 
         return page_renderer(
