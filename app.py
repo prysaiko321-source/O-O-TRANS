@@ -820,6 +820,7 @@ def page(title, body, active=""):
             ("history", "/history", "Історія маршрутів"),
             ("fuel", "/fuel", "Паливо"),
             ("tachograph", "/tachograph", "Тахограф"),
+            ("finance", "/finance", "Фінанси"),
             ("health", "/health", "Health")
         ]
     else:
@@ -1153,6 +1154,20 @@ button,
         body=body,
         extra_head=""
     )
+
+
+try:
+    from finance import register_finance_routes
+
+    register_finance_routes(
+        app,
+        page,
+        VEHICLES,
+        html_text
+    )
+    FINANCE_MODULE_ERROR = ""
+except Exception as finance_exc:
+    FINANCE_MODULE_ERROR = str(finance_exc)
 
 
 @app.route(
