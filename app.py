@@ -1,8 +1,10 @@
 import os
 import json
 from datetime import datetime
+
 from flask import Flask, request, redirect, url_for, session
 import requests
+
 
 app = Flask(__name__)
 
@@ -10,11 +12,17 @@ app = Flask(__name__)
 # CONFIG
 # ============================================================
 
-app.secret_key = os.environ.get("SESSION_SECRET", "change-this-secret")
+app.secret_key = os.environ.get(
+    "SESSION_SECRET",
+    "change-this-secret"
+)
 
 NAVIREC_API = "https://api.navirec.com"
 
-NAVIREC_TOKEN = os.environ.get("NAVIREC_TOKEN", "")
+NAVIREC_TOKEN = os.environ.get(
+    "NAVIREC_TOKEN",
+    ""
+)
 
 NAVIREC_ACCOUNT_ID = os.environ.get(
     "NAVIREC_ACCOUNT_ID",
@@ -31,10 +39,15 @@ COMPANY_ID = os.environ.get(
     "O&O-TRANS"
 )
 
-ADMIN_USER = os.environ.get("ADMIN_USER", "")
-ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
+ADMIN_USER = os.environ.get(
+    "ADMIN_USER",
+    ""
+)
 
-TIMEZONE = "Europe/Warsaw"
+ADMIN_PASSWORD = os.environ.get(
+    "ADMIN_PASSWORD",
+    ""
+)
 
 
 # ============================================================
@@ -58,7 +71,7 @@ VEHICLES = [
 
 
 # ============================================================
-# HELPERS
+# GENERAL HELPERS
 # ============================================================
 
 def is_logged_in():
@@ -73,16 +86,16 @@ def vehicle_by_id(vehicle_id):
     return None
 
 
-def navirec_vehicle_id(value):
+def normalize_vehicle_id(value):
     """
-    Navirec може повертати vehicle у двох форматах:
+    Navirec може повертати vehicle:
 
-    1. cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb
+    UUID:
+    cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb
 
-    2. https://api.navirec.com/vehicles/
-       cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb/
-
-    Ця функція завжди дістає чистий UUID.
+    або URL:
+    https://api.navirec.com/vehicles/
+    cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb/
     """
 
     if not value:
@@ -91,46 +104,175 @@ def navirec_vehicle_id(value):
     value = str(value).strip()
 
     if "/vehicles/" in value:
-        value = value.split("/vehicles/", 1)[1]
+        value = value.split(
+            "/vehicles/",
+            1
+        )[1]
 
-    value = value.rstrip("/")
+    return value.rstrip("/")
 
-    return value
+
+def extract_coordinates(location):
+    """
+    Navirec може повертати location у різних форматах.
+
+    Варіант 1:
+    [longitude, latitude]
+
+    Варіант 2:
+    {
+        "type": "Point",
+        "coordinates": [
+            longitude,
+            latitude
+        ]
+    }
+
+    Повертаємо:
+    (latitude, longitude)
+    """
+
+    if not location:
+        return None, None
+
+    # ----------------------------------------
+    # Варіант GeoJSON / dictionary
+    # ----------------------------------------
+
+    if isinstance(location, dict):
+
+        coordinates = location.get(
+            "coordinates"
+        )
+
+        if (
+            isinstance(coordinates, (list, tuple))
+            and len(coordinates) >= 2
+        ):
+
+            try:
+
+                longitude = float(
+                    coordinates[0]
+                )
+
+                latitude = float(
+                    coordinates[1]
+                )
+
+                return latitude, longitude
+
+            except (TypeError, ValueError):
+                return None, None
+
+        # Іноді можуть бути latitude/longitude
+        # безпосередньо в об'єкті.
+
+        latitude = location.get(
+            "latitude"
+        )
+
+        longitude = location.get(
+            "longitude"
+        )
+
+        if (
+            latitude is not None
+            and longitude is not None
+        ):
+
+            try:
+
+                return (
+                    float(latitude),
+                    float(longitude)
+                )
+
+            except (TypeError, ValueError):
+                return None, None
+
+        return None, None
+
+    # ----------------------------------------
+    # Варіант списку
+    # ----------------------------------------
+
+    if isinstance(
+        location,
+        (list, tuple)
+    ):
+
+        if len(location) >= 2:
+
+            try:
+
+                longitude = float(
+                    location[0]
+                )
+
+                latitude = float(
+                    location[1]
+                )
+
+                return latitude, longitude
+
+            except (TypeError, ValueError):
+                return None, None
+
+    return None, None
 
 
 def navirec_headers(
     accept="application/json; version=1.52.1"
 ):
+
     return {
-        "Authorization": f"Token {NAVIREC_TOKEN}",
-        "Accept": accept,
-        "User-Agent": "OO-TRANS-Transport-Platform/1.0"
+        "Authorization":
+            f"Token {NAVIREC_TOKEN}",
+
+        "Accept":
+            accept,
+
+        "User-Agent":
+            "OO-TRANS-Transport-Platform/1.0"
     }
 
 
 def get_activity(activity):
+
     mapping = {
         "driving": "Рухається",
         "parking": "Стоїть",
         "stopped": "Зупинка",
-        "idling": "Двигун працює — стоїть",
-        "offline": "Немає зв'язку",
-        "towing": "Буксирування"
+        "idling":
+            "Двигун працює — стоїть",
+        "offline":
+            "Немає зв'язку",
+        "towing":
+            "Буксирування"
     }
 
     if not activity:
         return "Невідомо"
 
-    return mapping.get(activity, activity)
+    return mapping.get(
+        activity,
+        activity
+    )
 
 
 def format_time(value):
+
     if not value:
         return "—"
 
     try:
+
         dt = datetime.fromisoformat(
-            value.replace("Z", "+00:00")
+            str(value).replace(
+                "Z",
+                "+00:00"
+            )
         )
 
         return dt.astimezone().strftime(
@@ -138,17 +280,22 @@ def format_time(value):
         )
 
     except Exception:
-        return value
+        return str(value)
 
 
-def format_number(value, decimals=1):
+def format_number(
+    value,
+    decimals=1
+):
+
     if value is None:
         return "—"
 
     try:
-        return f"{float(value):,.{decimals}f}".replace(
-            ",",
-            " "
+
+        return (
+            f"{float(value):,.{decimals}f}"
+            .replace(",", " ")
         )
 
     except Exception:
@@ -156,6 +303,7 @@ def format_number(value, decimals=1):
 
 
 def safe_float(value):
+
     try:
         return float(value)
 
@@ -164,7 +312,7 @@ def safe_float(value):
 
 
 # ============================================================
-# NAVIREC — LAST VEHICLE STATES
+# NAVIREC — CURRENT STATES
 # ============================================================
 
 def get_vehicle_states():
@@ -174,10 +322,14 @@ def get_vehicle_states():
 
     try:
 
-        url = f"{NAVIREC_API}/last_vehicle_states/"
+        url = (
+            f"{NAVIREC_API}/"
+            "last_vehicle_states/"
+        )
 
         params = {
-            "account": NAVIREC_ACCOUNT_ID
+            "account":
+                NAVIREC_ACCOUNT_ID
         }
 
         response = requests.get(
@@ -203,71 +355,96 @@ def get_vehicle_states():
 
 def state_for_vehicle(vehicle_id):
 
-    states = get_vehicle_states()
+    target_id = normalize_vehicle_id(
+        vehicle_id
+    )
 
-    wanted_id = navirec_vehicle_id(vehicle_id)
+    states = get_vehicle_states()
 
     for state in states:
 
-        received_vehicle = state.get("vehicle")
-
-        received_id = navirec_vehicle_id(
-            received_vehicle
+        state_vehicle_id = (
+            normalize_vehicle_id(
+                state.get("vehicle")
+            )
         )
 
-        if received_id == wanted_id:
+        if state_vehicle_id == target_id:
             return state
 
     return None
 
 
+def state_map_by_vehicle(states):
+
+    result = {}
+
+    for state in states:
+
+        vehicle_id = (
+            normalize_vehicle_id(
+                state.get("vehicle")
+            )
+        )
+
+        if vehicle_id:
+            result[vehicle_id] = state
+
+    return result
+
+
 # ============================================================
-# VEHICLE HISTORY
+# NAVIREC — VEHICLE HISTORY
 # ============================================================
 
 def get_vehicle_history(
     vehicle_id,
     date_string
 ):
-    """
-    Отримує GPS історію автомобіля
-    через Navirec /vehicle_history/.
-    """
 
     if not NAVIREC_TOKEN:
 
         return {
             "ok": False,
-            "error": "NAVIREC_TOKEN не налаштований.",
+            "error":
+                "NAVIREC_TOKEN не налаштований.",
             "points": []
         }
 
     try:
 
         start_time = (
-            f"{date_string}T00:00:00+02:00"
+            f"{date_string}"
+            "T00:00:00+02:00"
         )
 
         end_time = (
-            f"{date_string}T23:59:59+02:00"
+            f"{date_string}"
+            "T23:59:59+02:00"
         )
 
         url = (
-            f"{NAVIREC_API}/vehicle_history/"
+            f"{NAVIREC_API}/"
+            "vehicle_history/"
         )
 
         params = {
-            "vehicle": vehicle_id,
-            "start_time": start_time,
-            "end_time": end_time,
-            "format": "json"
+            "vehicle":
+                vehicle_id,
+
+            "start_time":
+                start_time,
+
+            "end_time":
+                end_time,
+
+            "format":
+                "json"
         }
 
         response = requests.get(
             url,
-            headers=navirec_headers(
-                "application/json; version=1.52.1"
-            ),
+            headers=navirec_headers(),
             params=params,
             timeout=45
         )
@@ -276,11 +453,12 @@ def get_vehicle_history(
 
             return {
                 "ok": False,
-                "error": (
-                    f"Navirec HTTP "
-                    f"{response.status_code}: "
-                    f"{response.text[:1000]}"
-                ),
+                "error":
+                    (
+                        f"Navirec HTTP "
+                        f"{response.status_code}: "
+                        f"{response.text[:1000]}"
+                    ),
                 "points": []
             }
 
@@ -290,10 +468,8 @@ def get_vehicle_history(
 
             return {
                 "ok": False,
-                "error": (
-                    "Navirec повернув "
-                    "не список GPS точок."
-                ),
+                "error":
+                    "Navirec повернув не список GPS точок.",
                 "points": []
             }
 
@@ -301,24 +477,14 @@ def get_vehicle_history(
 
         for item in data:
 
-            location = item.get("location")
-
-            if not isinstance(location, dict):
-                continue
-
-            coordinates = location.get(
-                "coordinates"
+            location = item.get(
+                "location"
             )
 
-            if not coordinates or len(coordinates) < 2:
-                continue
-
-            longitude = safe_float(
-                coordinates[0]
-            )
-
-            latitude = safe_float(
-                coordinates[1]
+            latitude, longitude = (
+                extract_coordinates(
+                    location
+                )
             )
 
             if (
@@ -329,52 +495,81 @@ def get_vehicle_history(
 
             points.append(
                 {
-                    "id": item.get("id"),
-                    "time": item.get("time"),
-                    "latitude": latitude,
-                    "longitude": longitude,
-                    "activity": item.get("activity"),
-                    "speed": item.get("speed"),
-                    "heading": item.get("heading"),
-                    "fuel_level": item.get(
-                        "fuel_level"
-                    ),
-                    "altitude": item.get(
-                        "altitude"
-                    ),
-                    "engine_speed": item.get(
-                        "engine_speed"
-                    ),
-                    "ignition": item.get(
-                        "ignition"
-                    ),
-                    "driver_name": item.get(
-                        "driver_name"
-                    ),
-                    "driver_surname": item.get(
-                        "driver_surname"
-                    ),
-                    "total_distance": item.get(
-                        "total_distance"
-                    ),
-                    "accumulated_distance": item.get(
-                        "accumulated_distance"
-                    ),
+                    "id":
+                        item.get("id"),
+
+                    "time":
+                        item.get("time"),
+
+                    "latitude":
+                        latitude,
+
+                    "longitude":
+                        longitude,
+
+                    "activity":
+                        item.get("activity"),
+
+                    "speed":
+                        item.get("speed"),
+
+                    "heading":
+                        item.get("heading"),
+
+                    "fuel_level":
+                        item.get("fuel_level"),
+
+                    "altitude":
+                        item.get("altitude"),
+
+                    "engine_speed":
+                        item.get(
+                            "engine_speed"
+                        ),
+
+                    "ignition":
+                        item.get("ignition"),
+
+                    "driver_name":
+                        item.get(
+                            "driver_name"
+                        ),
+
+                    "driver_surname":
+                        item.get(
+                            "driver_surname"
+                        ),
+
+                    "total_distance":
+                        item.get(
+                            "total_distance"
+                        ),
+
+                    "accumulated_distance":
+                        item.get(
+                            "accumulated_distance"
+                        ),
+
                     "accumulated_driving_distance":
                         item.get(
                             "accumulated_driving_distance"
                         ),
-                    "total_engine_time": item.get(
-                        "total_engine_time"
-                    ),
-                    "satellites": item.get(
-                        "satellites"
-                    )
+
+                    "total_engine_time":
+                        item.get(
+                            "total_engine_time"
+                        ),
+
+                    "satellites":
+                        item.get(
+                            "satellites"
+                        )
                 }
             )
 
         points.sort(
-            key=lambda x: x.get("time") or ""
+            key=lambda x:
+                x.get("time") or ""
         )
 
         return {
@@ -387,10 +582,12 @@ def get_vehicle_history(
 
         return {
             "ok": False,
-            "error": (
-                "Помилка з'єднання з Navirec: "
-                f"{exc}"
-            ),
+            "error":
+                (
+                    "Помилка з'єднання "
+                    "з Navirec: "
+                    f"{exc}"
+                ),
             "points": []
         }
 
@@ -398,16 +595,18 @@ def get_vehicle_history(
 
         return {
             "ok": False,
-            "error": (
-                "Помилка обробки історії: "
-                f"{exc}"
-            ),
+            "error":
+                (
+                    "Помилка обробки "
+                    "історії: "
+                    f"{exc}"
+                ),
             "points": []
         }
 
 
 # ============================================================
-# VEHICLE TIMELINE TOTALS
+# NAVIREC — TIMELINE TOTALS
 # ============================================================
 
 def get_vehicle_timeline_totals(
@@ -421,21 +620,29 @@ def get_vehicle_timeline_totals(
     try:
 
         start_time = (
-            f"{date_string}T00:00:00+02:00"
+            f"{date_string}"
+            "T00:00:00+02:00"
         )
 
         end_time = (
-            f"{date_string}T23:59:59+02:00"
+            f"{date_string}"
+            "T23:59:59+02:00"
         )
 
         url = (
-            f"{NAVIREC_API}/vehicle_timeline/totals/"
+            f"{NAVIREC_API}/"
+            "vehicle_timeline/totals/"
         )
 
         params = {
-            "vehicle": vehicle_id,
-            "start_time": start_time,
-            "end_time": end_time
+            "vehicle":
+                vehicle_id,
+
+            "start_time":
+                start_time,
+
+            "end_time":
+                end_time
         }
 
         response = requests.get(
@@ -455,7 +662,7 @@ def get_vehicle_timeline_totals(
 
 
 # ============================================================
-# HTML STYLE
+# CSS
 # ============================================================
 
 BASE_STYLE = """
@@ -497,13 +704,17 @@ body {
     border-radius: 12px;
     padding: 18px;
     margin-bottom: 18px;
-    box-shadow: 0 2px 10px rgba(0,0,0,.06);
+    box-shadow:
+        0 2px 10px rgba(0,0,0,.06);
 }
 
 .grid {
     display: grid;
     grid-template-columns:
-        repeat(auto-fit, minmax(220px, 1fr));
+        repeat(
+            auto-fit,
+            minmax(220px, 1fr)
+        );
     gap: 14px;
 }
 
@@ -511,7 +722,8 @@ body {
     background: white;
     border-radius: 12px;
     padding: 18px;
-    box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    box-shadow:
+        0 2px 10px rgba(0,0,0,.05);
 }
 
 .stat-title {
@@ -530,7 +742,8 @@ body {
     border-radius: 12px;
     padding: 18px;
     margin-bottom: 14px;
-    box-shadow: 0 2px 10px rgba(0,0,0,.05);
+    box-shadow:
+        0 2px 10px rgba(0,0,0,.05);
 }
 
 .btn {
@@ -572,7 +785,8 @@ label {
 
 .form-grid {
     display: grid;
-    grid-template-columns: 1fr 1fr auto;
+    grid-template-columns:
+        1fr 1fr auto;
     gap: 14px;
     align-items: end;
 }
@@ -638,7 +852,8 @@ table {
 th,
 td {
     padding: 9px;
-    border-bottom: 1px solid #e5e7eb;
+    border-bottom:
+        1px solid #e5e7eb;
     text-align: left;
     white-space: nowrap;
     font-size: 13px;
@@ -697,7 +912,9 @@ def page(title, content):
 <div class="topbar">
 
     <div>
-        <strong>🚚 {COMPANY_NAME}</strong>
+        <strong>
+            🚚 {COMPANY_NAME}
+        </strong>
     </div>
 
     <div>
@@ -836,7 +1053,9 @@ def login():
         """
         <div class="card">
 
-            <h1>🔐 O&O TRANS</h1>
+            <h1>
+                🔐 O&O TRANS
+            </h1>
 
             <form method="post">
 
@@ -897,22 +1116,15 @@ def logout():
 def home():
 
     if not is_logged_in():
-        return redirect(url_for("login"))
+        return redirect(
+            url_for("login")
+        )
 
     states = get_vehicle_states()
 
-    state_map = {}
-
-    for state in states:
-
-        raw_vehicle = state.get("vehicle")
-
-        normalized_id = navirec_vehicle_id(
-            raw_vehicle
-        )
-
-        if normalized_id:
-            state_map[normalized_id] = state
+    state_map = state_map_by_vehicle(
+        states
+    )
 
     cards = ""
 
@@ -958,7 +1170,9 @@ def home():
                         </strong>
                         <br>
                         {format_number(
-                            state.get("fuel_level"),
+                            state.get(
+                                "fuel_level"
+                            ),
                             1
                         )}%
                     </div>
@@ -969,7 +1183,9 @@ def home():
                         </strong>
                         <br>
                         {format_number(
-                            state.get("engine_speed"),
+                            state.get(
+                                "engine_speed"
+                            ),
                             0
                         )} rpm
                     </div>
@@ -1074,20 +1290,15 @@ def home():
 def vehicles():
 
     if not is_logged_in():
-        return redirect(url_for("login"))
+        return redirect(
+            url_for("login")
+        )
 
     states = get_vehicle_states()
 
-    state_map = {}
-
-    for state in states:
-
-        normalized_id = navirec_vehicle_id(
-            state.get("vehicle")
-        )
-
-        if normalized_id:
-            state_map[normalized_id] = state
+    state_map = state_map_by_vehicle(
+        states
+    )
 
     rows = ""
 
@@ -1208,18 +1419,25 @@ def vehicles():
 # SINGLE VEHICLE
 # ============================================================
 
-@app.route("/vehicle/<vehicle_id>")
+@app.route(
+    "/vehicle/<vehicle_id>"
+)
 def vehicle_page(vehicle_id):
 
     if not is_logged_in():
-        return redirect(url_for("login"))
+        return redirect(
+            url_for("login")
+        )
 
     vehicle = vehicle_by_id(
         vehicle_id
     )
 
     if not vehicle:
-        return "Автомобіль не знайдений", 404
+        return (
+            "Автомобіль не знайдений",
+            404
+        )
 
     state = state_for_vehicle(
         vehicle_id
@@ -1250,22 +1468,24 @@ def vehicle_page(vehicle_id):
         "activity"
     )
 
+    # ========================================================
+    # ВАЖЛИВО:
+    # Тут більше НЕ використовується
+    # location[0] напряму.
+    #
+    # extract_coordinates() розуміє
+    # список і GeoJSON.
+    # ========================================================
+
     location = state.get(
         "location"
-    ) or []
+    )
 
-    longitude = None
-    latitude = None
-
-    if len(location) >= 2:
-
-        longitude = safe_float(
-            location[0]
+    latitude, longitude = (
+        extract_coordinates(
+            location
         )
-
-        latitude = safe_float(
-            location[1]
-        )
+    )
 
     driver_name = (
         state.get("driver_name")
@@ -1284,6 +1504,10 @@ def vehicle_page(vehicle_id):
 
     if not driver:
         driver = "—"
+
+    # ========================================================
+    # MAP
+    # ========================================================
 
     map_html = ""
 
@@ -1315,10 +1539,11 @@ def vehicle_page(vehicle_id):
 
         <script>
 
-        const map = L.map('map').setView(
-            [{latitude}, {longitude}],
-            12
-        );
+        const map =
+            L.map('map').setView(
+                [{latitude}, {longitude}],
+                12
+            );
 
         L.tileLayer(
             'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
@@ -1329,13 +1554,15 @@ def vehicle_page(vehicle_id):
             }}
         ).addTo(map);
 
-        const marker = L.marker(
-            [{latitude}, {longitude}]
-        ).addTo(map);
+        const marker =
+            L.marker(
+                [{latitude}, {longitude}]
+            ).addTo(map);
 
         marker.bindPopup(
             "<strong>{vehicle["name"]}</strong><br>" +
             "{get_activity(activity)}<br>" +
+            "Швидкість: " +
             "{format_number(
                 state.get("speed"),
                 0
@@ -1345,6 +1572,29 @@ def vehicle_page(vehicle_id):
         </script>
 
         """
+
+    else:
+
+        map_html = """
+
+        <div class="card">
+
+            <h2>
+                📍 Місцезнаходження
+            </h2>
+
+            <p>
+                Navirec зараз не передав
+                координати цього автомобіля.
+            </p>
+
+        </div>
+
+        """
+
+    # ========================================================
+    # VEHICLE PAGE
+    # ========================================================
 
     return page(
         vehicle["name"],
@@ -1394,7 +1644,9 @@ def vehicle_page(vehicle_id):
                 <div class="stat-value">
 
                     {format_number(
-                        state.get("fuel_level"),
+                        state.get(
+                            "fuel_level"
+                        ),
                         1
                     )}%
 
@@ -1411,7 +1663,9 @@ def vehicle_page(vehicle_id):
                 <div class="stat-value">
 
                     {format_number(
-                        state.get("engine_speed"),
+                        state.get(
+                            "engine_speed"
+                        ),
                         0
                     )}
 
@@ -1534,6 +1788,30 @@ def vehicle_page(vehicle_id):
                     )}
                 </div>
 
+                <div>
+                    <strong>
+                        Широта
+                    </strong>
+                    <br>
+                    {
+                        latitude
+                        if latitude is not None
+                        else "—"
+                    }
+                </div>
+
+                <div>
+                    <strong>
+                        Довгота
+                    </strong>
+                    <br>
+                    {
+                        longitude
+                        if longitude is not None
+                        else "—"
+                    }
+                </div>
+
             </div>
 
         </div>
@@ -1572,20 +1850,15 @@ def vehicle_page(vehicle_id):
 def gps():
 
     if not is_logged_in():
-        return redirect(url_for("login"))
+        return redirect(
+            url_for("login")
+        )
 
     states = get_vehicle_states()
 
-    state_map = {}
-
-    for state in states:
-
-        normalized_id = navirec_vehicle_id(
-            state.get("vehicle")
-        )
-
-        if normalized_id:
-            state_map[normalized_id] = state
+    state_map = state_map_by_vehicle(
+        states
+    )
 
     markers = []
 
@@ -1598,19 +1871,10 @@ def gps():
         if not state:
             continue
 
-        location = state.get(
-            "location"
-        ) or []
-
-        if len(location) < 2:
-            continue
-
-        longitude = safe_float(
-            location[0]
-        )
-
-        latitude = safe_float(
-            location[1]
+        latitude, longitude = (
+            extract_coordinates(
+                state.get("location")
+            )
         )
 
         if (
@@ -1621,15 +1885,24 @@ def gps():
 
         markers.append(
             {
-                "name": vehicle["name"],
-                "lat": latitude,
-                "lon": longitude,
-                "speed": state.get(
-                    "speed"
-                ),
-                "activity": get_activity(
-                    state.get("activity")
-                )
+                "name":
+                    vehicle["name"],
+
+                "lat":
+                    latitude,
+
+                "lon":
+                    longitude,
+
+                "speed":
+                    state.get("speed"),
+
+                "activity":
+                    get_activity(
+                        state.get(
+                            "activity"
+                        )
+                    )
             }
         )
 
@@ -1739,7 +2012,9 @@ def gps():
 def history():
 
     if not is_logged_in():
-        return redirect(url_for("login"))
+        return redirect(
+            url_for("login")
+        )
 
     vehicle_id = request.args.get(
         "vehicle",
@@ -2504,20 +2779,15 @@ def history():
 def fuel():
 
     if not is_logged_in():
-        return redirect(url_for("login"))
+        return redirect(
+            url_for("login")
+        )
 
     states = get_vehicle_states()
 
-    state_map = {}
-
-    for state in states:
-
-        normalized_id = navirec_vehicle_id(
-            state.get("vehicle")
-        )
-
-        if normalized_id:
-            state_map[normalized_id] = state
+    state_map = state_map_by_vehicle(
+        states
+    )
 
     rows = ""
 
@@ -2530,12 +2800,16 @@ def fuel():
         if state:
 
             fuel = format_number(
-                state.get("fuel_level"),
+                state.get(
+                    "fuel_level"
+                ),
                 1
             )
 
             fuel_ewma = format_number(
-                state.get("fuel_level_ewma"),
+                state.get(
+                    "fuel_level_ewma"
+                ),
                 1
             )
 
@@ -2631,19 +2905,23 @@ def fuel():
 def tachograph_test():
 
     if not is_logged_in():
-        return redirect(url_for("login"))
+        return redirect(
+            url_for("login")
+        )
 
     result_text = ""
 
     try:
 
         url = (
-            f"{NAVIREC_API}/streams/"
-            f"driver_states/"
+            f"{NAVIREC_API}/"
+            "streams/"
+            "driver_states/"
         )
 
         params = {
-            "account": NAVIREC_ACCOUNT_ID
+            "account":
+                NAVIREC_ACCOUNT_ID
         }
 
         response = requests.get(
@@ -2658,7 +2936,7 @@ def tachograph_test():
         )
 
         result_text += (
-            f"HTTP status: "
+            "HTTP status: "
             f"{response.status_code}\n"
         )
 
@@ -2720,6 +2998,109 @@ def tachograph_test():
 
 
 # ============================================================
+# NAVIREC DEBUG
+# ============================================================
+
+@app.route("/navirec-debug")
+def navirec_debug():
+
+    if not is_logged_in():
+        return redirect(
+            url_for("login")
+        )
+
+    states = get_vehicle_states()
+
+    received = []
+
+    for state in states:
+
+        received.append(
+            {
+                "vehicle":
+                    state.get("vehicle"),
+
+                "normalized_vehicle_id":
+                    normalize_vehicle_id(
+                        state.get("vehicle")
+                    ),
+
+                "time":
+                    state.get("time"),
+
+                "activity":
+                    state.get("activity"),
+
+                "location":
+                    state.get("location"),
+
+                "speed":
+                    state.get("speed"),
+
+                "fuel_level":
+                    state.get("fuel_level"),
+
+                "engine_speed":
+                    state.get(
+                        "engine_speed"
+                    ),
+
+                "total_distance":
+                    state.get(
+                        "total_distance"
+                    )
+            }
+        )
+
+    debug_data = {
+        "ok": True,
+
+        "account_id":
+            NAVIREC_ACCOUNT_ID,
+
+        "token_configured":
+            bool(NAVIREC_TOKEN),
+
+        "states_count":
+            len(states),
+
+        "vehicles_expected":
+            VEHICLES,
+
+        "vehicles_received":
+            received
+    }
+
+    return page(
+        "Navirec Debug",
+        f"""
+
+        <h1>
+            🔧 Navirec Debug
+        </h1>
+
+        <div class="card">
+
+            <pre style="
+                white-space:pre-wrap;
+                background:#111827;
+                color:#f9fafb;
+                padding:16px;
+                border-radius:10px;
+            ">{json.dumps(
+                debug_data,
+                ensure_ascii=False,
+                indent=2,
+                default=str
+            )}</pre>
+
+        </div>
+
+        """
+    )
+
+
+# ============================================================
 # HEALTH
 # ============================================================
 
@@ -2727,11 +3108,18 @@ def tachograph_test():
 def health():
 
     return {
-        "status": "ok",
-        "company": COMPANY_NAME,
-        "company_id": COMPANY_ID,
+        "status":
+            "ok",
+
+        "company":
+            COMPANY_NAME,
+
+        "company_id":
+            COMPANY_ID,
+
         "navirec_token_configured":
             bool(NAVIREC_TOKEN),
+
         "navirec_account_id_configured":
             bool(NAVIREC_ACCOUNT_ID)
     }
