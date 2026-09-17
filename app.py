@@ -1295,6 +1295,7 @@ def require_login():
         request.path == "/health"
         or request.path == "/login"
         or request.path.startswith("/login/")
+        or request.path == "/api/finance/email-invoices/import"
     ):
         return None
 
