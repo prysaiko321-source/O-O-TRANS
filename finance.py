@@ -39,10 +39,19 @@ FINANCE_IMPORT_SECRET = os.environ.get(
     "FINANCE_IMPORT_SECRET",
     ""
 ).strip()
-GOOGLE_CLIENT_ID = os.environ.get("GOOGLE_CLIENT_ID", "").strip()
+# Client ID не є секретом. Фіксуємо перевірений ідентифікатор,
+# щоб випадково не використати старий OAuth-клієнт із Render.
+GOOGLE_CLIENT_ID = (
+    "1038503280850-hmtbsthss4qn0horrl4gbmnskva57j27"
+    ".apps.googleusercontent.com"
+)
 GOOGLE_CLIENT_SECRET = os.environ.get(
     "GOOGLE_CLIENT_SECRET",
     ""
+).strip()
+GMAIL_ACCOUNT_EMAIL = os.environ.get(
+    "GMAIL_ACCOUNT_EMAIL",
+    "prystaiko.trans@gmail.com"
 ).strip()
 GOOGLE_REDIRECT_URI = os.environ.get(
     "GOOGLE_REDIRECT_URI",
@@ -803,7 +812,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             "access_type": "offline",
             "prompt": "consent",
             "include_granted_scopes": "true",
-            "state": state
+            "state": state,
+            "login_hint": GMAIL_ACCOUNT_EMAIL
         }
         return redirect(
             "https://accounts.google.com/o/oauth2/v2/auth?"
