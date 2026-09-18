@@ -2365,17 +2365,17 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <td>
                         <strong>{description}</strong><br>
                         <span class="small">{document_details}</span>
+                        <br>
+                        <a class="button"
+                           href="/finance/entries/{id}/edit"
+                           style="margin-top:8px">
+                            Редагувати
+                        </a>
                     </td>
                     <td>{category}</td>
                     <td>{vehicle}</td>
                     <td>{gross}</td>
                     <td>{payment}</td>
-                    <td>
-                        <a class="button"
-                           href="/finance/entries/{id}/edit">
-                            Редагувати
-                        </a>
-                    </td>
                 </tr>
             """.format(
                 id=escape(str(row["id"])),
@@ -2403,7 +2403,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
         if not table_rows:
             table_rows.append("""
-                <tr><td colspan="8">Операцій ще немає.</td></tr>
+                <tr><td colspan="7">Операцій ще немає.</td></tr>
             """)
 
         email_rows = []
@@ -2733,7 +2733,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <tr>
                         <th>Дата</th><th>Тип</th><th>Опис</th>
                         <th>Категорія</th><th>Автомобіль</th>
-                        <th>Brutto</th><th>Оплата</th><th>Дія</th>
+                        <th>Brutto</th><th>Оплата</th>
                     </tr>
                     {rows}
                 </table>
