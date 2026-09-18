@@ -1759,6 +1759,317 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
         return redirect(url_for("finance_dashboard", rejected="1"))
 
+    @app.route(
+        "/finance/entries/<entry_id>/edit",
+        methods=["GET", "POST"]
+    )
+    def finance_entry_edit(entry_id):
+        schema_ok, _ = ensure_finance_schema()
+        if not schema_ok:
+            return redirect(url_for("finance_dashboard", error="database"))
+
+        if request.method == "POST":
+            entry_kind = request.form.get("entry_kind", "expense")
+            if entry_kind not in ENTRY_KINDS:
+                entry_kind = "expense"
+
+            category = request.form.get("category", "other")
+            if category not in FINANCE_CATEGORIES:
+                category = "other"
+            if entry_kind == "income":
+                category = "transport"
+
+            currency = request.form.get("currency", "PLN").upper()
+            if currency not in {"PLN", "EUR", "USD", "GBP"}:
+                currency = "PLN"
+
+            payment_status = request.form.get(
+                "payment_status",
+                "unpaid"
+            )
+            if payment_status not in {"paid", "unpaid"}:
+                payment_status = "unpaid"
+
+            description = clean_text(
+                request.form.get("description"),
+                500
+            )
+            if not description:
+                description = (
+                    "Транспортне замовлення"
+                    if entry_kind == "income"
+                    else "Фінансова операція"
+                )
+
+            values = {
+                "entry_kind": entry_kind,
+                "entry_date": (
+                    optional_date(request.form.get("entry_date"))
+                    or date.today().isoformat()
+                ),
+                "description": description,
+                "category": category,
+                "amount_net": decimal_value(
+                    request.form.get("amount_net")
+                ),
+                "amount_vat": decimal_value(
+                    request.form.get("amount_vat")
+                ),
+                "amount_gross": decimal_value(
+                    request.form.get("amount_gross")
+                ),
+                "currency": currency,
+                "vehicle_id": clean_text(
+                    request.form.get("vehicle_id"),
+                    100
+                ) or None,
+                "contractor_name": clean_text(
+                    request.form.get("contractor_name"),
+                    300
+                ) or None,
+                "invoice_number": clean_text(
+                    request.form.get("invoice_number"),
+                    200
+                ) or None,
+                "due_date": optional_date(request.form.get("due_date")),
+                "payment_status": payment_status
+            }
+
+            try:
+                with connect_database() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE finance_entries
+                            SET entry_kind = %s,
+                                entry_date = %s,
+                                description = %s,
+                                category = %s,
+                                amount_net = %s,
+                                amount_vat = %s,
+                                amount_gross = %s,
+                                currency = %s,
+                                vehicle_id = %s,
+                                contractor_name = %s,
+                                invoice_number = %s,
+                                due_date = %s,
+                                payment_status = %s
+                            WHERE id = %s
+                        """, (
+                            values["entry_kind"],
+                            values["entry_date"],
+                            values["description"],
+                            values["category"],
+                            values["amount_net"],
+                            values["amount_vat"],
+                            values["amount_gross"],
+                            values["currency"],
+                            values["vehicle_id"],
+                            values["contractor_name"],
+                            values["invoice_number"],
+                            values["due_date"],
+                            values["payment_status"],
+                            entry_id
+                        ))
+                        if cursor.rowcount == 0:
+                            raise RuntimeError("Операцію не знайдено.")
+
+                        # Якщо операція створена з Gmail, синхронізуємо
+                        # відредаговані дані з карткою оригінального документа.
+                        cursor.execute("""
+                            UPDATE email_invoice_queue
+                            SET entry_kind = %s,
+                                invoice_date = %s,
+                                description = %s,
+                                category = %s,
+                                amount_net = %s,
+                                amount_vat = %s,
+                                amount_gross = %s,
+                                currency = %s,
+                                vehicle_id = %s,
+                                contractor_name = %s,
+                                invoice_number = %s,
+                                due_date = %s,
+                                payment_status = %s
+                            WHERE finance_entry_id = %s
+                        """, (
+                            values["entry_kind"],
+                            values["entry_date"],
+                            values["description"],
+                            values["category"],
+                            values["amount_net"],
+                            values["amount_vat"],
+                            values["amount_gross"],
+                            values["currency"],
+                            values["vehicle_id"],
+                            values["contractor_name"],
+                            values["invoice_number"],
+                            values["due_date"],
+                            values["payment_status"],
+                            entry_id
+                        ))
+                return redirect(url_for(
+                    "finance_dashboard",
+                    entry_updated="1"
+                ))
+            except Exception:
+                return redirect(url_for(
+                    "finance_dashboard",
+                    error="entry_edit"
+                ))
+
+        try:
+            with connect_database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT
+                            finance_entries.*,
+                            email_invoice_queue.id AS queue_id,
+                            email_invoice_queue.sender_email,
+                            email_invoice_queue.source_account_email,
+                            email_invoice_queue.email_subject
+                        FROM finance_entries
+                        LEFT JOIN email_invoice_queue
+                          ON email_invoice_queue.finance_entry_id
+                             = finance_entries.id
+                        WHERE finance_entries.id = %s
+                        LIMIT 1
+                    """, (entry_id,))
+                    item = cursor.fetchone()
+        except Exception:
+            item = None
+
+        if not item:
+            return redirect(url_for(
+                "finance_dashboard",
+                error="entry_not_found"
+            ))
+
+        category_options = []
+        for key, label in FINANCE_CATEGORIES.items():
+            selected = " selected" if item["category"] == key else ""
+            category_options.append(
+                '<option value="{}"{}>{}</option>'.format(
+                    escape(key),
+                    selected,
+                    escape(label)
+                )
+            )
+
+        vehicle_options = ['<option value="">Вся компанія</option>']
+        for vehicle in vehicles:
+            selected = (
+                " selected"
+                if item["vehicle_id"] == vehicle["id"]
+                else ""
+            )
+            vehicle_options.append(
+                '<option value="{}"{}>{}</option>'.format(
+                    escape(vehicle["id"]),
+                    selected,
+                    escape(vehicle["name"])
+                )
+            )
+
+        kind_options = []
+        for key, label in ENTRY_KINDS.items():
+            selected = " selected" if item["entry_kind"] == key else ""
+            kind_options.append(
+                '<option value="{}"{}>{}</option>'.format(
+                    escape(key),
+                    selected,
+                    escape(label)
+                )
+            )
+
+        currency_options = []
+        for code in ("PLN", "EUR", "USD", "GBP"):
+            selected = " selected" if item["currency"] == code else ""
+            currency_options.append(
+                '<option{}>{}</option>'.format(selected, code)
+            )
+
+        payment_options = []
+        for key, label in (
+            ("unpaid", "Не оплачено"),
+            ("paid", "Оплачено")
+        ):
+            selected = (
+                " selected"
+                if item["payment_status"] == key
+                else ""
+            )
+            payment_options.append(
+                '<option value="{}"{}>{}</option>'.format(
+                    key,
+                    selected,
+                    label
+                )
+            )
+
+        gmail_source = ""
+        if item["queue_id"]:
+            gmail_source = """
+                <div class="alert alert-ok">
+                    Відправник: <strong>{sender}</strong><br>
+                    Отримано на: <strong>{account}</strong><br>
+                    Тема листа: {subject}
+                </div>
+                <p>
+                    <a class="button"
+                       href="/finance/email-invoices/{queue_id}/document"
+                       target="_blank" rel="noopener">
+                        Відкрити оригінальний PDF/XML
+                    </a>
+                </p>
+            """.format(
+                sender=html_text(item["sender_email"]),
+                account=html_text(item["source_account_email"]),
+                subject=html_text(item["email_subject"]),
+                queue_id=escape(str(item["queue_id"]))
+            )
+
+        body = """
+        <div class="card">
+            <h2>Редагування фінансової операції</h2>
+            {gmail_source}
+            <form method="post">
+                <div class="form-grid">
+                    <p><label>Тип</label><select name="entry_kind">{kinds}</select></p>
+                    <p><label>Дата</label><input type="date" name="entry_date" value="{entry_date}"></p>
+                    <p><label>Категорія</label><select name="category">{categories}</select></p>
+                    <p><label>Автомобіль</label><select name="vehicle_id">{vehicles}</select></p>
+                    <p><label>Опис</label><input name="description" value="{description}" required></p>
+                    <p><label>Контрагент / відправник</label><input name="contractor_name" value="{contractor}"></p>
+                    <p><label>Номер фактури / зліцення</label><input name="invoice_number" value="{number}"></p>
+                    <p><label>Netto</label><input name="amount_net" value="{net}"></p>
+                    <p><label>VAT</label><input name="amount_vat" value="{vat}"></p>
+                    <p><label>Brutto</label><input name="amount_gross" value="{gross}"></p>
+                    <p><label>Валюта</label><select name="currency">{currencies}</select></p>
+                    <p><label>Термін оплати</label><input type="date" name="due_date" value="{due_date}"></p>
+                    <p><label>Оплата</label><select name="payment_status">{payments}</select></p>
+                </div>
+                <button type="submit">Зберегти зміни</button>
+                <a class="button" href="/finance" style="background:#687078">Скасувати</a>
+            </form>
+        </div>
+        """.format(
+            gmail_source=gmail_source,
+            kinds="".join(kind_options),
+            entry_date=html_text(item["entry_date"], ""),
+            categories="".join(category_options),
+            vehicles="".join(vehicle_options),
+            description=html_text(item["description"], ""),
+            contractor=html_text(item["contractor_name"], ""),
+            number=html_text(item["invoice_number"], ""),
+            net=html_text(item["amount_net"], "0.00"),
+            vat=html_text(item["amount_vat"], "0.00"),
+            gross=html_text(item["amount_gross"], "0.00"),
+            currencies="".join(currency_options),
+            due_date=html_text(item["due_date"], ""),
+            payments="".join(payment_options)
+        )
+        return page_renderer("Редагування операції", body, "finance")
+
     @app.route("/finance", methods=["GET", "POST"])
     def finance_dashboard():
         schema_ok, schema_error = ensure_finance_schema()
@@ -1866,6 +2177,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 "</div>"
             )
 
+        if request.args.get("entry_updated") == "1":
+            message = (
+                "<div class='alert alert-ok'>"
+                "Фінансову операцію оновлено. Результат перераховано."
+                "</div>"
+            )
+
         if request.args.get("error"):
             message = (
                 "<div class='alert alert-error'>"
@@ -1927,9 +2245,17 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 with connect_database() as connection:
                     with connection.cursor() as cursor:
                         cursor.execute("""
-                            SELECT *
+                            SELECT
+                                finance_entries.*,
+                                email_invoice_queue.sender_email,
+                                email_invoice_queue.source_account_email,
+                                email_invoice_queue.email_subject
                             FROM finance_entries
-                            ORDER BY entry_date DESC, created_at DESC
+                            LEFT JOIN email_invoice_queue
+                              ON email_invoice_queue.finance_entry_id
+                                 = finance_entries.id
+                            ORDER BY finance_entries.entry_date DESC,
+                                     finance_entries.created_at DESC
                             LIMIT 100
                         """)
                         rows = cursor.fetchall()
@@ -2014,21 +2340,49 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 row["entry_kind"],
                 row["entry_kind"]
             )
+            document_details = []
+            if row["contractor_name"]:
+                document_details.append(
+                    "Контрагент: " + html_text(row["contractor_name"])
+                )
+            if row["invoice_number"]:
+                document_details.append(
+                    "Документ № " + html_text(row["invoice_number"])
+                )
+            if row["sender_email"]:
+                document_details.append(
+                    "Відправник: " + html_text(row["sender_email"])
+                )
+            if row["attachment_name"]:
+                document_details.append(
+                    "Файл: " + html_text(row["attachment_name"])
+                )
+
             table_rows.append("""
                 <tr>
                     <td>{date}</td>
                     <td>{kind}</td>
-                    <td>{description}<br><span class="small">{contractor}</span></td>
+                    <td>
+                        <strong>{description}</strong><br>
+                        <span class="small">{document_details}</span>
+                    </td>
                     <td>{category}</td>
                     <td>{vehicle}</td>
                     <td>{gross}</td>
                     <td>{payment}</td>
+                    <td>
+                        <a class="button"
+                           href="/finance/entries/{id}/edit">
+                            Редагувати
+                        </a>
+                    </td>
                 </tr>
             """.format(
+                id=escape(str(row["id"])),
                 date=html_text(row["entry_date"]),
                 kind=html_text(kind_label),
                 description=html_text(row["description"]),
-                contractor=html_text(row["contractor_name"], ""),
+                document_details="<br>".join(document_details),
                 category=html_text(
                     FINANCE_CATEGORIES.get(
                         row["category"],
@@ -2049,7 +2403,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
         if not table_rows:
             table_rows.append("""
-                <tr><td colspan="7">Операцій ще немає.</td></tr>
+                <tr><td colspan="8">Операцій ще немає.</td></tr>
             """)
 
         email_rows = []
@@ -2379,7 +2733,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <tr>
                         <th>Дата</th><th>Тип</th><th>Опис</th>
                         <th>Категорія</th><th>Автомобіль</th>
-                        <th>Brutto</th><th>Оплата</th>
+                        <th>Brutto</th><th>Оплата</th><th>Дія</th>
                     </tr>
                     {rows}
                 </table>
