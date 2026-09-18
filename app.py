@@ -6,7 +6,7 @@ import secrets
 import base64
 import time
 import threading
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from html import escape
 from zoneinfo import ZoneInfo
 
@@ -50,6 +50,10 @@ NAVIREC_ACCOUNT_ID = os.environ.get(
     "NAVIREC_ACCOUNT_ID",
     "5c980074-7a71-4c9b-b5a8-a7c45163adf5"
 )
+GOOGLE_MAPS_API_KEY = os.environ.get(
+    "GOOGLE_MAPS_API_KEY",
+    ""
+).strip()
 
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "O&O TRANS")
 COMPANY_ID = os.environ.get("COMPANY_ID", "O&O-TRANS")
@@ -103,12 +107,15 @@ ROLE_ENDPOINTS = {
         "vehicle_page",
         "gps",
         "geocode_search",
+        "route_calculate",
         "history",
         "fuel",
-        "tachograph"
+        "tachograph",
+        "road_payments"
     },
     "driver": {
-        "driver_dashboard"
+        "driver_dashboard",
+        "road_payments"
     }
 }
 
@@ -116,6 +123,10 @@ GEOCODE_CACHE_TTL = 3600
 GEOCODE_CACHE = {}
 GEOCODE_LOCK = threading.Lock()
 GEOCODE_LAST_REQUEST_AT = 0.0
+ROUTE_CACHE_TTL = 900
+ROUTE_CACHE = {}
+VEHICLE_CONSUMPTION_CACHE_TTL = 1800
+VEHICLE_CONSUMPTION_CACHE = {}
 
 VEHICLES = [
     {
@@ -818,6 +829,66 @@ def get_vehicle_timeline_totals(vehicle_id, date_string):
         return None
 
 
+def get_vehicle_average_consumption(vehicle_id, days=14):
+    cached = VEHICLE_CONSUMPTION_CACHE.get(vehicle_id)
+    now_monotonic = time.monotonic()
+
+    if (
+        cached
+        and now_monotonic - cached[0]
+        < VEHICLE_CONSUMPTION_CACHE_TTL
+    ):
+        return cached[1]
+
+    if not NAVIREC_TOKEN:
+        return None
+
+    try:
+        end_time = datetime.now(POLAND_TZ)
+        start_time = end_time - timedelta(days=days)
+        response = requests.get(
+            f"{NAVIREC_API}/vehicle_timeline/totals/",
+            headers=navirec_headers(),
+            params={
+                "vehicle": vehicle_id,
+                "start_time": start_time.isoformat(),
+                "end_time": end_time.isoformat()
+            },
+            timeout=30
+        )
+
+        if response.status_code != 200:
+            return None
+
+        totals = response.json()
+        consumption = get_total_number(
+            totals,
+            [
+                "fuel_per_100_km",
+                "fuelPer100Km",
+                "fuel_consumption"
+            ]
+        )
+
+        if consumption is not None:
+            consumption = float(consumption)
+
+        if (
+            consumption is None
+            or consumption <= 0
+            or consumption > 100
+        ):
+            consumption = None
+
+        VEHICLE_CONSUMPTION_CACHE[vehicle_id] = (
+            time.monotonic(),
+            consumption
+        )
+        return consumption
+    except Exception:
+        return None
+
+
 def find_value(data, names):
     if not isinstance(data, dict):
         return None
@@ -863,7 +934,12 @@ def page(title, body, active=""):
 
     if role == "driver":
         nav_items = [
-            ("driver", "/driver", t("my_trips"))
+            ("driver", "/driver", t("my_trips")),
+            (
+                "road_payments",
+                "/road-payments",
+                "🛣️ Оплата доріг"
+            )
         ]
     elif role == "dispatcher":
         nav_items = [
@@ -872,7 +948,12 @@ def page(title, body, active=""):
             ("gps", "/gps", t("gps")),
             ("history", "/history", t("history")),
             ("fuel", "/fuel", t("fuel")),
-            ("tachograph", "/tachograph", t("tachograph"))
+            ("tachograph", "/tachograph", t("tachograph")),
+            (
+                "road_payments",
+                "/road-payments",
+                "🛣️ Оплата доріг"
+            )
         ]
     elif role == "director":
         nav_items = [
@@ -883,6 +964,11 @@ def page(title, body, active=""):
             ("fuel", "/fuel", t("fuel")),
             ("tachograph", "/tachograph", t("tachograph")),
             ("finance", "/finance", t("finance")),
+            (
+                "road_payments",
+                "/road-payments",
+                "🛣️ Оплата доріг"
+            ),
             ("branding", "/settings/branding", t("branding")),
             ("health", "/health", t("health"))
         ]
@@ -1543,6 +1629,71 @@ body.page-gps .powered-by {{
     margin-top: 9px;
 }}
 
+.gps-route-options {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+    margin: 0 0 9px;
+}}
+
+.gps-route-option {{
+    display: flex !important;
+    align-items: flex-start;
+    gap: 7px;
+    margin: 0 !important;
+    padding: 8px;
+    border: 1px solid #cbd8df;
+    border-radius: 8px;
+    background: #f7fafb;
+    cursor: pointer;
+}}
+
+.gps-route-option:has(input:checked) {{
+    border-color: #087f8c;
+    background: #e9f7f8;
+}}
+
+.gps-route-option input {{
+    width: auto;
+    margin: 2px 0 0;
+}}
+
+.gps-route-option span {{
+    font-size: 12px;
+    line-height: 1.25;
+}}
+
+.gps-route-option strong {{
+    display: block;
+    color: #18384b;
+}}
+
+.gps-fuel-fields {{
+    display: grid;
+    grid-template-columns: 1fr 1fr 82px;
+    gap: 7px;
+    margin-bottom: 9px;
+}}
+
+.gps-fuel-fields label {{
+    margin: 0;
+}}
+
+.gps-fuel-fields input,
+.gps-fuel-fields select {{
+    margin: 5px 0 0;
+}}
+
+.gps-toll-note {{
+    margin-top: 9px;
+    padding: 9px;
+    border-radius: 8px;
+    background: #fff7df;
+    color: #654d0b;
+    font-size: 12px;
+    line-height: 1.35;
+}}
+
 .gps-toolbar-divider {{
     height: 1px;
     margin: 12px 0;
@@ -1592,6 +1743,38 @@ body.page-gps .powered-by {{
     height: 46px;
     object-fit: contain;
     opacity: .72;
+}}
+
+.toll-grid {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+    gap: 12px;
+}}
+
+.toll-card {{
+    padding: 15px;
+    border: 1px solid #dce5e9;
+    border-radius: 12px;
+    background: rgba(255, 255, 255, .94);
+}}
+
+.toll-card h3 {{
+    margin: 0 0 7px;
+}}
+
+.toll-card p {{
+    margin: 5px 0;
+}}
+
+.toll-buy-link {{
+    display: inline-block;
+    margin-top: 8px;
+    padding: 8px 11px;
+    border-radius: 8px;
+    background: #087f8c;
+    color: #ffffff !important;
+    text-decoration: none;
+    font-weight: 800;
 }}
 
 @media (max-width: 700px) {{
@@ -1663,6 +1846,10 @@ body.page-gps .powered-by {{
     .gps-map-brand {{
         right: 8px;
         bottom: 21px;
+    }}
+
+    .gps-fuel-fields {{
+        grid-template-columns: 1fr 1fr;
     }}
 }}
 </style>
@@ -2010,6 +2197,149 @@ def driver_dashboard():
         "Кабінет водія",
         body,
         "driver"
+    )
+
+
+@app.route("/road-payments")
+def road_payments():
+    countries = [
+        (
+            "🇵🇱 Польща",
+            "До 3,5 т: окремі платні автомагістралі. "
+            "Понад 3,5 т: система e-TOLL.",
+            "https://etoll.gov.pl/en/",
+            "Відкрити e-TOLL"
+        ),
+        (
+            "🇩🇪 Німеччина",
+            "До 3,5 т: загальної віньєтки немає. "
+            "Понад 3,5 т: вантажний дорожній збір Toll Collect.",
+            "https://www.toll-collect.de/en/",
+            "Відкрити Toll Collect"
+        ),
+        (
+            "🇦🇹 Австрія",
+            "До 3,5 т: електронна віньєтка. "
+            "Понад 3,5 т: GO-Box і кілометрова оплата.",
+            "https://shop.asfinag.at/en/",
+            "Купити в ASFINAG"
+        ),
+        (
+            "🇨🇿 Чехія",
+            "До 3,5 т: електронна віньєтка. "
+            "Понад 3,5 т: електронна система MYTO CZ.",
+            "https://edalnice.cz/en/index.html",
+            "Купити e-vignette"
+        ),
+        (
+            "🇸🇰 Словаччина",
+            "До 3,5 т: електронна віньєтка. "
+            "Понад 3,5 т: кілометрова система eMyto.",
+            "https://eznamka.sk/en",
+            "Купити eZnamka"
+        ),
+        (
+            "🇭🇺 Угорщина",
+            "До 3,5 т: e-Matrica, категорія залежить від авто. "
+            "Понад 3,5 т: HU-GO.",
+            "https://ematrica.nemzetiutdij.hu/",
+            "Купити e-Matrica"
+        ),
+        (
+            "🇸🇮 Словенія",
+            "До 3,5 т: e-vignette 2A або 2B. "
+            "Понад 3,5 т: DarsGo.",
+            "https://evinjeta.dars.si/en",
+            "Купити e-vignette"
+        ),
+        (
+            "🇨🇭 Швейцарія",
+            "До 3,5 т: швейцарська віньєтка. "
+            "Понад 3,5 т: збір для важкого транспорту.",
+            "https://via.admin.ch/shop/",
+            "Купити e-vignette"
+        ),
+        (
+            "🇷🇴 Румунія",
+            "Rovinieta потрібна для більшості транспортних засобів. "
+            "Категорія залежить від ваги та осей.",
+            "https://www.erovinieta.ro/vignettes-portal-web/",
+            "Купити Rovinieta"
+        ),
+        (
+            "🇧🇬 Болгарія",
+            "До 3,5 т: електронна віньєтка. "
+            "Понад 3,5 т: маршрутний або кілометровий збір.",
+            "https://web.bgtoll.bg/",
+            "Відкрити BG Toll"
+        ),
+        (
+            "🇧🇪 Бельгія",
+            "До 3,5 т: загальної віньєтки немає. "
+            "Понад 3,5 т: кілометровий збір Viapass.",
+            "https://www.viapass.be/en/",
+            "Відкрити Viapass"
+        ),
+        (
+            "🇫🇷 🇮🇹 🇪🇸 🇵🇹 Західна Європа",
+            "У Франції, Італії, Іспанії та Португалії "
+            "оплата часто стягується за конкретні ділянки, "
+            "мости або тунелі, а не загальною віньєткою.",
+            "https://www.autoroutes.fr/en/",
+            "Інформація про дороги"
+        )
+    ]
+
+    cards = []
+    for title, description, link, link_text in countries:
+        cards.append(
+            """
+            <article class="toll-card">
+                <h3>{title}</h3>
+                <p>{description}</p>
+                <a
+                    class="toll-buy-link"
+                    href="{link}"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                >{link_text}</a>
+            </article>
+            """.format(
+                title=title,
+                description=description,
+                link=link,
+                link_text=link_text
+            )
+        )
+
+    route_link = ""
+    if current_role() != "driver":
+        route_link = (
+            '<p><a class="button" href="/gps">'
+            'Розрахувати маршрут, паливо й оплату доріг'
+            '</a></p>'
+        )
+
+    body = """
+    <div class="card">
+        <h2>🛣️ Оплата доріг і віньєти</h2>
+        <p>
+            Вибір тарифу залежить від ваги, кількості осей,
+            висоти, екологічного класу й країни.
+            Купуйте тільки на офіційних сторінках операторів.
+        </p>
+        {route_link}
+    </div>
+    <div class="toll-grid">{cards}</div>
+    """.format(
+        route_link=route_link,
+        cards="".join(cards)
+    )
+
+    return page(
+        "Оплата доріг",
+        body,
+        "road_payments"
     )
 
 
@@ -2559,7 +2889,12 @@ def geocode_search():
                 "name": display_name,
                 "latitude": latitude,
                 "longitude": longitude,
-                "type": str(item.get("type") or "")
+                "type": str(item.get("type") or ""),
+                "country_code": str(
+                    (item.get("address") or {}).get(
+                        "country_code"
+                    ) or ""
+                ).lower()
             })
 
         GEOCODE_CACHE[cache_key] = (
@@ -2571,6 +2906,332 @@ def geocode_search():
         return jsonify({
             "results": [],
             "error": "Пошук адреси тимчасово недоступний."
+        }), 503
+
+
+def decode_google_polyline(encoded):
+    points = []
+    index = 0
+    latitude = 0
+    longitude = 0
+
+    while index < len(encoded):
+        for coordinate_index in range(2):
+            result = 0
+            shift = 0
+
+            while True:
+                if index >= len(encoded):
+                    raise ValueError("Invalid encoded polyline")
+
+                byte = ord(encoded[index]) - 63
+                index += 1
+                result |= (byte & 0x1f) << shift
+                shift += 5
+
+                if byte < 0x20:
+                    break
+
+            difference = ~(result >> 1) \
+                if result & 1 else result >> 1
+
+            if coordinate_index == 0:
+                latitude += difference
+            else:
+                longitude += difference
+
+        points.append([
+            latitude / 100000,
+            longitude / 100000
+        ])
+
+    return points
+
+
+def parse_route_point(value):
+    if not isinstance(value, dict):
+        return None
+
+    try:
+        latitude = float(value.get("latitude"))
+        longitude = float(value.get("longitude"))
+    except (TypeError, ValueError):
+        return None
+
+    if not (-90 <= latitude <= 90):
+        return None
+    if not (-180 <= longitude <= 180):
+        return None
+
+    return latitude, longitude
+
+
+def parse_vehicle_profile(value):
+    if not isinstance(value, dict):
+        value = {}
+
+    def bounded_number(key, default, minimum, maximum):
+        try:
+            result = int(float(value.get(key, default)))
+        except (TypeError, ValueError):
+            result = default
+        return max(minimum, min(maximum, result))
+
+    emission_type = str(
+        value.get("emission_type") or "DIESEL"
+    ).upper()
+    if emission_type not in {
+        "DIESEL",
+        "GASOLINE",
+        "HYBRID",
+        "ELECTRIC"
+    }:
+        emission_type = "DIESEL"
+
+    return {
+        "profile": str(value.get("profile") or "van_35")[:30],
+        "weight_kg": bounded_number(
+            "weight_kg", 3500, 500, 100000
+        ),
+        "height_mm": bounded_number(
+            "height_mm", 2700, 1200, 6000
+        ),
+        "length_mm": bounded_number(
+            "length_mm", 6500, 2000, 30000
+        ),
+        "width_mm": bounded_number(
+            "width_mm", 2200, 1000, 4000
+        ),
+        "axles": bounded_number("axles", 2, 2, 10),
+        "euro_class": str(
+            value.get("euro_class") or "EURO_6"
+        )[:20],
+        "emission_type": emission_type
+    }
+
+
+def google_route(
+    origin,
+    destination,
+    avoid_tolls,
+    vehicle_profile
+):
+    vehicle_info = {
+        "emissionType": vehicle_profile["emission_type"],
+        "totalHeightMm": str(vehicle_profile["height_mm"]),
+        "totalLengthMm": str(vehicle_profile["length_mm"]),
+        "totalWidthMm": str(vehicle_profile["width_mm"]),
+        "totalWeightKg": str(vehicle_profile["weight_kg"])
+    }
+    response = requests.post(
+        "https://routes.googleapis.com/directions/v2:computeRoutes",
+        headers={
+            "Content-Type": "application/json",
+            "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+            "X-Goog-FieldMask": (
+                "routes.distanceMeters,routes.duration,"
+                "routes.polyline.encodedPolyline,"
+                "routes.travelAdvisory.tollInfo"
+            )
+        },
+        json={
+            "origin": {
+                "location": {
+                    "latLng": {
+                        "latitude": origin[0],
+                        "longitude": origin[1]
+                    }
+                }
+            },
+            "destination": {
+                "location": {
+                    "latLng": {
+                        "latitude": destination[0],
+                        "longitude": destination[1]
+                    }
+                }
+            },
+            "travelMode": "DRIVE",
+            "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
+            "polylineQuality": "OVERVIEW",
+            "computeAlternativeRoutes": False,
+            "routeModifiers": {
+                "avoidTolls": avoid_tolls,
+                "vehicleInfo": vehicle_info
+            },
+            "extraComputations": ["TOLLS"],
+            "languageCode": current_language(),
+            "units": "METRIC"
+        },
+        timeout=20
+    )
+    response.raise_for_status()
+    data = response.json()
+    routes = data.get("routes") or []
+
+    if not routes:
+        raise ValueError("Route not found")
+
+    route = routes[0]
+    encoded_polyline = (
+        route.get("polyline", {}).get("encodedPolyline")
+        or ""
+    )
+    duration_text = str(route.get("duration") or "0s")
+    duration_seconds = float(
+        duration_text.removesuffix("s") or 0
+    )
+    toll_info = (
+        route.get("travelAdvisory", {}).get("tollInfo")
+        or {}
+    )
+    toll_prices = []
+
+    for price in toll_info.get("estimatedPrice") or []:
+        try:
+            amount = float(price.get("units") or 0)
+            amount += float(price.get("nanos") or 0) / 1000000000
+        except (TypeError, ValueError):
+            continue
+
+        toll_prices.append({
+            "amount": round(amount, 2),
+            "currency": str(price.get("currencyCode") or "")
+        })
+
+    return {
+        "provider": "google",
+        "distance_m": float(route.get("distanceMeters") or 0),
+        "duration_s": duration_seconds,
+        "points": decode_google_polyline(encoded_polyline),
+        "avoid_tolls": avoid_tolls,
+        "has_tolls": bool(toll_info),
+        "toll_prices": toll_prices,
+        "vehicle_profile": vehicle_profile
+    }
+
+
+def osrm_route(origin, destination):
+    coordinates = (
+        f"{origin[1]},{origin[0]};"
+        f"{destination[1]},{destination[0]}"
+    )
+    response = requests.get(
+        "https://router.project-osrm.org/route/v1/driving/"
+        + coordinates,
+        params={
+            "overview": "full",
+            "geometries": "geojson"
+        },
+        timeout=20
+    )
+    response.raise_for_status()
+    data = response.json()
+    routes = data.get("routes") or []
+
+    if not routes:
+        raise ValueError("Route not found")
+
+    route = routes[0]
+    route_points = []
+    for coordinate in (
+        route.get("geometry", {}).get("coordinates") or []
+    ):
+        if len(coordinate) >= 2:
+            route_points.append([
+                coordinate[1],
+                coordinate[0]
+            ])
+
+    return {
+        "provider": "osrm",
+        "distance_m": float(route.get("distance") or 0),
+        "duration_s": float(route.get("duration") or 0),
+        "points": route_points,
+        "avoid_tolls": False,
+        "has_tolls": None,
+        "toll_prices": []
+    }
+
+
+@app.route("/api/route", methods=["POST"])
+def route_calculate():
+    payload = request.get_json(silent=True) or {}
+    origin = parse_route_point(payload.get("origin"))
+    destination = parse_route_point(payload.get("destination"))
+    avoid_tolls = bool(payload.get("avoid_tolls"))
+    vehicle_profile = parse_vehicle_profile(
+        payload.get("vehicle_profile")
+    )
+
+    if not origin or not destination:
+        return jsonify({
+            "error": "Неправильні координати маршруту."
+        }), 400
+
+    cache_key = (
+        round(origin[0], 5),
+        round(origin[1], 5),
+        round(destination[0], 5),
+        round(destination[1], 5),
+        avoid_tolls,
+        vehicle_profile["profile"],
+        vehicle_profile["weight_kg"],
+        vehicle_profile["height_mm"],
+        vehicle_profile["length_mm"],
+        vehicle_profile["width_mm"],
+        vehicle_profile["axles"],
+        vehicle_profile["euro_class"],
+        bool(GOOGLE_MAPS_API_KEY)
+    )
+    cached = ROUTE_CACHE.get(cache_key)
+    now = time.monotonic()
+
+    if cached and now - cached[0] < ROUTE_CACHE_TTL:
+        return jsonify(cached[1])
+
+    if avoid_tolls and not GOOGLE_MAPS_API_KEY:
+        return jsonify({
+            "error": (
+                "Для маршруту без платних доріг потрібно "
+                "підключити Google Routes API."
+            ),
+            "code": "toll_service_not_configured"
+        }), 503
+
+    try:
+        if GOOGLE_MAPS_API_KEY:
+            route_data = google_route(
+                origin,
+                destination,
+                avoid_tolls,
+                vehicle_profile
+            )
+        else:
+            route_data = osrm_route(origin, destination)
+
+        if len(ROUTE_CACHE) >= 500:
+            oldest_key = min(
+                ROUTE_CACHE,
+                key=lambda key: ROUTE_CACHE[key][0]
+            )
+            ROUTE_CACHE.pop(oldest_key, None)
+
+        ROUTE_CACHE[cache_key] = (
+            time.monotonic(),
+            route_data
+        )
+        return jsonify(route_data)
+    except (requests.RequestException, ValueError):
+        if GOOGLE_MAPS_API_KEY and not avoid_tolls:
+            try:
+                route_data = osrm_route(origin, destination)
+                return jsonify(route_data)
+            except (requests.RequestException, ValueError):
+                pass
+
+        return jsonify({
+            "error": "Маршрутний сервіс тимчасово недоступний."
         }), 503
 
 
@@ -2602,6 +3263,9 @@ def gps():
 
         speed = safe_float(state.get("speed"))
         fuel = safe_float(state.get("fuel_level"))
+        fuel_consumption = get_vehicle_average_consumption(
+            vehicle["id"]
+        )
 
         markers.append({
             "id": vehicle["id"],
@@ -2609,7 +3273,8 @@ def gps():
             "latitude": latitude,
             "longitude": longitude,
             "speed": speed,
-            "fuel": fuel
+            "fuel": fuel,
+            "fuel_consumption": fuel_consumption
         })
 
     marker_json = json.dumps(
@@ -2635,6 +3300,78 @@ def gps():
                     Початок маршруту — автомобіль
                 </label>
                 <select id="route-vehicle-select"></select>
+
+                <label for="route-vehicle-profile">
+                    Тип транспорту
+                </label>
+                <select id="route-vehicle-profile">
+                    <option value="van_35">Бус до 3,5 т</option>
+                    <option value="truck_75">Вантажний до 7,5 т</option>
+                    <option value="truck_12">Вантажний до 12 т</option>
+                    <option value="truck_18">Вантажний до 18 т</option>
+                    <option value="truck_26">Вантажний до 26 т</option>
+                    <option value="truck_40">Фура до 40 т</option>
+                    <option value="truck_over_40">Понад 40 т</option>
+                </select>
+
+                <div class="gps-fuel-fields">
+                    <label for="route-fuel-consumption">
+                        Витрата, л/100 км
+                        <input
+                            type="number"
+                            id="route-fuel-consumption"
+                            min="1"
+                            max="100"
+                            step="0.1"
+                            value="10.5"
+                        >
+                    </label>
+                    <label for="route-fuel-price">
+                        Ціна за літр
+                        <input
+                            type="number"
+                            id="route-fuel-price"
+                            min="0"
+                            max="20"
+                            step="0.01"
+                            value="1.55"
+                        >
+                    </label>
+                    <label for="route-fuel-currency">
+                        Валюта
+                        <select id="route-fuel-currency">
+                            <option value="EUR">EUR</option>
+                            <option value="PLN">PLN</option>
+                        </select>
+                    </label>
+                </div>
+
+                <label>Варіант маршруту</label>
+                <div class="gps-route-options">
+                    <label class="gps-route-option">
+                        <input
+                            type="radio"
+                            name="route-mode"
+                            value="fast"
+                            checked
+                        >
+                        <span>
+                            <strong>Швидкий</strong>
+                            Платні дороги дозволені
+                        </span>
+                    </label>
+                    <label class="gps-route-option">
+                        <input
+                            type="radio"
+                            name="route-mode"
+                            value="free"
+                        >
+                        <span>
+                            <strong>Безплатний</strong>
+                            Уникати платних доріг
+                        </span>
+                    </label>
+                </div>
 
                 <label for="destination-search">
                     Куди їдемо
@@ -2663,6 +3400,10 @@ def gps():
                 >
                     Прокласти маршрут
                 </button>
+                <div class="gps-toll-note" id="toll-note">
+                    Вартість є орієнтовною. Вона залежить від ваги,
+                    осей, екологічного класу, віньєт і способу оплати.
+                </div>
             </div>
 
             <div class="gps-toolbar-divider"></div>
@@ -2784,6 +3525,70 @@ def gps():
     const buildRouteButton = document.getElementById(
         'build-route-button'
     );
+    const vehicleProfileSelect = document.getElementById(
+        'route-vehicle-profile'
+    );
+    const fuelConsumptionInput = document.getElementById(
+        'route-fuel-consumption'
+    );
+    const fuelPriceInput = document.getElementById(
+        'route-fuel-price'
+    );
+    const fuelCurrencySelect = document.getElementById(
+        'route-fuel-currency'
+    );
+
+    const vehicleProfiles = {{
+        van_35: {{
+            profile: 'van_35', weight_kg: 3500,
+            height_mm: 2700, length_mm: 6500,
+            width_mm: 2200, axles: 2,
+            euro_class: 'EURO_6', emission_type: 'DIESEL',
+            default_consumption: 10.5
+        }},
+        truck_75: {{
+            profile: 'truck_75', weight_kg: 7500,
+            height_mm: 3300, length_mm: 9000,
+            width_mm: 2500, axles: 2,
+            euro_class: 'EURO_6', emission_type: 'DIESEL',
+            default_consumption: 17
+        }},
+        truck_12: {{
+            profile: 'truck_12', weight_kg: 12000,
+            height_mm: 3800, length_mm: 11000,
+            width_mm: 2550, axles: 2,
+            euro_class: 'EURO_6', emission_type: 'DIESEL',
+            default_consumption: 22
+        }},
+        truck_18: {{
+            profile: 'truck_18', weight_kg: 18000,
+            height_mm: 4000, length_mm: 12000,
+            width_mm: 2550, axles: 2,
+            euro_class: 'EURO_6', emission_type: 'DIESEL',
+            default_consumption: 25
+        }},
+        truck_26: {{
+            profile: 'truck_26', weight_kg: 26000,
+            height_mm: 4000, length_mm: 12000,
+            width_mm: 2550, axles: 3,
+            euro_class: 'EURO_6', emission_type: 'DIESEL',
+            default_consumption: 29
+        }},
+        truck_40: {{
+            profile: 'truck_40', weight_kg: 40000,
+            height_mm: 4000, length_mm: 16500,
+            width_mm: 2550, axles: 5,
+            euro_class: 'EURO_6', emission_type: 'DIESEL',
+            default_consumption: 32
+        }},
+        truck_over_40: {{
+            profile: 'truck_over_40', weight_kg: 44000,
+            height_mm: 4000, length_mm: 18500,
+            width_mm: 2550, axles: 5,
+            euro_class: 'EURO_6', emission_type: 'DIESEL',
+            default_consumption: 36
+        }}
+    }};
 
     vehicles.forEach(function(vehicle) {{
         const option = document.createElement('option');
@@ -2802,6 +3607,68 @@ def gps():
         option.selected = true;
         vehicleSelect.appendChild(option);
     }}
+
+    function updateFuelConsumption() {{
+        const selectedVehicle = vehicles.find(function(item) {{
+            return item.id === vehicleSelect.value;
+        }});
+        const profile = vehicleProfiles[vehicleProfileSelect.value]
+            || vehicleProfiles.van_35;
+        const navirecConsumption = selectedVehicle
+            ? Number(selectedVehicle.fuel_consumption)
+            : 0;
+
+        fuelConsumptionInput.value =
+            navirecConsumption > 0
+            ? navirecConsumption.toFixed(1)
+            : profile.default_consumption.toFixed(1);
+        fuelConsumptionInput.dataset.source =
+            navirecConsumption > 0 ? 'navirec' : 'profile';
+        fuelConsumptionInput.title =
+            navirecConsumption > 0
+            ? 'Середня витрата з Navirec за останні 14 днів'
+            : 'Орієнтовна витрата для цієї вагової категорії';
+    }}
+
+    try {{
+        const savedFuelPrice = localStorage.getItem(
+            'tranviq_fuel_price'
+        );
+        const savedFuelCurrency = localStorage.getItem(
+            'tranviq_fuel_currency'
+        );
+        if (savedFuelPrice) {{
+            fuelPriceInput.value = savedFuelPrice;
+        }}
+        if (savedFuelCurrency) {{
+            fuelCurrencySelect.value = savedFuelCurrency;
+        }}
+    }} catch (error) {{
+        // Браузер може блокувати localStorage у приватному режимі.
+    }}
+
+    updateFuelConsumption();
+    vehicleSelect.addEventListener('change', updateFuelConsumption);
+    vehicleProfileSelect.addEventListener(
+        'change',
+        updateFuelConsumption
+    );
+    fuelPriceInput.addEventListener('change', function() {{
+        try {{
+            localStorage.setItem(
+                'tranviq_fuel_price',
+                fuelPriceInput.value
+            );
+        }} catch (error) {{}}
+    }});
+    fuelCurrencySelect.addEventListener('change', function() {{
+        try {{
+            localStorage.setItem(
+                'tranviq_fuel_currency',
+                fuelCurrencySelect.value
+            );
+        }} catch (error) {{}}
+    }});
 
     L.DomEvent.disableClickPropagation(toolbar);
     L.DomEvent.disableScrollPropagation(toolbar);
@@ -2889,6 +3756,88 @@ def gps():
             hour: '2-digit',
             minute: '2-digit'
         }});
+    }}
+
+    function selectedVehicleProfile() {{
+        return vehicleProfiles[vehicleProfileSelect.value]
+            || vehicleProfiles.van_35;
+    }}
+
+    function selectedRouteAvoidsTolls() {{
+        const selectedMode = document.querySelector(
+            'input[name="route-mode"]:checked'
+        );
+        return selectedMode && selectedMode.value === 'free';
+    }}
+
+    function formatTollInformation(routeData) {{
+        if (routeData.avoid_tolls) {{
+            return 'Платні дороги: маршрут намагається їх уникати.';
+        }}
+
+        if (routeData.provider !== 'google') {{
+            return 'Оплата доріг: розрахунок ціни ще не підключений.';
+        }}
+
+        if (!routeData.has_tolls) {{
+            return 'Платних ділянок на маршруті не виявлено.';
+        }}
+
+        if (!routeData.toll_prices || !routeData.toll_prices.length) {{
+            return 'Є платні ділянки, але їхня ціна не визначена.';
+        }}
+
+        const prices = routeData.toll_prices.map(function(price) {{
+            return Number(price.amount).toFixed(2) +
+                ' ' + price.currency;
+        }});
+        return 'Орієнтовна оплата доріг: ' + prices.join(' + ');
+    }}
+
+    function destinationRoadRule(profile) {{
+        const countryCode = selectedDestination
+            ? selectedDestination.country_code
+            : '';
+        const heavy = profile.weight_kg > 3500;
+        const rules = {{
+            pl: heavy
+                ? 'Польща: для понад 3,5 т перевірте e-TOLL.'
+                : 'Польща: платні лише окремі ділянки автомагістралей.',
+            de: heavy
+                ? 'Німеччина: для понад 3,5 т діє Toll Collect.'
+                : 'Німеччина: загальної віньєтки до 3,5 т немає.',
+            at: heavy
+                ? 'Австрія: потрібен GO-Box.'
+                : 'Австрія: потрібна електронна віньєтка.',
+            cz: heavy
+                ? 'Чехія: потрібна система MYTO CZ.'
+                : 'Чехія: потрібна електронна віньєтка.',
+            sk: heavy
+                ? 'Словаччина: потрібна система eMyto.'
+                : 'Словаччина: потрібна електронна віньєтка.',
+            hu: heavy
+                ? 'Угорщина: потрібна система HU-GO.'
+                : 'Угорщина: потрібна e-Matrica.',
+            si: heavy
+                ? 'Словенія: потрібна система DarsGo.'
+                : 'Словенія: потрібна e-vignette 2A або 2B.',
+            ch: heavy
+                ? 'Швейцарія: діє збір для важкого транспорту.'
+                : 'Швейцарія: потрібна віньєтка.',
+            ro: 'Румунія: потрібна Rovinieta відповідної категорії.',
+            bg: heavy
+                ? 'Болгарія: потрібен маршрутний або кілометровий збір.'
+                : 'Болгарія: потрібна електронна віньєтка.',
+            be: heavy
+                ? 'Бельгія: для понад 3,5 т потрібен Viapass.'
+                : 'Бельгія: загальної віньєтки до 3,5 т немає.',
+            fr: 'Франція: оплата за окремі автостради, мости й тунелі.',
+            it: 'Італія: оплата переважно за конкретні автостради.',
+            es: 'Іспанія: більшість доріг безплатні, є платні ділянки.',
+            pt: 'Португалія: є електронні й звичайні платні ділянки.'
+        }};
+        return rules[countryCode] ||
+            'Перевірте правила віньєтки для країни призначення.';
     }}
 
     async function searchAddress() {{
@@ -2987,33 +3936,40 @@ def gps():
             .addTo(map)
             .bindPopup(selectedDestination.name);
 
-        const routeUrl =
-            'https://router.project-osrm.org/route/v1/driving/' +
-            vehicle.longitude + ',' + vehicle.latitude + ';' +
-            selectedDestination.longitude + ',' +
-            selectedDestination.latitude +
-            '?overview=full&geometries=geojson';
+        const avoidTolls = selectedRouteAvoidsTolls();
+        const vehicleProfile = selectedVehicleProfile();
 
         try {{
-            const response = await fetch(routeUrl);
-            if (!response.ok) {{
-                throw new Error('route service error');
-            }}
-
+            const response = await fetch('/api/route', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{
+                    origin: {{
+                        latitude: vehicle.latitude,
+                        longitude: vehicle.longitude
+                    }},
+                    destination: {{
+                        latitude: selectedDestination.latitude,
+                        longitude: selectedDestination.longitude
+                    }},
+                    avoid_tolls: avoidTolls,
+                    vehicle_profile: vehicleProfile
+                }})
+            }});
             const routeData = await response.json();
-            if (!routeData.routes || !routeData.routes.length) {{
-                throw new Error('route not found');
+
+            if (!response.ok) {{
+                throw new Error(
+                    routeData.error || 'Маршрут недоступний.'
+                );
             }}
 
-            const route = routeData.routes[0];
-            const routePoints = route.geometry.coordinates.map(
-                function(coordinate) {{
-                    return [coordinate[1], coordinate[0]];
-                }}
-            );
+            if (!routeData.points || !routeData.points.length) {{
+                throw new Error('Маршрут не знайдено.');
+            }}
 
-            plannedRouteLayer = L.polyline(routePoints, {{
-                color: '#e4552d',
+            plannedRouteLayer = L.polyline(routeData.points, {{
+                color: avoidTolls ? '#16865a' : '#e4552d',
                 weight: 6,
                 opacity: .9
             }}).addTo(map);
@@ -3023,18 +3979,48 @@ def gps():
                 {{padding: [45, 45]}}
             );
 
+            const distanceKm = routeData.distance_m / 1000;
+            const fuelConsumption = Math.max(
+                0,
+                Number(fuelConsumptionInput.value) || 0
+            );
+            const fuelPrice = Math.max(
+                0,
+                Number(fuelPriceInput.value) || 0
+            );
+            const fuelLitres =
+                distanceKm * fuelConsumption / 100;
+            const fuelCost = fuelLitres * fuelPrice;
+            const consumptionSource =
+                fuelConsumptionInput.dataset.source === 'navirec'
+                ? 'Navirec, середня за 14 днів'
+                : 'норматив для категорії';
+
             measureResult.innerHTML =
                 '<strong>' + vehicle.name + '</strong><br>' +
                 'Відстань: <strong>' +
-                (route.distance / 1000).toFixed(1) +
+                distanceKm.toFixed(1) +
                 ' км</strong><br>Час у дорозі: ' +
-                formatDuration(route.duration) +
+                formatDuration(routeData.duration_s) +
                 '<br>Орієнтовне прибуття: ' +
-                formatArrival(route.duration);
+                formatArrival(routeData.duration_s) +
+                '<br>Паливо: <strong>' +
+                fuelLitres.toFixed(1) + ' л</strong> × ' +
+                fuelPrice.toFixed(2) + ' ' +
+                fuelCurrencySelect.value +
+                ' = <strong>' + fuelCost.toFixed(2) + ' ' +
+                fuelCurrencySelect.value + '</strong>' +
+                '<br><span class="small">Витрата: ' +
+                fuelConsumption.toFixed(1) +
+                ' л/100 км (' + consumptionSource + ')</span>' +
+                '<br><strong>' +
+                formatTollInformation(routeData) +
+                '</strong><br>' +
+                destinationRoadRule(vehicleProfile);
         }} catch (error) {{
             measureResult.textContent =
-                'Не вдалося прокласти автомобільний маршрут. ' +
-                'Спробуйте ще раз.';
+                error.message ||
+                'Не вдалося прокласти автомобільний маршрут.';
         }} finally {{
             buildRouteButton.disabled = false;
             buildRouteButton.textContent = 'Прокласти маршрут';
