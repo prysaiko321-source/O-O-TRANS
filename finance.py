@@ -290,6 +290,7 @@ def ensure_finance_schema():
                     SET review_status = 'filtered',
                         duplicate_reason = 'Автоматично приховано: немає номера та суми.'
                     WHERE review_status = 'pending'
+                      AND entry_kind <> 'income'
                       AND invoice_number IS NULL
                       AND amount_gross = 0
                 """)
@@ -756,6 +757,7 @@ def invoice_data_from_text(
         compact[:30000]
     ]).lower()
     transport_order_markers = (
+        "zlecenie",
         "zlecenie transportowe",
         "zlecenie spedycyjne",
         "zlecenia transportowego",
