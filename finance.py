@@ -2008,6 +2008,19 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         }
 
         for item in email_invoices:
+            imported_at = item["imported_at"]
+            if imported_at and imported_at.tzinfo is None:
+                imported_at = imported_at.replace(tzinfo=timezone.utc)
+            is_new = bool(
+                imported_at
+                and imported_at >= datetime.now(timezone.utc) - timedelta(hours=24)
+                and item["review_status"] == "pending"
+            )
+            new_badge = (
+                '<span class="badge badge-ready">Нове</span>'
+                if is_new
+                else ""
+            )
             kind_label = ENTRY_KINDS.get(
                 item["entry_kind"],
                 item["entry_kind"]
@@ -2066,6 +2079,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
             email_rows.append("""
                 <div class="invoice-card">
+                    {new_badge}
                     <div class="invoice-facts">
                         <div>
                             <span class="invoice-label">Дата</span>
@@ -2112,6 +2126,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 </div>
             """.format(
                 date=html_text(item["invoice_date"]),
+                new_badge=new_badge,
                 id=escape(str(item["id"])),
                 contractor=html_text(item["contractor_name"]),
                 sender=html_text(item["sender_email"], ""),
