@@ -4,6 +4,8 @@ import math
 import hmac
 import secrets
 import base64
+import time
+import threading
 from datetime import datetime, timezone
 from html import escape
 from zoneinfo import ZoneInfo
@@ -100,6 +102,7 @@ ROLE_ENDPOINTS = {
         "vehicles",
         "vehicle_page",
         "gps",
+        "geocode_search",
         "history",
         "fuel",
         "tachograph"
@@ -108,6 +111,11 @@ ROLE_ENDPOINTS = {
         "driver_dashboard"
     }
 }
+
+GEOCODE_CACHE_TTL = 3600
+GEOCODE_CACHE = {}
+GEOCODE_LOCK = threading.Lock()
+GEOCODE_LAST_REQUEST_AT = 0.0
 
 VEHICLES = [
     {
@@ -1468,6 +1476,77 @@ body.page-gps .powered-by {{
     background: rgba(255, 255, 255, .94);
     box-shadow: 0 4px 18px rgba(15, 37, 51, .18);
     backdrop-filter: blur(5px);
+    max-height: calc(100vh - 95px);
+    overflow-y: auto;
+}}
+
+.gps-route-planner label {{
+    display: block;
+    margin: 0 0 5px;
+    color: #21313c;
+    font-size: 12px;
+    font-weight: 800;
+}}
+
+.gps-route-planner select,
+.gps-route-planner input {{
+    width: 100%;
+    min-width: 0;
+    margin: 0 0 9px;
+}}
+
+.gps-address-row {{
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 7px;
+}}
+
+.gps-address-row input {{
+    margin-bottom: 0;
+}}
+
+.gps-address-row button {{
+    padding: 9px 12px;
+}}
+
+.gps-address-results {{
+    display: grid;
+    gap: 5px;
+    max-height: 190px;
+    margin-top: 7px;
+    overflow-y: auto;
+}}
+
+.gps-address-results[hidden] {{
+    display: none;
+}}
+
+.gps-address-result {{
+    width: 100%;
+    padding: 8px 10px;
+    border: 1px solid #cbd8df;
+    border-radius: 7px;
+    background: #f7fafb;
+    color: #1d3342;
+    text-align: left;
+    font-size: 13px;
+    line-height: 1.3;
+}}
+
+.gps-address-result:hover {{
+    border-color: #087f8c;
+    background: #e9f7f8;
+}}
+
+.gps-build-route {{
+    width: 100%;
+    margin-top: 9px;
+}}
+
+.gps-toolbar-divider {{
+    height: 1px;
+    margin: 12px 0;
+    background: #dce5e9;
 }}
 
 .gps-map-actions {{
@@ -2409,6 +2488,92 @@ def vehicle_page(vehicle_id):
     )
 
 
+@app.route("/api/geocode")
+def geocode_search():
+    global GEOCODE_LAST_REQUEST_AT
+
+    query = request.args.get("q", "").strip()
+
+    if len(query) < 3:
+        return jsonify({"results": []})
+
+    query = query[:180]
+    language = current_language()
+    cache_key = (language, query.casefold())
+    now = time.monotonic()
+    cached = GEOCODE_CACHE.get(cache_key)
+
+    if cached and now - cached[0] < GEOCODE_CACHE_TTL:
+        return jsonify({"results": cached[1]})
+
+    try:
+        with GEOCODE_LOCK:
+            cached = GEOCODE_CACHE.get(cache_key)
+            now = time.monotonic()
+
+            if cached and now - cached[0] < GEOCODE_CACHE_TTL:
+                return jsonify({"results": cached[1]})
+
+            wait_seconds = 1.05 - (
+                now - GEOCODE_LAST_REQUEST_AT
+            )
+            if wait_seconds > 0:
+                time.sleep(wait_seconds)
+
+            response = requests.get(
+                "https://nominatim.openstreetmap.org/search",
+                params={
+                    "q": query,
+                    "format": "jsonv2",
+                    "limit": 5,
+                    "addressdetails": 1,
+                    "accept-language": language
+                },
+                headers={
+                    "User-Agent": (
+                        "TRANVIQ/1.0 "
+                        "(transport route planner)"
+                    )
+                },
+                timeout=10
+            )
+            GEOCODE_LAST_REQUEST_AT = time.monotonic()
+            response.raise_for_status()
+            raw_results = response.json()
+
+        results = []
+        for item in raw_results:
+            try:
+                latitude = float(item.get("lat"))
+                longitude = float(item.get("lon"))
+            except (TypeError, ValueError):
+                continue
+
+            display_name = str(
+                item.get("display_name") or ""
+            ).strip()
+            if not display_name:
+                continue
+
+            results.append({
+                "name": display_name,
+                "latitude": latitude,
+                "longitude": longitude,
+                "type": str(item.get("type") or "")
+            })
+
+        GEOCODE_CACHE[cache_key] = (
+            time.monotonic(),
+            results
+        )
+        return jsonify({"results": results})
+    except (requests.RequestException, ValueError):
+        return jsonify({
+            "results": [],
+            "error": "Пошук адреси тимчасово недоступний."
+        }), 503
+
+
 @app.route("/gps")
 def gps():
     selected_id = normalize_vehicle_id(
@@ -2465,12 +2630,49 @@ def gps():
         <div id="map"></div>
 
         <div class="gps-map-toolbar" id="gps-map-toolbar">
+            <div class="gps-route-planner">
+                <label for="route-vehicle-select">
+                    Початок маршруту — автомобіль
+                </label>
+                <select id="route-vehicle-select"></select>
+
+                <label for="destination-search">
+                    Куди їдемо
+                </label>
+                <div class="gps-address-row">
+                    <input
+                        type="search"
+                        id="destination-search"
+                        placeholder="Місто, вулиця або повна адреса"
+                        autocomplete="off"
+                    >
+                    <button type="button" id="address-search-button">
+                        Шукати
+                    </button>
+                </div>
+                <div
+                    class="gps-address-results"
+                    id="address-search-results"
+                    hidden
+                ></div>
+                <button
+                    type="button"
+                    class="gps-build-route"
+                    id="build-route-button"
+                    disabled
+                >
+                    Прокласти маршрут
+                </button>
+            </div>
+
+            <div class="gps-toolbar-divider"></div>
+
             <div class="gps-map-actions">
                 <button type="button" id="measure-route-button">
                     Виміряти маршрут
                 </button>
                 <button type="button" id="clear-route-button">
-                    Очистити
+                    Очистити карту
                 </button>
             </div>
             <div class="gps-measure-result" id="measure-result">
@@ -2567,6 +2769,39 @@ def gps():
     const measureResult = document.getElementById(
         'measure-result'
     );
+    const vehicleSelect = document.getElementById(
+        'route-vehicle-select'
+    );
+    const destinationInput = document.getElementById(
+        'destination-search'
+    );
+    const addressSearchButton = document.getElementById(
+        'address-search-button'
+    );
+    const addressResults = document.getElementById(
+        'address-search-results'
+    );
+    const buildRouteButton = document.getElementById(
+        'build-route-button'
+    );
+
+    vehicles.forEach(function(vehicle) {{
+        const option = document.createElement('option');
+        option.value = vehicle.id;
+        option.textContent = vehicle.name;
+        if (vehicle.id === selectedId) {{
+            option.selected = true;
+        }}
+        vehicleSelect.appendChild(option);
+    }});
+
+    if (!vehicles.length) {{
+        const option = document.createElement('option');
+        option.textContent = 'Немає актуальних GPS-координат';
+        option.disabled = true;
+        option.selected = true;
+        vehicleSelect.appendChild(option);
+    }}
 
     L.DomEvent.disableClickPropagation(toolbar);
     L.DomEvent.disableScrollPropagation(toolbar);
@@ -2588,6 +2823,9 @@ def gps():
     let measurePoints = [];
     let measureMarkers = [];
     let measureLayer = null;
+    let selectedDestination = null;
+    let plannedRouteLayer = null;
+    let destinationMarker = null;
 
     function removeMeasurementLayers() {{
         measureMarkers.forEach(function(item) {{
@@ -2611,6 +2849,22 @@ def gps():
             'дві точки на карті.';
     }}
 
+    function removePlannedRoute() {{
+        if (plannedRouteLayer) {{
+            map.removeLayer(plannedRouteLayer);
+            plannedRouteLayer = null;
+        }}
+        if (destinationMarker) {{
+            map.removeLayer(destinationMarker);
+            destinationMarker = null;
+        }}
+    }}
+
+    function clearMapRoutes() {{
+        clearMeasurement();
+        removePlannedRoute();
+    }}
+
     function formatDuration(seconds) {{
         const totalMinutes = Math.max(
             1,
@@ -2625,14 +2879,190 @@ def gps():
         return minutes + ' хв';
     }}
 
+    function formatArrival(seconds) {{
+        const arrival = new Date(
+            Date.now() + (seconds * 1000)
+        );
+        return arrival.toLocaleString([], {{
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        }});
+    }}
+
+    async function searchAddress() {{
+        const query = destinationInput.value.trim();
+
+        selectedDestination = null;
+        buildRouteButton.disabled = true;
+        addressResults.replaceChildren();
+
+        if (query.length < 3) {{
+            addressResults.hidden = false;
+            addressResults.textContent =
+                'Введіть щонайменше 3 символи.';
+            return;
+        }}
+
+        addressSearchButton.disabled = true;
+        addressSearchButton.textContent = 'Шукаю...';
+        addressResults.hidden = false;
+        addressResults.textContent = 'Шукаю адресу...';
+
+        try {{
+            const response = await fetch(
+                '/api/geocode?q=' + encodeURIComponent(query),
+                {{headers: {{'Accept': 'application/json'}}}}
+            );
+            const data = await response.json();
+
+            if (!response.ok) {{
+                throw new Error(
+                    data.error || 'Пошук тимчасово недоступний.'
+                );
+            }}
+
+            addressResults.replaceChildren();
+
+            if (!data.results || !data.results.length) {{
+                addressResults.textContent =
+                    'Адресу не знайдено. Уточніть місто або вулицю.';
+                return;
+            }}
+
+            data.results.forEach(function(result) {{
+                const resultButton = document.createElement('button');
+                resultButton.type = 'button';
+                resultButton.className = 'gps-address-result';
+                resultButton.textContent = result.name;
+                resultButton.addEventListener('click', function() {{
+                    selectedDestination = result;
+                    destinationInput.value = result.name;
+                    buildRouteButton.disabled = !vehicles.length;
+                    addressResults.hidden = true;
+                }});
+                addressResults.appendChild(resultButton);
+            }});
+        }} catch (error) {{
+            addressResults.textContent =
+                error.message || 'Пошук тимчасово недоступний.';
+        }} finally {{
+            addressSearchButton.disabled = false;
+            addressSearchButton.textContent = 'Шукати';
+        }}
+    }}
+
+    async function buildPlannedRoute() {{
+        if (!selectedDestination) {{
+            measureResult.textContent =
+                'Спочатку знайдіть і виберіть адресу.';
+            return;
+        }}
+
+        const vehicle = vehicles.find(function(item) {{
+            return item.id === vehicleSelect.value;
+        }});
+
+        if (!vehicle) {{
+            measureResult.textContent =
+                'Для автомобіля немає актуальних GPS-координат.';
+            return;
+        }}
+
+        removeMeasurementLayers();
+        removePlannedRoute();
+        measureMode = false;
+        measureButton.classList.remove('active');
+        buildRouteButton.disabled = true;
+        buildRouteButton.textContent = 'Будую маршрут...';
+        measureResult.textContent =
+            'Будую маршрут від ' + vehicle.name + '...';
+
+        const destinationPoint = L.latLng(
+            selectedDestination.latitude,
+            selectedDestination.longitude
+        );
+        destinationMarker = L.marker(destinationPoint)
+            .addTo(map)
+            .bindPopup(selectedDestination.name);
+
+        const routeUrl =
+            'https://router.project-osrm.org/route/v1/driving/' +
+            vehicle.longitude + ',' + vehicle.latitude + ';' +
+            selectedDestination.longitude + ',' +
+            selectedDestination.latitude +
+            '?overview=full&geometries=geojson';
+
+        try {{
+            const response = await fetch(routeUrl);
+            if (!response.ok) {{
+                throw new Error('route service error');
+            }}
+
+            const routeData = await response.json();
+            if (!routeData.routes || !routeData.routes.length) {{
+                throw new Error('route not found');
+            }}
+
+            const route = routeData.routes[0];
+            const routePoints = route.geometry.coordinates.map(
+                function(coordinate) {{
+                    return [coordinate[1], coordinate[0]];
+                }}
+            );
+
+            plannedRouteLayer = L.polyline(routePoints, {{
+                color: '#e4552d',
+                weight: 6,
+                opacity: .9
+            }}).addTo(map);
+
+            map.fitBounds(
+                plannedRouteLayer.getBounds(),
+                {{padding: [45, 45]}}
+            );
+
+            measureResult.innerHTML =
+                '<strong>' + vehicle.name + '</strong><br>' +
+                'Відстань: <strong>' +
+                (route.distance / 1000).toFixed(1) +
+                ' км</strong><br>Час у дорозі: ' +
+                formatDuration(route.duration) +
+                '<br>Орієнтовне прибуття: ' +
+                formatArrival(route.duration);
+        }} catch (error) {{
+            measureResult.textContent =
+                'Не вдалося прокласти автомобільний маршрут. ' +
+                'Спробуйте ще раз.';
+        }} finally {{
+            buildRouteButton.disabled = false;
+            buildRouteButton.textContent = 'Прокласти маршрут';
+        }}
+    }}
+
+    addressSearchButton.addEventListener('click', searchAddress);
+    destinationInput.addEventListener('keydown', function(event) {{
+        if (event.key === 'Enter') {{
+            event.preventDefault();
+            searchAddress();
+        }}
+    }});
+    destinationInput.addEventListener('input', function() {{
+        selectedDestination = null;
+        buildRouteButton.disabled = true;
+    }});
+    buildRouteButton.addEventListener('click', buildPlannedRoute);
+
     measureButton.addEventListener('click', function() {{
+        removePlannedRoute();
         removeMeasurementLayers();
         measureMode = true;
         measureButton.classList.add('active');
         measureResult.textContent = 'Клікніть першу точку на карті.';
     }});
 
-    clearButton.addEventListener('click', clearMeasurement);
+    clearButton.addEventListener('click', clearMapRoutes);
 
     map.on('click', async function(event) {{
         if (!measureMode) {{
