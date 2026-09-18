@@ -1833,22 +1833,43 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 )
 
             email_rows.append("""
-                <tr>
-                    <td>{date}</td>
-                    <td>{contractor}<br><span class="small">{sender}</span></td>
-                    <td>
-                        {number}<br>
-                        <span class="small">{attachment}</span><br>
+                <div class="invoice-card">
+                    <div class="invoice-facts">
+                        <div>
+                            <span class="invoice-label">Дата</span>
+                            <strong>{date}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Контрагент</span>
+                            <strong>{contractor}</strong>
+                            <span class="small">{sender}</span>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Фактура</span>
+                            <strong>{number}</strong>
+                            <span class="small">{attachment}</span>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Brutto</span>
+                            <strong>{gross}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Статус</span>
+                            <strong>{status}</strong>{warning}
+                        </div>
+                    </div>
+                    <div class="invoice-description">
+                        <span class="invoice-label">Опис</span>
+                        {description}
+                    </div>
+                    <div class="invoice-actions">
                         <a class="button" href="/finance/email-invoices/{id}/document"
                            target="_blank" rel="noopener">
                             Відкрити PDF/XML
                         </a>
-                    </td>
-                    <td>{description}</td>
-                    <td>{gross}</td>
-                    <td>{status}{warning}</td>
-                    <td>{actions}</td>
-                </tr>
+                        {actions}
+                    </div>
+                </div>
             """.format(
                 date=html_text(item["invoice_date"]),
                 id=escape(str(item["id"])),
@@ -1868,7 +1889,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
         if not email_rows:
             email_rows.append("""
-                <tr><td colspan="7">Фактур із пошти ще немає.</td></tr>
+                <div class="invoice-empty">Фактур із пошти ще немає.</div>
             """)
 
         vehicle_options = [
@@ -2024,47 +2045,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 Програма перевірятиме дублікати за контрагентом,
                 номером фактури, сумою та валютою.
             </p>
-            <div id="invoice-scroll-top"
-                 style="overflow-x:auto;overflow-y:hidden;margin-bottom:8px">
-                <div id="invoice-scroll-spacer" style="height:1px"></div>
-            </div>
-            <div id="invoice-scroll-bottom" style="overflow-x:auto">
-                <table style="min-width:1500px">
-                    <tr>
-                        <th>Дата</th><th>Контрагент</th>
-                        <th>Фактура / файл</th><th>Опис</th>
-                        <th>Brutto</th><th>Статус</th><th>Дія</th>
-                    </tr>
-                    {email_rows}
-                </table>
-            </div>
-            <script>
-            (function () {{
-                const top = document.getElementById('invoice-scroll-top');
-                const bottom = document.getElementById('invoice-scroll-bottom');
-                const spacer = document.getElementById('invoice-scroll-spacer');
-                if (!top || !bottom || !spacer) return;
-
-                let syncing = false;
-                function resizeTopScroll() {{
-                    spacer.style.width = bottom.scrollWidth + 'px';
-                }}
-                top.addEventListener('scroll', function () {{
-                    if (syncing) return;
-                    syncing = true;
-                    bottom.scrollLeft = top.scrollLeft;
-                    syncing = false;
-                }});
-                bottom.addEventListener('scroll', function () {{
-                    if (syncing) return;
-                    syncing = true;
-                    top.scrollLeft = bottom.scrollLeft;
-                    syncing = false;
-                }});
-                window.addEventListener('resize', resizeTopScroll);
-                resizeTopScroll();
-            }})();
-            </script>
+            <div class="invoice-list">{email_rows}</div>
         </div>
         """.format(
             database_alert=database_alert,
