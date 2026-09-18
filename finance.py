@@ -66,7 +66,8 @@ GMAIL_SEARCH_QUERY = os.environ.get(
     (
         "newer_than:120d has:attachment "
         "{filename:pdf filename:xml} "
-        "{faktura invoice rechnung facture rachunek} "
+        "{faktura invoice rechnung facture rachunek "
+        "zlecenie transportauftrag frachtauftrag} "
         "-in:spam -in:trash"
     )
 ).strip()
@@ -163,6 +164,7 @@ def ensure_finance_schema():
                         contractor_name TEXT,
                         invoice_number TEXT,
                         description TEXT NOT NULL,
+                        entry_kind TEXT NOT NULL DEFAULT 'expense',
                         category TEXT NOT NULL DEFAULT 'other',
                         amount_net NUMERIC(14, 2) NOT NULL DEFAULT 0,
                         amount_vat NUMERIC(14, 2) NOT NULL DEFAULT 0,
@@ -184,6 +186,34 @@ def ensure_finance_schema():
                 cursor.execute("""
                     ALTER TABLE email_invoice_queue
                     ADD COLUMN IF NOT EXISTS source_mime_type TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS entry_kind TEXT NOT NULL
+                    DEFAULT 'expense'
+                """)
+                cursor.execute("""
+                    UPDATE email_invoice_queue
+                    SET entry_kind = 'income',
+                        category = 'transport',
+                        description = CASE
+                            WHEN description = 'Фактура з Gmail'
+                            THEN 'Транспортне замовлення з Gmail'
+                            ELSE description
+                        END
+                    WHERE review_status = 'pending'
+                      AND (
+                          LOWER(COALESCE(email_subject, '')) LIKE '%%zlecenie transport%%'
+                          OR LOWER(COALESCE(email_subject, '')) LIKE '%%zlecenie spedyc%%'
+                          OR LOWER(COALESCE(email_subject, '')) LIKE '%%transport order%%'
+                          OR LOWER(COALESCE(email_subject, '')) LIKE '%%transportauftrag%%'
+                          OR LOWER(COALESCE(email_subject, '')) LIKE '%%frachtauftrag%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%zlecenie transport%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%zlecenie spedyc%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%transport_order%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%transportauftrag%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%frachtauftrag%%'
+                      )
                 """)
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS
@@ -662,13 +692,42 @@ def invoice_amount(text, labels):
     return decimal_value(matches[-1].replace(" ", ""))
 
 
-def invoice_data_from_text(text, sender_name, sender_email, subject):
+def invoice_data_from_text(
+    text,
+    sender_name,
+    sender_email,
+    subject,
+    attachment_name=""
+):
     compact = re.sub(r"[ \t]+", " ", text or "")
+    document_searchable = " ".join([
+        subject or "",
+        attachment_name or "",
+        compact[:30000]
+    ]).lower()
+    transport_order_markers = (
+        "zlecenie transportowe",
+        "zlecenie spedycyjne",
+        "zlecenia transportowego",
+        "transport order",
+        "freight order",
+        "transportauftrag",
+        "frachtauftrag",
+        "auftragserteilung"
+    )
+    entry_kind = (
+        "income"
+        if any(marker in document_searchable for marker in transport_order_markers)
+        else "expense"
+    )
     number = first_regex(compact, [
         r"faktura\s+vat\s+(?:nr|numer)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
         r"faktura(?:\s+vat)?\s+(?:nr|numer)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
         r"invoice\s+(?:no|number)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
-        r"rechnungsnummer\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})"
+        r"rechnungsnummer\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
+        r"zlecen(?:ie|ia)(?:\s+transportowe|\s+spedycyjne)?\s*(?:nr|numer)?\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
+        r"(?:transport|freight)\s+order\s*(?:no|number)?\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
+        r"(?:transportauftrag|frachtauftrag)\s*(?:nr|nummer)?\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})"
     ])
     issue_date = first_regex(compact, [
         r"data wystawienia[^0-9]{0,25}(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})",
@@ -688,7 +747,13 @@ def invoice_data_from_text(text, sender_name, sender_email, subject):
         "razem do zapłaty",
         "kwota do zapłaty",
         "gross total",
-        "amount due"
+        "amount due",
+        "wartość zlecenia",
+        "wartosc zlecenia",
+        "stawka",
+        "transport price",
+        "freight price",
+        "frachtpreis"
     ])
 
     if net > 0 and vat > 0 and (gross == 0 or gross <= net):
@@ -712,7 +777,13 @@ def invoice_data_from_text(text, sender_name, sender_email, subject):
     category = "other"
     description = "Фактура з Gmail"
 
-    if any(word in searchable for word in (
+    if entry_kind == "income":
+        category = "transport"
+        description = "Транспортне замовлення з Gmail"
+        if gross > 0 and net == 0:
+            net = gross
+            vat = Decimal("0.00")
+    elif any(word in searchable for word in (
         "e100", "dkv", "eurowag", "diesel", "adblue", "paliwo"
     )):
         category = "fuel"
@@ -740,6 +811,7 @@ def invoice_data_from_text(text, sender_name, sender_email, subject):
         "invoice_date": parse_date_text(issue_date),
         "due_date": parse_date_text(due_date),
         "description": description,
+        "entry_kind": entry_kind,
         "category": category,
         "amount_net": net,
         "amount_vat": vat,
@@ -756,6 +828,10 @@ def queue_email_invoice(data):
     category = clean_text(data.get("category") or "other", 40)
     if category not in FINANCE_CATEGORIES:
         category = "other"
+
+    entry_kind = clean_text(data.get("entry_kind") or "expense", 20)
+    if entry_kind not in ENTRY_KINDS:
+        entry_kind = "expense"
 
     contractor = clean_text(data.get("contractor_name"), 300)
     invoice_number = clean_text(data.get("invoice_number"), 200)
@@ -795,18 +871,24 @@ def queue_email_invoice(data):
                     sender_email, email_subject, attachment_name,
                     source_attachment_id, source_mime_type,
                     invoice_date, due_date, contractor_name,
-                    invoice_number, description, category,
+                    invoice_number, description, entry_kind, category,
                     amount_net, amount_vat, amount_gross,
                     currency, vehicle_id, payment_status,
                     review_status, duplicate_reason
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s,
                     %s, %s,
-                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s
                 )
-                ON CONFLICT (external_key) DO NOTHING
+                ON CONFLICT (external_key) DO UPDATE
+                SET entry_kind = 'income',
+                    category = 'transport',
+                    description = 'Транспортне замовлення з Gmail'
+                WHERE email_invoice_queue.review_status = 'pending'
+                  AND email_invoice_queue.entry_kind <> 'income'
+                  AND EXCLUDED.entry_kind = 'income'
                 RETURNING id
             """, (
                 str(uuid.uuid4()),
@@ -822,6 +904,7 @@ def queue_email_invoice(data):
                 contractor or None,
                 invoice_number or None,
                 description,
+                entry_kind,
                 category,
                 decimal_value(data.get("amount_net")),
                 decimal_value(data.get("amount_vat")),
@@ -894,20 +977,24 @@ def sync_gmail_invoices():
                 extracted_text,
                 sender_name,
                 sender_email,
-                subject
+                subject,
+                part["filename"]
             )
 
             filename_lower = part["filename"].lower()
-            filename_suggests_invoice = any(
+            filename_suggests_document = any(
                 marker in filename_lower
                 for marker in (
-                    "invoice", "faktura", "rechnung", "rachunek"
+                    "invoice", "faktura", "rechnung", "rachunek",
+                    "zlecenie", "transport_order", "transportauftrag",
+                    "frachtauftrag"
                 )
             )
             is_invoice_candidate = bool(
                 parsed.get("invoice_number")
                 or decimal_value(parsed.get("amount_gross")) > 0
-                or filename_suggests_invoice
+                or filename_suggests_document
+                or parsed.get("entry_kind") == "income"
             )
 
             if not is_invoice_candidate:
@@ -928,7 +1015,7 @@ def sync_gmail_invoices():
                 imported += 1
 
     sync_message = (
-        f"Перевірено файлів: {checked}. Нових фактур: {imported}."
+        f"Перевірено файлів: {checked}. Нових документів: {imported}."
     )
     with connect_database() as connection:
         with connection.cursor() as cursor:
@@ -1100,6 +1187,10 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         if category not in FINANCE_CATEGORIES:
             category = "other"
 
+        entry_kind = clean_text(data.get("entry_kind") or "expense", 20)
+        if entry_kind not in ENTRY_KINDS:
+            entry_kind = "expense"
+
         contractor = clean_text(data.get("contractor_name"), 300)
         invoice_number = clean_text(data.get("invoice_number"), 200)
         description = clean_text(
@@ -1138,13 +1229,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             id, external_key, source_message_id,
                             sender_email, email_subject, attachment_name,
                             invoice_date, due_date, contractor_name,
-                            invoice_number, description, category,
+                            invoice_number, description, entry_kind, category,
                             amount_net, amount_vat, amount_gross,
                             currency, vehicle_id, payment_status,
                             review_status, duplicate_reason
                         ) VALUES (
                             %s, %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s, %s,
                             %s, %s
                         )
@@ -1162,6 +1253,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         contractor or None,
                         invoice_number or None,
                         description,
+                        entry_kind,
                         category,
                         decimal_value(data.get("amount_net")),
                         decimal_value(data.get("amount_vat")),
@@ -1249,9 +1341,15 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             return redirect(url_for("finance_dashboard", error="database"))
 
         if request.method == "POST":
+            entry_kind = request.form.get("entry_kind", "expense")
+            if entry_kind not in ENTRY_KINDS:
+                entry_kind = "expense"
+
             category = request.form.get("category", "other")
             if category not in FINANCE_CATEGORIES:
                 category = "other"
+            if entry_kind == "income":
+                category = "transport"
 
             currency = request.form.get("currency", "PLN").upper()
             if currency not in {"PLN", "EUR", "USD", "GBP"}:
@@ -1262,7 +1360,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     with connection.cursor() as cursor:
                         cursor.execute("""
                             UPDATE email_invoice_queue
-                            SET invoice_date = %s,
+                            SET entry_kind = %s,
+                                invoice_date = %s,
                                 due_date = %s,
                                 contractor_name = %s,
                                 invoice_number = %s,
@@ -1276,6 +1375,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             WHERE id = %s
                               AND review_status = 'pending'
                         """, (
+                            entry_kind,
                             optional_date(request.form.get("invoice_date")),
                             optional_date(request.form.get("due_date")),
                             clean_text(
@@ -1289,7 +1389,11 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             clean_text(
                                 request.form.get("description"),
                                 500
-                            ) or "Фактура з Gmail",
+                            ) or (
+                                "Транспортне замовлення з Gmail"
+                                if entry_kind == "income"
+                                else "Фактура з Gmail"
+                            ),
                             category,
                             decimal_value(request.form.get("amount_net")),
                             decimal_value(request.form.get("amount_vat")),
@@ -1356,24 +1460,36 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 '<option{}>{}</option>'.format(selected, code)
             )
 
+        kind_options = []
+        for key, label in ENTRY_KINDS.items():
+            selected = " selected" if item["entry_kind"] == key else ""
+            kind_options.append(
+                '<option value="{}"{}>{}</option>'.format(
+                    escape(key),
+                    selected,
+                    escape(label)
+                )
+            )
+
         body = """
         <div class="card">
             <p class="small">
-                Перевірте дані за оригінальною фактурою перед підтвердженням.
+                Перевірте дані за оригінальним документом перед підтвердженням.
                 Файл: <strong>{attachment}</strong>
             </p>
             <p>
                 <a class="button" href="/finance/email-invoices/{id}/document"
                    target="_blank" rel="noopener">
-                    Відкрити оригінал фактури
+                    Відкрити оригінальний документ
                 </a>
             </p>
             <form method="post">
                 <div class="form-grid">
-                    <p><label>Дата фактури</label><input type="date" name="invoice_date" value="{invoice_date}"></p>
+                    <p><label>Тип документа</label><select name="entry_kind">{kinds}</select></p>
+                    <p><label>Дата документа</label><input type="date" name="invoice_date" value="{invoice_date}"></p>
                     <p><label>Термін оплати</label><input type="date" name="due_date" value="{due_date}"></p>
                     <p><label>Контрагент</label><input name="contractor_name" value="{contractor}"></p>
-                    <p><label>Номер фактури</label><input name="invoice_number" value="{number}"></p>
+                    <p><label>Номер документа</label><input name="invoice_number" value="{number}"></p>
                     <p><label>Опис</label><input name="description" value="{description}" required></p>
                     <p><label>Категорія</label><select name="category">{categories}</select></p>
                     <p><label>Автомобіль</label><select name="vehicle_id">{vehicles}</select></p>
@@ -1394,6 +1510,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             contractor=html_text(item["contractor_name"], ""),
             number=html_text(item["invoice_number"], ""),
             description=html_text(item["description"], ""),
+            kinds="".join(kind_options),
             categories="".join(category_options),
             vehicles="".join(vehicle_options),
             net=html_text(item["amount_net"], "0.00"),
@@ -1444,12 +1561,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             payment_status, source, source_message_id,
                             attachment_name, review_status
                         ) VALUES (
-                            %s, 'expense', %s, %s, %s,
+                            %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, 'gmail', %s, %s, 'approved'
                         )
                     """, (
                         entry_id,
+                        item["entry_kind"],
                         item["invoice_date"] or date.today(),
                         item["description"],
                         item["category"],
@@ -1586,7 +1704,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         if request.args.get("approved") == "1":
             message = (
                 "<div class='alert alert-ok'>"
-                "Фактуру підтверджено та додано у витрати."
+                "Документ підтверджено та додано у фінансовий облік."
                 "</div>"
             )
 
@@ -1799,15 +1917,38 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         }
 
         for item in email_invoices:
+            kind_label = ENTRY_KINDS.get(
+                item["entry_kind"],
+                item["entry_kind"]
+            )
+            kind_class = (
+                "badge-ready"
+                if item["entry_kind"] == "income"
+                else "badge-warning"
+            )
             actions = "—"
             if item["review_status"] == "pending":
                 approve_action = ""
                 if decimal_value(item["amount_gross"]) > 0:
+                    approve_label = (
+                        "Додати в доходи"
+                        if item["entry_kind"] == "income"
+                        else "Додати у витрати"
+                    )
+                    approve_style = (
+                        "background:#147a42"
+                        if item["entry_kind"] == "income"
+                        else ""
+                    )
                     approve_action = """
                         <form method="post" action="/finance/email-invoices/{id}/approve" style="display:inline">
-                            <button type="submit">Підтвердити</button>
+                            <button type="submit" style="{style}">{label}</button>
                         </form>
-                    """.format(id=escape(str(item["id"])))
+                    """.format(
+                        id=escape(str(item["id"])),
+                        style=approve_style,
+                        label=approve_label
+                    )
                 else:
                     approve_action = (
                         "<span class='small'>Спочатку перевірте суму.</span>"
@@ -1845,13 +1986,17 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             <span class="small">{sender}</span>
                         </div>
                         <div>
-                            <span class="invoice-label">Фактура</span>
+                            <span class="invoice-label">Документ</span>
                             <strong>{number}</strong>
                             <span class="small">{attachment}</span>
                         </div>
                         <div>
                             <span class="invoice-label">Brutto</span>
                             <strong>{gross}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Тип</span>
+                            <span class="badge {kind_class}">{kind}</span>
                         </div>
                         <div>
                             <span class="invoice-label">Статус</span>
@@ -1879,6 +2024,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 attachment=html_text(item["attachment_name"], ""),
                 description=html_text(item["description"]),
                 gross=money(item["amount_gross"], item["currency"]),
+                kind=html_text(kind_label),
+                kind_class=kind_class,
                 status=html_text(status_labels.get(
                     item["review_status"],
                     item["review_status"]
@@ -1889,7 +2036,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
         if not email_rows:
             email_rows.append("""
-                <div class="invoice-empty">Фактур із пошти ще немає.</div>
+                <div class="invoice-empty">Документів із пошти ще немає.</div>
             """)
 
         vehicle_options = [
@@ -1940,7 +2087,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     {last_message}
                 </p>
                 <form method="post" action="/finance/gmail/sync" style="display:inline">
-                    <button type="submit">Завантажити нові фактури</button>
+                    <button type="submit">Завантажити нові документи</button>
                 </form>
                 <form method="post" action="/finance/gmail/disconnect" style="display:inline">
                     <button type="submit" style="background:#8d1717">Відключити Gmail</button>
@@ -2036,10 +2183,11 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         </div>
 
         <div class="card">
-            <h2>Фактури з пошти</h2>
+            <h2>Фактури та транспортні замовлення з пошти</h2>
             <p>
-                Вкладення PDF і XML потрапляють сюди спочатку
-                зі статусом «На перевірку».
+                Транспортне замовлення записується як дохід,
+                а вхідна фактура — як витрата. Перед підтвердженням
+                тип документа можна змінити через кнопку «Перевірити».
             </p>
             <p class="small">
                 Програма перевірятиме дублікати за контрагентом,
