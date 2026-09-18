@@ -1132,11 +1132,12 @@ body {{
     width: min(72vw, 820px);
     max-height: 72vh;
     object-fit: contain;
-    opacity: .075;
+    opacity: .13;
     mix-blend-mode: multiply;
     filter:
-        saturate(.85)
-        drop-shadow(0 0 28px rgba(31, 148, 180, .18));
+        saturate(1.08)
+        contrast(1.02)
+        drop-shadow(0 0 32px rgba(31, 148, 180, .22));
 }}
 
 .login-choice-grid {{
@@ -1460,7 +1461,7 @@ button,
 
     .login-watermark img {{
         width: 94vw;
-        opacity: .065;
+        opacity: .115;
     }}
 
     .wrap {{
