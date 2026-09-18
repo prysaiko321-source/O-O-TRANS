@@ -104,6 +104,12 @@ ENTRY_KINDS = {
     "expense": "Витрата"
 }
 
+VEHICLE_IDS_BY_REGISTRATION = {
+    "SH9203G": "aaaa9acd-5bb5-467e-8241-81444292bbfe",
+    "DX9034F": "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb",
+    "DX5405A": "f016af91-dee6-4e72-9f86-4b2e27a253c1"
+}
+
 
 def database_available():
     return bool(DATABASE_URL and psycopg)
@@ -141,6 +147,13 @@ def ensure_finance_schema():
                         vehicle_id TEXT,
                         contractor_name TEXT,
                         invoice_number TEXT,
+                        customer_order_number TEXT,
+                        loading_date DATE,
+                        loading_place TEXT,
+                        unloading_date DATE,
+                        unloading_place TEXT,
+                        payment_terms TEXT,
+                        vehicle_registration TEXT,
                         due_date DATE,
                         payment_status TEXT NOT NULL DEFAULT 'unpaid',
                         source TEXT NOT NULL DEFAULT 'manual',
@@ -162,6 +175,34 @@ def ensure_finance_schema():
                     WHERE invoice_number IS NOT NULL
                 """)
                 cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS customer_order_number TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS loading_date DATE
+                """)
+                cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS loading_place TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS unloading_date DATE
+                """)
+                cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS unloading_place TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS payment_terms TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS vehicle_registration TEXT
+                """)
+                cursor.execute("""
                     CREATE TABLE IF NOT EXISTS email_invoice_queue (
                         id UUID PRIMARY KEY,
                         external_key TEXT NOT NULL UNIQUE,
@@ -174,6 +215,13 @@ def ensure_finance_schema():
                         due_date DATE,
                         contractor_name TEXT,
                         invoice_number TEXT,
+                        customer_order_number TEXT,
+                        loading_date DATE,
+                        loading_place TEXT,
+                        unloading_date DATE,
+                        unloading_place TEXT,
+                        payment_terms TEXT,
+                        vehicle_registration TEXT,
                         description TEXT NOT NULL,
                         entry_kind TEXT NOT NULL DEFAULT 'expense',
                         category TEXT NOT NULL DEFAULT 'other',
@@ -206,6 +254,34 @@ def ensure_finance_schema():
                     ALTER TABLE email_invoice_queue
                     ADD COLUMN IF NOT EXISTS entry_kind TEXT NOT NULL
                     DEFAULT 'expense'
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS customer_order_number TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS loading_date DATE
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS loading_place TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS unloading_date DATE
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS unloading_place TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS payment_terms TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS vehicle_registration TEXT
                 """)
                 cursor.execute("""
                     UPDATE email_invoice_queue
@@ -743,6 +819,86 @@ def invoice_amount(text, labels):
     return decimal_value(matches[-1].replace(" ", ""))
 
 
+def normalized_vehicle_registration(value):
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def transport_order_details(text):
+    source = text or ""
+    details = {
+        "customer_order_number": "",
+        "loading_date": None,
+        "loading_place": "",
+        "unloading_date": None,
+        "unloading_place": "",
+        "payment_terms": "",
+        "vehicle_registration": ""
+    }
+
+    details["customer_order_number"] = first_regex(source, [
+        r"numer\s+zlecenia\s+zleceniodawcy\s*:\s*([^\n\r]+)",
+        r"customer\s+order\s+(?:no|number)\s*[:#]?\s*([^\n\r]+)"
+    ])
+    details["payment_terms"] = first_regex(source, [
+        r"przelew\s+w\s+terminie\s*:\s*([^\n\r]+)",
+        r"payment\s+terms?\s*[:#]?\s*([^\n\r]+)",
+        r"zahlungsziel\s*[:#]?\s*([^\n\r]+)"
+    ])
+    details["vehicle_registration"] = normalized_vehicle_registration(
+        first_regex(source, [
+            r"samoch[oó]d\s*:\s*([A-Z0-9 -]+?)(?:\s{2,}|kierowca|\n|\r|$)",
+            r"vehicle\s*[:#]?\s*([A-Z0-9 -]+?)(?:\s{2,}|driver|\n|\r|$)"
+        ])
+    )
+
+    route_match = re.search(
+        r"(?:2\.\s*Załadunek|3\.\s*Rozładunek).*?4\.\s*Fracht",
+        source,
+        re.IGNORECASE | re.DOTALL
+    )
+    if route_match:
+        route_block = route_match.group(0)
+        dates = re.findall(
+            r"\b\d{4}-\d{2}-\d{2}\b",
+            route_block
+        )[:2]
+        places = [
+            clean_text(value, 300)
+            for value in re.findall(
+                r"\b(?:PL|DE|NL|BE|FR|AT|CZ|SK|IT|ES|DK|SE|NO|CH|LU)"
+                r"\s+[A-Z0-9-]{3,10}\s+[^\n\r]+",
+                route_block,
+                re.IGNORECASE
+            )[:2]
+        ]
+
+        loading_position = route_block.lower().find("2. załadunek")
+        unloading_position = route_block.lower().find("3. rozładunek")
+        unloading_first = (
+            unloading_position >= 0
+            and loading_position >= 0
+            and unloading_position < loading_position
+        )
+
+        if len(dates) >= 2:
+            if unloading_first:
+                details["unloading_date"] = dates[0]
+                details["loading_date"] = dates[1]
+            else:
+                details["loading_date"] = dates[0]
+                details["unloading_date"] = dates[1]
+
+        if len(places) >= 2:
+            if unloading_first:
+                details["unloading_place"] = places[0]
+                details["loading_place"] = places[1]
+            else:
+                details["loading_place"] = places[0]
+                details["unloading_place"] = places[1]
+
+    return details
+
+
 def invoice_data_from_text(
     text,
     sender_name,
@@ -751,13 +907,18 @@ def invoice_data_from_text(
     attachment_name=""
 ):
     compact = re.sub(r"[ \t]+", " ", text or "")
+    order_details = transport_order_details(text)
     document_searchable = " ".join([
         subject or "",
         attachment_name or "",
         compact[:30000]
     ]).lower()
+    heading_searchable = " ".join([
+        subject or "",
+        attachment_name or ""
+    ]).lower()
     transport_order_markers = (
-        "zlecenie",
+        "zlecenie przewozu",
         "zlecenie transportowe",
         "zlecenie spedycyjne",
         "zlecenia transportowego",
@@ -769,10 +930,18 @@ def invoice_data_from_text(
     )
     entry_kind = (
         "income"
-        if any(marker in document_searchable for marker in transport_order_markers)
+        if (
+            any(
+                marker in document_searchable
+                for marker in transport_order_markers
+            )
+            or "zlecenie" in heading_searchable
+        )
         else "expense"
     )
     number = first_regex(compact, [
+        r"zlecenie\s+(?:przewozu|transportowe|spedycyjne)?\s*"
+        r"(?:nr|numer)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
         r"faktura\s+vat\s+(?:nr|numer)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
         r"faktura(?:\s+vat)?\s+(?:nr|numer)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
         r"invoice\s+(?:no|number)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
@@ -782,6 +951,7 @@ def invoice_data_from_text(
         r"(?:transportauftrag|frachtauftrag)\s*(?:nr|nummer)?\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})"
     ])
     issue_date = first_regex(compact, [
+        r"z\s+dnia\s+(\d{2}[./-]\d{2}[./-]\d{4})",
         r"data wystawienia[^0-9]{0,25}(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})",
         r"issue date[^0-9]{0,25}(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})",
         r"rechnungsdatum[^0-9]{0,25}(\d{2}[./-]\d{2}[./-]\d{4}|\d{4}-\d{2}-\d{2})"
@@ -828,10 +998,30 @@ def invoice_data_from_text(
     ]).lower()
     category = "other"
     description = "Фактура з Gmail"
+    contractor_name = sender_name or sender_email
+
+    if re.search(r"\bECE\s+LOGISTICS\b", compact, re.IGNORECASE):
+        contractor_name = "ECE LOGISTICS SP. Z O.O."
 
     if entry_kind == "income":
         category = "transport"
         description = "Транспортне замовлення з Gmail"
+        route_parts = [
+            value
+            for value in (
+                order_details.get("loading_place"),
+                order_details.get("unloading_place")
+            )
+            if value
+        ]
+        if number and len(route_parts) == 2:
+            description = "Зліцення {}: {} → {}".format(
+                number,
+                route_parts[0],
+                route_parts[1]
+            )
+        elif number:
+            description = "Транспортне зліцення " + number
         if gross > 0 and net == 0:
             net = gross
             vat = Decimal("0.00")
@@ -858,7 +1048,7 @@ def invoice_data_from_text(
         description = "Ремонт або сервіс — фактура з Gmail"
 
     return {
-        "contractor_name": sender_name or sender_email,
+        "contractor_name": contractor_name,
         "invoice_number": number,
         "invoice_date": parse_date_text(issue_date),
         "due_date": parse_date_text(due_date),
@@ -868,7 +1058,21 @@ def invoice_data_from_text(
         "amount_net": net,
         "amount_vat": vat,
         "amount_gross": gross,
-        "currency": currency
+        "currency": currency,
+        "customer_order_number": order_details.get(
+            "customer_order_number"
+        ),
+        "loading_date": order_details.get("loading_date"),
+        "loading_place": order_details.get("loading_place"),
+        "unloading_date": order_details.get("unloading_date"),
+        "unloading_place": order_details.get("unloading_place"),
+        "payment_terms": order_details.get("payment_terms"),
+        "vehicle_registration": order_details.get(
+            "vehicle_registration"
+        ),
+        "vehicle_id": VEHICLE_IDS_BY_REGISTRATION.get(
+            order_details.get("vehicle_registration")
+        )
     }
 
 
@@ -923,25 +1127,113 @@ def queue_email_invoice(data):
                     sender_email, email_subject, attachment_name,
                     source_attachment_id, source_mime_type,
                     invoice_date, due_date, contractor_name,
-                    invoice_number, description, entry_kind, category,
+                    invoice_number, customer_order_number,
+                    loading_date, loading_place,
+                    unloading_date, unloading_place,
+                    payment_terms, vehicle_registration,
+                    description, entry_kind, category,
                     amount_net, amount_vat, amount_gross,
                     currency, vehicle_id, payment_status,
                     review_status, duplicate_reason
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s,
+                    %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
-                    %s, %s
+                    %s, %s, %s, %s
                 )
                 ON CONFLICT (external_key) DO UPDATE
-                SET entry_kind = 'income',
-                    category = 'transport',
-                    description = 'Транспортне замовлення з Gmail'
-                WHERE email_invoice_queue.review_status = 'pending'
-                  AND email_invoice_queue.entry_kind <> 'income'
-                  AND EXCLUDED.entry_kind = 'income'
-                RETURNING id
+                SET contractor_name = COALESCE(
+                        EXCLUDED.contractor_name,
+                        email_invoice_queue.contractor_name
+                    ),
+                    invoice_number = COALESCE(
+                        EXCLUDED.invoice_number,
+                        email_invoice_queue.invoice_number
+                    ),
+                    invoice_date = COALESCE(
+                        EXCLUDED.invoice_date,
+                        email_invoice_queue.invoice_date
+                    ),
+                    customer_order_number = COALESCE(
+                        EXCLUDED.customer_order_number,
+                        email_invoice_queue.customer_order_number
+                    ),
+                    loading_date = COALESCE(
+                        EXCLUDED.loading_date,
+                        email_invoice_queue.loading_date
+                    ),
+                    loading_place = COALESCE(
+                        EXCLUDED.loading_place,
+                        email_invoice_queue.loading_place
+                    ),
+                    unloading_date = COALESCE(
+                        EXCLUDED.unloading_date,
+                        email_invoice_queue.unloading_date
+                    ),
+                    unloading_place = COALESCE(
+                        EXCLUDED.unloading_place,
+                        email_invoice_queue.unloading_place
+                    ),
+                    payment_terms = COALESCE(
+                        EXCLUDED.payment_terms,
+                        email_invoice_queue.payment_terms
+                    ),
+                    vehicle_registration = COALESCE(
+                        EXCLUDED.vehicle_registration,
+                        email_invoice_queue.vehicle_registration
+                    ),
+                    vehicle_id = COALESCE(
+                        EXCLUDED.vehicle_id,
+                        email_invoice_queue.vehicle_id
+                    ),
+                    entry_kind = CASE
+                        WHEN email_invoice_queue.review_status = 'pending'
+                             AND EXCLUDED.entry_kind = 'income'
+                        THEN 'income'
+                        ELSE email_invoice_queue.entry_kind
+                    END,
+                    category = CASE
+                        WHEN email_invoice_queue.review_status = 'pending'
+                             AND EXCLUDED.entry_kind = 'income'
+                        THEN 'transport'
+                        ELSE email_invoice_queue.category
+                    END,
+                    description = CASE
+                        WHEN email_invoice_queue.review_status = 'pending'
+                             AND EXCLUDED.entry_kind = 'income'
+                        THEN EXCLUDED.description
+                        ELSE email_invoice_queue.description
+                    END,
+                    amount_net = CASE
+                        WHEN email_invoice_queue.review_status = 'pending'
+                             AND EXCLUDED.amount_net > 0
+                        THEN EXCLUDED.amount_net
+                        ELSE email_invoice_queue.amount_net
+                    END,
+                    amount_vat = CASE
+                        WHEN email_invoice_queue.review_status = 'pending'
+                             AND EXCLUDED.amount_vat > 0
+                        THEN EXCLUDED.amount_vat
+                        ELSE email_invoice_queue.amount_vat
+                    END,
+                    amount_gross = CASE
+                        WHEN email_invoice_queue.review_status = 'pending'
+                             AND EXCLUDED.amount_gross > 0
+                        THEN EXCLUDED.amount_gross
+                        ELSE email_invoice_queue.amount_gross
+                    END,
+                    currency = CASE
+                        WHEN email_invoice_queue.review_status = 'pending'
+                             AND EXCLUDED.amount_gross > 0
+                        THEN EXCLUDED.currency
+                        ELSE email_invoice_queue.currency
+                    END
+                WHERE email_invoice_queue.review_status IN (
+                    'pending', 'approved'
+                )
+                RETURNING id, (xmax = 0) AS was_inserted
             """, (
                 str(uuid.uuid4()),
                 external_key,
@@ -956,6 +1248,13 @@ def queue_email_invoice(data):
                 optional_date(data.get("due_date")),
                 contractor or None,
                 invoice_number or None,
+                clean_text(data.get("customer_order_number"), 200) or None,
+                optional_date(data.get("loading_date")),
+                clean_text(data.get("loading_place"), 300) or None,
+                optional_date(data.get("unloading_date")),
+                clean_text(data.get("unloading_place"), 300) or None,
+                clean_text(data.get("payment_terms"), 500) or None,
+                clean_text(data.get("vehicle_registration"), 40) or None,
                 description,
                 entry_kind,
                 category,
@@ -1065,7 +1364,7 @@ def sync_one_gmail_account(account_email):
                 "source_mime_type": part.get("mime_type")
             })
             inserted, _ = queue_email_invoice(parsed)
-            if inserted:
+            if inserted and inserted.get("was_inserted"):
                 imported += 1
 
     account_message = (
@@ -1509,6 +1808,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                 due_date = %s,
                                 contractor_name = %s,
                                 invoice_number = %s,
+                                customer_order_number = %s,
+                                loading_date = %s,
+                                loading_place = %s,
+                                unloading_date = %s,
+                                unloading_place = %s,
+                                payment_terms = %s,
+                                vehicle_registration = %s,
                                 description = %s,
                                 category = %s,
                                 amount_net = %s,
@@ -1529,6 +1835,28 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             clean_text(
                                 request.form.get("invoice_number"),
                                 200
+                            ) or None,
+                            clean_text(
+                                request.form.get("customer_order_number"),
+                                200
+                            ) or None,
+                            optional_date(request.form.get("loading_date")),
+                            clean_text(
+                                request.form.get("loading_place"),
+                                300
+                            ) or None,
+                            optional_date(request.form.get("unloading_date")),
+                            clean_text(
+                                request.form.get("unloading_place"),
+                                300
+                            ) or None,
+                            clean_text(
+                                request.form.get("payment_terms"),
+                                500
+                            ) or None,
+                            clean_text(
+                                request.form.get("vehicle_registration"),
+                                40
                             ) or None,
                             clean_text(
                                 request.form.get("description"),
@@ -1634,6 +1962,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <p><label>Термін оплати</label><input type="date" name="due_date" value="{due_date}"></p>
                     <p><label>Контрагент</label><input name="contractor_name" value="{contractor}"></p>
                     <p><label>Номер документа</label><input name="invoice_number" value="{number}"></p>
+                    <p><label>Номер замовника</label><input name="customer_order_number" value="{customer_order_number}"></p>
+                    <p><label>Дата завантаження</label><input type="date" name="loading_date" value="{loading_date}"></p>
+                    <p><label>Місце завантаження</label><input name="loading_place" value="{loading_place}"></p>
+                    <p><label>Дата розвантаження</label><input type="date" name="unloading_date" value="{unloading_date}"></p>
+                    <p><label>Місце розвантаження</label><input name="unloading_place" value="{unloading_place}"></p>
+                    <p><label>Умови оплати</label><input name="payment_terms" value="{payment_terms}"></p>
+                    <p><label>Номер автомобіля</label><input name="vehicle_registration" value="{vehicle_registration}"></p>
                     <p><label>Опис</label><input name="description" value="{description}" required></p>
                     <p><label>Категорія</label><select name="category">{categories}</select></p>
                     <p><label>Автомобіль</label><select name="vehicle_id">{vehicles}</select></p>
@@ -1653,6 +1988,19 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             due_date=html_text(item["due_date"], ""),
             contractor=html_text(item["contractor_name"], ""),
             number=html_text(item["invoice_number"], ""),
+            customer_order_number=html_text(
+                item["customer_order_number"],
+                ""
+            ),
+            loading_date=html_text(item["loading_date"], ""),
+            loading_place=html_text(item["loading_place"], ""),
+            unloading_date=html_text(item["unloading_date"], ""),
+            unloading_place=html_text(item["unloading_place"], ""),
+            payment_terms=html_text(item["payment_terms"], ""),
+            vehicle_registration=html_text(
+                item["vehicle_registration"],
+                ""
+            ),
             description=html_text(item["description"], ""),
             kinds="".join(kind_options),
             categories="".join(category_options),
@@ -1701,13 +2049,20 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             id, entry_kind, entry_date, description,
                             category, amount_net, amount_vat,
                             amount_gross, currency, vehicle_id,
-                            contractor_name, invoice_number, due_date,
+                            contractor_name, invoice_number,
+                            customer_order_number,
+                            loading_date, loading_place,
+                            unloading_date, unloading_place,
+                            payment_terms, vehicle_registration,
+                            due_date,
                             payment_status, source, source_message_id,
                             attachment_name, review_status
                         ) VALUES (
                             %s, %s, %s, %s, %s,
                             %s, %s, %s, %s, %s,
-                            %s, %s, %s, %s, 'gmail', %s, %s, 'approved'
+                            %s, %s, %s, %s, %s,
+                            %s, %s, %s, %s, %s,
+                            %s, 'gmail', %s, %s, 'approved'
                         )
                     """, (
                         entry_id,
@@ -1722,6 +2077,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         item["vehicle_id"],
                         item["contractor_name"],
                         item["invoice_number"],
+                        item["customer_order_number"],
+                        item["loading_date"],
+                        item["loading_place"],
+                        item["unloading_date"],
+                        item["unloading_place"],
+                        item["payment_terms"],
+                        item["vehicle_registration"],
                         item["due_date"],
                         item["payment_status"],
                         item["source_message_id"],
@@ -1831,6 +2193,32 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     request.form.get("invoice_number"),
                     200
                 ) or None,
+                "customer_order_number": clean_text(
+                    request.form.get("customer_order_number"),
+                    200
+                ) or None,
+                "loading_date": optional_date(
+                    request.form.get("loading_date")
+                ),
+                "loading_place": clean_text(
+                    request.form.get("loading_place"),
+                    300
+                ) or None,
+                "unloading_date": optional_date(
+                    request.form.get("unloading_date")
+                ),
+                "unloading_place": clean_text(
+                    request.form.get("unloading_place"),
+                    300
+                ) or None,
+                "payment_terms": clean_text(
+                    request.form.get("payment_terms"),
+                    500
+                ) or None,
+                "vehicle_registration": clean_text(
+                    request.form.get("vehicle_registration"),
+                    40
+                ) or None,
                 "due_date": optional_date(request.form.get("due_date")),
                 "payment_status": payment_status
             }
@@ -1851,6 +2239,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                 vehicle_id = %s,
                                 contractor_name = %s,
                                 invoice_number = %s,
+                                customer_order_number = %s,
+                                loading_date = %s,
+                                loading_place = %s,
+                                unloading_date = %s,
+                                unloading_place = %s,
+                                payment_terms = %s,
+                                vehicle_registration = %s,
                                 due_date = %s,
                                 payment_status = %s
                             WHERE id = %s
@@ -1866,6 +2261,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             values["vehicle_id"],
                             values["contractor_name"],
                             values["invoice_number"],
+                            values["customer_order_number"],
+                            values["loading_date"],
+                            values["loading_place"],
+                            values["unloading_date"],
+                            values["unloading_place"],
+                            values["payment_terms"],
+                            values["vehicle_registration"],
                             values["due_date"],
                             values["payment_status"],
                             entry_id
@@ -1888,6 +2290,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                 vehicle_id = %s,
                                 contractor_name = %s,
                                 invoice_number = %s,
+                                customer_order_number = %s,
+                                loading_date = %s,
+                                loading_place = %s,
+                                unloading_date = %s,
+                                unloading_place = %s,
+                                payment_terms = %s,
+                                vehicle_registration = %s,
                                 due_date = %s,
                                 payment_status = %s
                             WHERE finance_entry_id = %s
@@ -1903,6 +2312,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             values["vehicle_id"],
                             values["contractor_name"],
                             values["invoice_number"],
+                            values["customer_order_number"],
+                            values["loading_date"],
+                            values["loading_place"],
+                            values["unloading_date"],
+                            values["unloading_place"],
+                            values["payment_terms"],
+                            values["vehicle_registration"],
                             values["due_date"],
                             values["payment_status"],
                             entry_id
@@ -1926,7 +2342,35 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             email_invoice_queue.id AS queue_id,
                             email_invoice_queue.sender_email,
                             email_invoice_queue.source_account_email,
-                            email_invoice_queue.email_subject
+                            email_invoice_queue.email_subject,
+                            COALESCE(
+                                finance_entries.customer_order_number,
+                                email_invoice_queue.customer_order_number
+                            ) AS customer_order_number,
+                            COALESCE(
+                                finance_entries.loading_date,
+                                email_invoice_queue.loading_date
+                            ) AS loading_date,
+                            COALESCE(
+                                finance_entries.loading_place,
+                                email_invoice_queue.loading_place
+                            ) AS loading_place,
+                            COALESCE(
+                                finance_entries.unloading_date,
+                                email_invoice_queue.unloading_date
+                            ) AS unloading_date,
+                            COALESCE(
+                                finance_entries.unloading_place,
+                                email_invoice_queue.unloading_place
+                            ) AS unloading_place,
+                            COALESCE(
+                                finance_entries.payment_terms,
+                                email_invoice_queue.payment_terms
+                            ) AS payment_terms,
+                            COALESCE(
+                                finance_entries.vehicle_registration,
+                                email_invoice_queue.vehicle_registration
+                            ) AS vehicle_registration
                         FROM finance_entries
                         LEFT JOIN email_invoice_queue
                           ON email_invoice_queue.finance_entry_id
@@ -2041,6 +2485,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <p><label>Опис</label><input name="description" value="{description}" required></p>
                     <p><label>Контрагент / відправник</label><input name="contractor_name" value="{contractor}"></p>
                     <p><label>Номер фактури / зліцення</label><input name="invoice_number" value="{number}"></p>
+                    <p><label>Номер замовника</label><input name="customer_order_number" value="{customer_order_number}"></p>
+                    <p><label>Дата завантаження</label><input type="date" name="loading_date" value="{loading_date}"></p>
+                    <p><label>Місце завантаження</label><input name="loading_place" value="{loading_place}"></p>
+                    <p><label>Дата розвантаження</label><input type="date" name="unloading_date" value="{unloading_date}"></p>
+                    <p><label>Місце розвантаження</label><input name="unloading_place" value="{unloading_place}"></p>
+                    <p><label>Умови оплати</label><input name="payment_terms" value="{payment_terms}"></p>
+                    <p><label>Номер автомобіля</label><input name="vehicle_registration" value="{vehicle_registration}"></p>
                     <p><label>Netto</label><input name="amount_net" value="{net}"></p>
                     <p><label>VAT</label><input name="amount_vat" value="{vat}"></p>
                     <p><label>Brutto</label><input name="amount_gross" value="{gross}"></p>
@@ -2061,6 +2512,19 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             description=html_text(item["description"], ""),
             contractor=html_text(item["contractor_name"], ""),
             number=html_text(item["invoice_number"], ""),
+            customer_order_number=html_text(
+                item["customer_order_number"],
+                ""
+            ),
+            loading_date=html_text(item["loading_date"], ""),
+            loading_place=html_text(item["loading_place"], ""),
+            unloading_date=html_text(item["unloading_date"], ""),
+            unloading_place=html_text(item["unloading_place"], ""),
+            payment_terms=html_text(item["payment_terms"], ""),
+            vehicle_registration=html_text(
+                item["vehicle_registration"],
+                ""
+            ),
             net=html_text(item["amount_net"], "0.00"),
             vat=html_text(item["amount_vat"], "0.00"),
             gross=html_text(item["amount_gross"], "0.00"),
@@ -2250,7 +2714,35 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                 email_invoice_queue.id AS queue_id,
                                 email_invoice_queue.sender_email,
                                 email_invoice_queue.source_account_email,
-                                email_invoice_queue.email_subject
+                                email_invoice_queue.email_subject,
+                                COALESCE(
+                                    finance_entries.customer_order_number,
+                                    email_invoice_queue.customer_order_number
+                                ) AS customer_order_number,
+                                COALESCE(
+                                    finance_entries.loading_date,
+                                    email_invoice_queue.loading_date
+                                ) AS loading_date,
+                                COALESCE(
+                                    finance_entries.loading_place,
+                                    email_invoice_queue.loading_place
+                                ) AS loading_place,
+                                COALESCE(
+                                    finance_entries.unloading_date,
+                                    email_invoice_queue.unloading_date
+                                ) AS unloading_date,
+                                COALESCE(
+                                    finance_entries.unloading_place,
+                                    email_invoice_queue.unloading_place
+                                ) AS unloading_place,
+                                COALESCE(
+                                    finance_entries.payment_terms,
+                                    email_invoice_queue.payment_terms
+                                ) AS payment_terms,
+                                COALESCE(
+                                    finance_entries.vehicle_registration,
+                                    email_invoice_queue.vehicle_registration
+                                ) AS vehicle_registration
                             FROM finance_entries
                             LEFT JOIN email_invoice_queue
                               ON email_invoice_queue.finance_entry_id
@@ -2349,6 +2841,33 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             if row["invoice_number"]:
                 document_details.append(
                     "Документ № " + html_text(row["invoice_number"])
+                )
+            if row["customer_order_number"]:
+                document_details.append(
+                    "Номер замовника: "
+                    + html_text(row["customer_order_number"])
+                )
+            if row["loading_place"] or row["unloading_place"]:
+                route_text = "Маршрут: {} → {}".format(
+                    html_text(row["loading_place"], "—"),
+                    html_text(row["unloading_place"], "—")
+                )
+                document_details.append(route_text)
+            if row["loading_date"] or row["unloading_date"]:
+                document_details.append(
+                    "Дати: {} → {}".format(
+                        html_text(row["loading_date"], "—"),
+                        html_text(row["unloading_date"], "—")
+                    )
+                )
+            if row["vehicle_registration"]:
+                document_details.append(
+                    "Автомобіль: "
+                    + html_text(row["vehicle_registration"])
+                )
+            if row["payment_terms"]:
+                document_details.append(
+                    "Оплата: " + html_text(row["payment_terms"])
                 )
             if row["sender_email"]:
                 document_details.append(
@@ -2505,6 +3024,48 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     html_text(item["duplicate_reason"])
                 )
 
+            route_lines = []
+            if item["customer_order_number"]:
+                route_lines.append(
+                    "Номер замовника: <strong>{}</strong>".format(
+                        html_text(item["customer_order_number"])
+                    )
+                )
+            if item["loading_place"] or item["unloading_place"]:
+                route_lines.append(
+                    "Маршрут: <strong>{} → {}</strong>".format(
+                        html_text(item["loading_place"], "—"),
+                        html_text(item["unloading_place"], "—")
+                    )
+                )
+            if item["loading_date"] or item["unloading_date"]:
+                route_lines.append(
+                    "Дати: <strong>{} → {}</strong>".format(
+                        html_text(item["loading_date"], "—"),
+                        html_text(item["unloading_date"], "—")
+                    )
+                )
+            if item["vehicle_registration"]:
+                route_lines.append(
+                    "Автомобіль: <strong>{}</strong>".format(
+                        html_text(item["vehicle_registration"])
+                    )
+                )
+            if item["payment_terms"]:
+                route_lines.append(
+                    "Умови оплати: <strong>{}</strong>".format(
+                        html_text(item["payment_terms"])
+                    )
+                )
+            route_details = ""
+            if route_lines:
+                route_details = """
+                    <div class="invoice-description">
+                        <span class="invoice-label">Дані перевезення</span>
+                        {lines}
+                    </div>
+                """.format(lines="<br>".join(route_lines))
+
             email_rows.append("""
                 <div class="invoice-card">
                     {new_badge}
@@ -2544,6 +3105,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         <span class="invoice-label">Опис</span>
                         {description}
                     </div>
+                    {route_details}
                     <div class="invoice-actions">
                         <a class="button" href="/finance/email-invoices/{id}/document"
                            target="_blank" rel="noopener">
@@ -2565,6 +3127,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 number=html_text(item["invoice_number"]),
                 attachment=html_text(item["attachment_name"], ""),
                 description=html_text(item["description"]),
+                route_details=route_details,
                 gross=money(item["amount_gross"], item["currency"]),
                 kind=html_text(kind_label),
                 kind_class=kind_class,
