@@ -2247,6 +2247,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         cursor.execute("""
                             SELECT
                                 finance_entries.*,
+                                email_invoice_queue.id AS queue_id,
                                 email_invoice_queue.sender_email,
                                 email_invoice_queue.source_account_email,
                                 email_invoice_queue.email_subject
@@ -2358,6 +2359,24 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     "Файл: " + html_text(row["attachment_name"])
                 )
 
+            if row["queue_id"]:
+                document_button = """
+                    <a class="button"
+                       href="/finance/email-invoices/{queue_id}/document"
+                       target="_blank" rel="noopener"
+                       style="margin-top:8px;background:#147a42">
+                        Відкрити документ
+                    </a>
+                """.format(
+                    queue_id=escape(str(row["queue_id"]))
+                )
+            else:
+                document_button = """
+                    <span class="small" style="display:inline-block;margin-top:8px">
+                        Оригінальний файл не прикріплений
+                    </span>
+                """
+
             table_rows.append("""
                 <tr>
                     <td>{date}</td>
@@ -2371,6 +2390,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                            style="margin-top:8px">
                             Редагувати
                         </a>
+                        {document_button}
                     </td>
                     <td>{category}</td>
                     <td>{vehicle}</td>
@@ -2383,6 +2403,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 kind=html_text(kind_label),
                 description=html_text(row["description"]),
                 document_details="<br>".join(document_details),
+                document_button=document_button,
                 category=html_text(
                     FINANCE_CATEGORIES.get(
                         row["category"],
