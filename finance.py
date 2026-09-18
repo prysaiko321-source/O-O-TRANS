@@ -4,6 +4,7 @@ import hmac
 import hashlib
 import base64
 import re
+import threading
 from io import BytesIO
 from email.utils import parseaddr
 from urllib.parse import urlencode
@@ -64,13 +65,22 @@ GMAIL_TOKEN_KEY_SOURCE = (
 GMAIL_SEARCH_QUERY = os.environ.get(
     "GMAIL_SEARCH_QUERY",
     (
-        "newer_than:120d has:attachment "
+        "newer_than:30d has:attachment "
         "{filename:pdf filename:xml} "
-        "{faktura invoice rechnung facture rachunek "
-        "zlecenie transportauftrag frachtauftrag} "
         "-in:spam -in:trash"
     )
 ).strip()
+try:
+    GMAIL_AUTO_SYNC_MINUTES = max(
+        5,
+        min(60, int(os.environ.get("GMAIL_AUTO_SYNC_MINUTES", "15")))
+    )
+except ValueError:
+    GMAIL_AUTO_SYNC_MINUTES = 15
+
+_gmail_sync_lock = threading.Lock()
+_gmail_auto_sync_started = False
+_gmail_auto_sync_stop = threading.Event()
 GMAIL_SCOPES = (
     "openid email "
     "https://www.googleapis.com/auth/gmail.readonly"
@@ -1073,7 +1083,7 @@ def sync_one_gmail_account(account_email):
     return imported, checked
 
 
-def sync_gmail_invoices():
+def _sync_gmail_invoices_unlocked():
     integrations = [
         item
         for item in get_gmail_integrations()
@@ -1113,6 +1123,47 @@ def sync_gmail_invoices():
         sync_message += " Помилки: " + "; ".join(errors)
 
     return total_imported, sync_message
+
+
+def sync_gmail_invoices():
+    if not _gmail_sync_lock.acquire(blocking=False):
+        return 0, "Перевірка Gmail уже виконується."
+
+    try:
+        return _sync_gmail_invoices_unlocked()
+    finally:
+        _gmail_sync_lock.release()
+
+
+def start_gmail_auto_sync():
+    """Запускає безпечну фонову перевірку всіх підключених Gmail."""
+    global _gmail_auto_sync_started
+
+    if _gmail_auto_sync_started:
+        return
+
+    _gmail_auto_sync_started = True
+
+    def worker():
+        # Даємо Gunicorn і базі завершити запуск, після чого одразу
+        # забираємо нові документи. Наступні перевірки — кожні 15 хвилин.
+        if _gmail_auto_sync_stop.wait(20):
+            return
+
+        while not _gmail_auto_sync_stop.is_set():
+            try:
+                sync_gmail_invoices()
+            except Exception:
+                # Помилка однієї перевірки не повинна зупиняти наступні.
+                pass
+
+            _gmail_auto_sync_stop.wait(GMAIL_AUTO_SYNC_MINUTES * 60)
+
+    threading.Thread(
+        target=worker,
+        name="gmail-auto-sync",
+        daemon=True
+    ).start()
 
 
 def register_finance_routes(app, page_renderer, vehicles, html_text):
@@ -2233,7 +2284,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             <div class="card">
                 <h2>Підключені Gmail: {count}</h2>
                 <div class="alert alert-ok">
-                    Усі підключені пошти перевіряються одночасно.
+                    Усі підключені пошти автоматично перевіряються
+                    кожні {auto_sync_minutes} хвилин.
                 </div>
                 <div class="detail-grid" style="margin:14px 0">
                     {accounts}
@@ -2248,6 +2300,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             </div>
             """.format(
                 count=len(gmail_integrations),
+                auto_sync_minutes=GMAIL_AUTO_SYNC_MINUTES,
                 accounts="".join(gmail_account_rows)
             )
         elif gmail_oauth_ready():
@@ -2362,3 +2415,5 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             body,
             "finance"
         )
+
+    start_gmail_auto_sync()
