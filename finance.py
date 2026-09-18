@@ -12,7 +12,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
 from html import escape
 
-from flask import request, redirect, url_for, jsonify, session
+from flask import request, redirect, url_for, jsonify, session, send_file
 import requests
 
 try:
@@ -176,6 +176,14 @@ def ensure_finance_schema():
                         reviewed_at TIMESTAMPTZ,
                         finance_entry_id UUID
                     )
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS source_attachment_id TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS source_mime_type TEXT
                 """)
                 cursor.execute("""
                     CREATE INDEX IF NOT EXISTS
@@ -533,6 +541,66 @@ def decode_base64url(value):
     return base64.urlsafe_b64decode(value + padding)
 
 
+def gmail_document_content(
+    message_id,
+    attachment_name,
+    saved_attachment_id="",
+    saved_mime_type=""
+):
+    access_token = gmail_access_token()
+    if not access_token:
+        raise RuntimeError("Gmail не підключено.")
+
+    attachment_id = clean_text(saved_attachment_id, 1000)
+    filename = clean_text(attachment_name, 300)
+    mime_type = clean_text(saved_mime_type, 100) or "application/pdf"
+    inline_data = ""
+
+    if not attachment_id:
+        message = gmail_request(
+            "messages/" + message_id,
+            access_token,
+            {"format": "full"}
+        )
+        parts = gmail_attachment_parts(message.get("payload") or {})
+        selected = None
+
+        for part in parts:
+            if part["filename"] == filename:
+                selected = part
+                break
+
+        if selected is None and len(parts) == 1:
+            selected = parts[0]
+
+        if selected is None:
+            raise RuntimeError("Не вдалося знайти вкладення у листі Gmail.")
+
+        attachment_id = selected.get("attachment_id") or ""
+        inline_data = selected.get("inline_data") or ""
+        filename = selected.get("filename") or filename
+        mime_type = selected.get("mime_type") or mime_type
+
+    if inline_data:
+        content = decode_base64url(inline_data)
+    elif attachment_id:
+        attachment = gmail_request(
+            "messages/{}/attachments/{}".format(
+                message_id,
+                attachment_id
+            ),
+            access_token
+        )
+        content = decode_base64url(attachment.get("data"))
+    else:
+        raise RuntimeError("У Gmail немає даних цього вкладення.")
+
+    if not content:
+        raise RuntimeError("Вкладення Gmail порожнє.")
+
+    return content, mime_type, os.path.basename(filename) or "faktura.pdf"
+
+
 def extract_attachment_text(filename, mime_type, content):
     lower_name = filename.lower()
 
@@ -725,6 +793,7 @@ def queue_email_invoice(data):
                 INSERT INTO email_invoice_queue (
                     id, external_key, source_message_id,
                     sender_email, email_subject, attachment_name,
+                    source_attachment_id, source_mime_type,
                     invoice_date, due_date, contractor_name,
                     invoice_number, description, category,
                     amount_net, amount_vat, amount_gross,
@@ -732,6 +801,7 @@ def queue_email_invoice(data):
                     review_status, duplicate_reason
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s,
+                    %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
                     %s, %s
@@ -745,6 +815,8 @@ def queue_email_invoice(data):
                 clean_text(data.get("sender_email"), 300) or None,
                 clean_text(data.get("email_subject"), 500) or None,
                 clean_text(data.get("attachment_name"), 300) or None,
+                clean_text(data.get("source_attachment_id"), 1000) or None,
+                clean_text(data.get("source_mime_type"), 100) or None,
                 optional_date(data.get("invoice_date")),
                 optional_date(data.get("due_date")),
                 contractor or None,
@@ -847,7 +919,9 @@ def sync_gmail_invoices():
                 "source_message_id": message_id,
                 "sender_email": sender_email,
                 "email_subject": subject,
-                "attachment_name": part["filename"]
+                "attachment_name": part["filename"],
+                "source_attachment_id": part.get("attachment_id"),
+                "source_mime_type": part.get("mime_type")
             })
             inserted, _ = queue_email_invoice(parsed)
             if inserted:
@@ -1120,6 +1194,51 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 "error": f"Не вдалося імпортувати фактуру: {exc}"
             }), 500
 
+    @app.route("/finance/email-invoices/<invoice_id>/document")
+    def finance_email_document(invoice_id):
+        schema_ok, schema_error = ensure_finance_schema()
+        if not schema_ok:
+            return redirect(url_for(
+                "finance_dashboard",
+                document_error=clean_text(schema_error, 150)
+            ))
+
+        try:
+            with connect_database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT source_message_id, attachment_name,
+                               source_attachment_id, source_mime_type
+                        FROM email_invoice_queue
+                        WHERE id = %s
+                        LIMIT 1
+                    """, (invoice_id,))
+                    item = cursor.fetchone()
+
+            if not item or not item["source_message_id"]:
+                raise RuntimeError(
+                    "Для цієї фактури немає посилання на лист Gmail."
+                )
+
+            content, mime_type, filename = gmail_document_content(
+                item["source_message_id"],
+                item["attachment_name"],
+                item["source_attachment_id"],
+                item["source_mime_type"]
+            )
+            return send_file(
+                BytesIO(content),
+                mimetype=mime_type,
+                download_name=filename,
+                as_attachment=False,
+                max_age=0
+            )
+        except Exception as exc:
+            return redirect(url_for(
+                "finance_dashboard",
+                document_error=clean_text(exc, 180)
+            ))
+
     @app.route(
         "/finance/email-invoices/<invoice_id>/edit",
         methods=["GET", "POST"]
@@ -1243,6 +1362,12 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 Перевірте дані за оригінальною фактурою перед підтвердженням.
                 Файл: <strong>{attachment}</strong>
             </p>
+            <p>
+                <a class="button" href="/finance/email-invoices/{id}/document"
+                   target="_blank" rel="noopener">
+                    Відкрити оригінал фактури
+                </a>
+            </p>
             <form method="post">
                 <div class="form-grid">
                     <p><label>Дата фактури</label><input type="date" name="invoice_date" value="{invoice_date}"></p>
@@ -1262,6 +1387,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             </form>
         </div>
         """.format(
+            id=escape(str(item["id"])),
             attachment=html_text(item["attachment_name"]),
             invoice_date=html_text(item["invoice_date"], ""),
             due_date=html_text(item["due_date"], ""),
@@ -1522,6 +1648,14 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 + "</div>"
             )
 
+        if request.args.get("document_error"):
+            message = (
+                "<div class='alert alert-error'>"
+                "Не вдалося відкрити фактуру: "
+                + html_text(request.args.get("document_error"))
+                + "</div>"
+            )
+
         rows = []
         email_invoices = []
         totals = {}
@@ -1702,7 +1836,14 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 <tr>
                     <td>{date}</td>
                     <td>{contractor}<br><span class="small">{sender}</span></td>
-                    <td>{number}<br><span class="small">{attachment}</span></td>
+                    <td>
+                        {number}<br>
+                        <span class="small">{attachment}</span><br>
+                        <a class="button" href="/finance/email-invoices/{id}/document"
+                           target="_blank" rel="noopener">
+                            Відкрити PDF/XML
+                        </a>
+                    </td>
                     <td>{description}</td>
                     <td>{gross}</td>
                     <td>{status}{warning}</td>
@@ -1710,6 +1851,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 </tr>
             """.format(
                 date=html_text(item["invoice_date"]),
+                id=escape(str(item["id"])),
                 contractor=html_text(item["contractor_name"]),
                 sender=html_text(item["sender_email"], ""),
                 number=html_text(item["invoice_number"]),
@@ -1882,8 +2024,12 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 Програма перевірятиме дублікати за контрагентом,
                 номером фактури, сумою та валютою.
             </p>
-            <div style="overflow-x:auto">
-                <table>
+            <div id="invoice-scroll-top"
+                 style="overflow-x:auto;overflow-y:hidden;margin-bottom:8px">
+                <div id="invoice-scroll-spacer" style="height:1px"></div>
+            </div>
+            <div id="invoice-scroll-bottom" style="overflow-x:auto">
+                <table style="min-width:1500px">
                     <tr>
                         <th>Дата</th><th>Контрагент</th>
                         <th>Фактура / файл</th><th>Опис</th>
@@ -1892,6 +2038,33 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     {email_rows}
                 </table>
             </div>
+            <script>
+            (function () {{
+                const top = document.getElementById('invoice-scroll-top');
+                const bottom = document.getElementById('invoice-scroll-bottom');
+                const spacer = document.getElementById('invoice-scroll-spacer');
+                if (!top || !bottom || !spacer) return;
+
+                let syncing = false;
+                function resizeTopScroll() {{
+                    spacer.style.width = bottom.scrollWidth + 'px';
+                }}
+                top.addEventListener('scroll', function () {{
+                    if (syncing) return;
+                    syncing = true;
+                    bottom.scrollLeft = top.scrollLeft;
+                    syncing = false;
+                }});
+                bottom.addEventListener('scroll', function () {{
+                    if (syncing) return;
+                    syncing = true;
+                    top.scrollLeft = bottom.scrollLeft;
+                    syncing = false;
+                }});
+                window.addEventListener('resize', resizeTopScroll);
+                resizeTopScroll();
+            }})();
+            </script>
         </div>
         """.format(
             database_alert=database_alert,
