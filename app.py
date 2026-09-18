@@ -844,6 +844,7 @@ def page(title, body, active=""):
     role = current_role()
     language = current_language()
     visible_title = translate_title(language, title)
+    page_class = "page-gps" if active == "gps" else ""
     branding = get_company_branding(
         COMPANY_ID,
         COMPANY_NAME
@@ -1427,6 +1428,93 @@ button,
     border-radius: 10px;
 }}
 
+body.page-gps {{
+    overflow: hidden;
+}}
+
+body.page-gps .wrap {{
+    max-width: none;
+    margin: 0;
+    padding: 0;
+}}
+
+body.page-gps .wrap > h1,
+body.page-gps .powered-by {{
+    display: none;
+}}
+
+.gps-screen {{
+    position: relative;
+    width: 100%;
+    min-height: 520px;
+    background: #dce5e9;
+}}
+
+.gps-screen #map {{
+    width: 100%;
+    min-height: 520px;
+    border-radius: 0;
+}}
+
+.gps-map-toolbar {{
+    position: absolute;
+    z-index: 800;
+    top: 12px;
+    left: 56px;
+    width: min(420px, calc(100vw - 75px));
+    padding: 12px;
+    border: 1px solid rgba(16, 42, 59, .16);
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .94);
+    box-shadow: 0 4px 18px rgba(15, 37, 51, .18);
+    backdrop-filter: blur(5px);
+}}
+
+.gps-map-actions {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+}}
+
+.gps-map-actions button {{
+    padding: 9px 12px;
+}}
+
+.gps-map-actions button.active {{
+    background: #087f8c;
+}}
+
+.gps-measure-result {{
+    margin-top: 9px;
+    color: #21313c;
+    font-size: 14px;
+    line-height: 1.35;
+}}
+
+.gps-map-brand {{
+    position: absolute;
+    z-index: 700;
+    right: 14px;
+    bottom: 25px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    padding: 7px 10px;
+    border-radius: 10px;
+    background: rgba(255, 255, 255, .72);
+    color: #16344b;
+    font-size: 12px;
+    font-weight: 800;
+    pointer-events: none;
+}}
+
+.gps-map-brand img {{
+    width: 46px;
+    height: 46px;
+    object-fit: contain;
+    opacity: .72;
+}}
+
 @media (max-width: 700px) {{
     .topbar {{
         padding: 14px;
@@ -1480,12 +1568,29 @@ button,
     #map {{
         height: 420px;
     }}
+
+    .gps-screen,
+    .gps-screen #map {{
+        min-height: 440px;
+    }}
+
+    .gps-map-toolbar {{
+        top: 10px;
+        left: 48px;
+        width: calc(100vw - 60px);
+        padding: 10px;
+    }}
+
+    .gps-map-brand {{
+        right: 8px;
+        bottom: 21px;
+    }}
 }}
 </style>
 {extra_head}
 </head>
 
-<body>
+<body class="{page_class}">
 
 <div class="topbar">
     <div class="brand-row">
@@ -1537,6 +1642,7 @@ button,
 """.format(
         title=visible_title,
         language=language,
+        page_class=page_class,
         company=company_display_name,
         company_label=escape(t("company")),
         platform=PLATFORM_NAME,
@@ -2355,18 +2461,28 @@ def gps():
         center_lon = 17.0
 
     body = """
-    <div class="card">
-
-        <p class="small">
-            Показано поточні координати,
-            які Navirec повертає через
-            last_vehicle_states.
-        </p>
-
-    </div>
-
-    <div class="card">
+    <div class="gps-screen">
         <div id="map"></div>
+
+        <div class="gps-map-toolbar" id="gps-map-toolbar">
+            <div class="gps-map-actions">
+                <button type="button" id="measure-route-button">
+                    Виміряти маршрут
+                </button>
+                <button type="button" id="clear-route-button">
+                    Очистити
+                </button>
+            </div>
+            <div class="gps-measure-result" id="measure-result">
+                Натисніть «Виміряти маршрут», потім виберіть
+                дві точки на карті.
+            </div>
+        </div>
+
+        <div class="gps-map-brand">
+            <img src="/assets/company-logo.jpg" alt="">
+            <span>Powered by TRANVIQ</span>
+        </div>
     </div>
 
     <link
@@ -2439,6 +2555,182 @@ def gps():
             {{padding: [30, 30]}}
         );
     }}
+
+    const mapElement = document.getElementById('map');
+    const toolbar = document.getElementById('gps-map-toolbar');
+    const measureButton = document.getElementById(
+        'measure-route-button'
+    );
+    const clearButton = document.getElementById(
+        'clear-route-button'
+    );
+    const measureResult = document.getElementById(
+        'measure-result'
+    );
+
+    L.DomEvent.disableClickPropagation(toolbar);
+    L.DomEvent.disableScrollPropagation(toolbar);
+
+    function resizeGpsMap() {{
+        const top = mapElement.getBoundingClientRect().top;
+        const availableHeight = Math.max(
+            440,
+            window.innerHeight - top
+        );
+        mapElement.style.height = availableHeight + 'px';
+        map.invalidateSize(false);
+    }}
+
+    window.addEventListener('resize', resizeGpsMap);
+    window.requestAnimationFrame(resizeGpsMap);
+
+    let measureMode = false;
+    let measurePoints = [];
+    let measureMarkers = [];
+    let measureLayer = null;
+
+    function removeMeasurementLayers() {{
+        measureMarkers.forEach(function(item) {{
+            map.removeLayer(item);
+        }});
+        measureMarkers = [];
+        measurePoints = [];
+
+        if (measureLayer) {{
+            map.removeLayer(measureLayer);
+            measureLayer = null;
+        }}
+    }}
+
+    function clearMeasurement() {{
+        removeMeasurementLayers();
+        measureMode = false;
+        measureButton.classList.remove('active');
+        measureResult.textContent =
+            'Натисніть «Виміряти маршрут», потім виберіть ' +
+            'дві точки на карті.';
+    }}
+
+    function formatDuration(seconds) {{
+        const totalMinutes = Math.max(
+            1,
+            Math.round(seconds / 60)
+        );
+        const hours = Math.floor(totalMinutes / 60);
+        const minutes = totalMinutes % 60;
+
+        if (hours > 0) {{
+            return hours + ' год ' + minutes + ' хв';
+        }}
+        return minutes + ' хв';
+    }}
+
+    measureButton.addEventListener('click', function() {{
+        removeMeasurementLayers();
+        measureMode = true;
+        measureButton.classList.add('active');
+        measureResult.textContent = 'Клікніть першу точку на карті.';
+    }});
+
+    clearButton.addEventListener('click', clearMeasurement);
+
+    map.on('click', async function(event) {{
+        if (!measureMode) {{
+            return;
+        }}
+
+        const point = event.latlng;
+        measurePoints.push(point);
+
+        const pointLabel = measurePoints.length === 1 ? 'A' : 'B';
+        const pointMarker = L.circleMarker(point, {{
+            radius: 8,
+            color: '#ffffff',
+            weight: 3,
+            fillColor: measurePoints.length === 1
+                ? '#087f8c'
+                : '#e4552d',
+            fillOpacity: 1
+        }}).addTo(map).bindTooltip(
+            pointLabel,
+            {{permanent: true, direction: 'top'}}
+        );
+        measureMarkers.push(pointMarker);
+
+        if (measurePoints.length === 1) {{
+            measureResult.textContent = 'Тепер клікніть другу точку.';
+            return;
+        }}
+
+        measureMode = false;
+        measureButton.classList.remove('active');
+        measureResult.textContent = 'Будую автомобільний маршрут...';
+
+        const firstPoint = measurePoints[0];
+        const secondPoint = measurePoints[1];
+        const straightKm = map.distance(
+            firstPoint,
+            secondPoint
+        ) / 1000;
+
+        const routeUrl =
+            'https://router.project-osrm.org/route/v1/driving/' +
+            firstPoint.lng + ',' + firstPoint.lat + ';' +
+            secondPoint.lng + ',' + secondPoint.lat +
+            '?overview=full&geometries=geojson';
+
+        try {{
+            const response = await fetch(routeUrl);
+            if (!response.ok) {{
+                throw new Error('route service error');
+            }}
+
+            const routeData = await response.json();
+            if (!routeData.routes || !routeData.routes.length) {{
+                throw new Error('route not found');
+            }}
+
+            const route = routeData.routes[0];
+            const routePoints = route.geometry.coordinates.map(
+                function(coordinate) {{
+                    return [coordinate[1], coordinate[0]];
+                }}
+            );
+
+            measureLayer = L.polyline(routePoints, {{
+                color: '#087f8c',
+                weight: 5,
+                opacity: .88
+            }}).addTo(map);
+
+            map.fitBounds(
+                measureLayer.getBounds(),
+                {{padding: [45, 45]}}
+            );
+
+            measureResult.innerHTML =
+                '<strong>Дорогами: ' +
+                (route.distance / 1000).toFixed(1) +
+                ' км</strong><br>Приблизний час: ' +
+                formatDuration(route.duration);
+        }} catch (error) {{
+            measureLayer = L.polyline(
+                [firstPoint, secondPoint],
+                {{
+                    color: '#e4552d',
+                    weight: 4,
+                    dashArray: '8, 8',
+                    opacity: .85
+                }}
+            ).addTo(map);
+
+            measureResult.innerHTML =
+                '<strong>По прямій: ' +
+                straightKm.toFixed(1) +
+                ' км</strong><br>' +
+                'Автомобільний маршрут зараз недоступний.';
+        }}
+    }});
     </script>
     """.format(
         markers=marker_json,
