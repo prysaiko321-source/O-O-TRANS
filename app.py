@@ -1095,12 +1095,16 @@ body {{
 }}
 
 .wrap {{
+    position: relative;
+    z-index: 1;
     max-width: 1600px;
     margin: 0 auto;
     padding: 22px;
 }}
 
 .powered-by {{
+    position: relative;
+    z-index: 1;
     max-width: 1600px;
     margin: 0 auto;
     padding: 0 22px 22px;
@@ -1114,7 +1118,7 @@ body {{
     letter-spacing: .5px;
 }}
 
-.login-watermark {{
+.page-watermark {{
     position: fixed;
     z-index: 0;
     top: 145px;
@@ -1128,7 +1132,7 @@ body {{
     pointer-events: none;
 }}
 
-.login-watermark img {{
+.page-watermark img {{
     width: min(72vw, 820px);
     max-height: 72vh;
     object-fit: contain;
@@ -1155,7 +1159,7 @@ h1 {{
 }}
 
 .card {{
-    background: white;
+    background: rgba(255, 255, 255, .94);
     border-radius: 12px;
     padding: 18px;
     margin-bottom: 18px;
@@ -1172,7 +1176,7 @@ h1 {{
 }}
 
 .stat {{
-    background: white;
+    background: rgba(255, 255, 255, .94);
     border-radius: 12px;
     padding: 16px;
     box-shadow: 0 2px 8px rgba(0,0,0,.06);
@@ -1242,7 +1246,7 @@ button,
     border: 1px solid #dfe4e8;
     border-radius: 11px;
     padding: 14px;
-    background: #fbfcfd;
+    background: rgba(251, 252, 253, .94);
 }}
 
 .invoice-facts {{
@@ -1455,11 +1459,11 @@ button,
         height: 52px;
     }}
 
-    .login-watermark {{
+    .page-watermark {{
         top: 190px;
     }}
 
-    .login-watermark img {{
+    .page-watermark img {{
         width: 94vw;
         opacity: .115;
     }}
@@ -1510,6 +1514,13 @@ button,
         {language_picker}
     </div>
     {nav}
+</div>
+
+<div class="page-watermark" aria-hidden="true">
+    <img
+        src="/assets/company-logo.jpg"
+        alt=""
+    >
 </div>
 
 <div class="wrap">
@@ -1616,13 +1627,6 @@ except Exception as finance_exc:
 def login(role):
     if role is None:
         body = """
-        <div class="login-watermark" aria-hidden="true">
-            <img
-                src="/assets/company-logo.jpg"
-                alt=""
-            >
-        </div>
-
         <div class="grid login-choice-grid">
             <div class="card">
                 <h2>{director}</h2>
