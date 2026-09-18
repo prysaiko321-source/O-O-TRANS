@@ -992,6 +992,75 @@ button,
     cursor: pointer;
 }}
 
+.invoice-list {{
+    display: grid;
+    gap: 14px;
+}}
+
+.invoice-card {{
+    border: 1px solid #dfe4e8;
+    border-radius: 11px;
+    padding: 14px;
+    background: #fbfcfd;
+}}
+
+.invoice-facts {{
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(155px, 1fr));
+    gap: 12px;
+}}
+
+.invoice-facts > div {{
+    min-width: 0;
+    overflow-wrap: anywhere;
+}}
+
+.invoice-label {{
+    display: block;
+    margin-bottom: 4px;
+    color: #687078;
+    font-size: 12px;
+    font-weight: 700;
+    text-transform: uppercase;
+}}
+
+.invoice-facts .small {{
+    display: block;
+    margin-top: 3px;
+    overflow-wrap: anywhere;
+}}
+
+.invoice-description {{
+    margin-top: 12px;
+    padding-top: 10px;
+    border-top: 1px solid #e6e9eb;
+}}
+
+.invoice-actions {{
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    align-items: center;
+    margin-top: 12px;
+}}
+
+.invoice-actions form {{
+    display: inline-flex !important;
+    margin: 0;
+}}
+
+.invoice-actions .button,
+.invoice-actions button {{
+    padding: 8px 11px;
+}}
+
+.invoice-empty {{
+    padding: 18px;
+    border: 1px dashed #ccd1d5;
+    border-radius: 9px;
+    color: #687078;
+}}
+
 .form-grid {{
     display: grid;
     grid-template-columns:
