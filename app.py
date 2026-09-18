@@ -1566,6 +1566,44 @@ body.page-gps .powered-by {{
     overflow-y: auto;
 }}
 
+.gps-map-toolbar.collapsed {{
+    width: min(315px, calc(100vw - 75px));
+    padding: 7px;
+    overflow: hidden;
+}}
+
+.gps-toolbar-toggle {{
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    width: 100%;
+    padding: 8px 10px;
+    border: 0;
+    border-radius: 8px;
+    background: #163e55;
+    color: #ffffff;
+    font-size: 14px;
+    font-weight: 800;
+    text-align: left;
+}}
+
+.gps-toolbar-toggle:hover {{
+    background: #0f5265;
+}}
+
+.gps-toolbar-toggle-icon {{
+    margin-left: 10px;
+    font-size: 15px;
+}}
+
+.gps-toolbar-content {{
+    margin-top: 11px;
+}}
+
+.gps-toolbar-content[hidden] {{
+    display: none;
+}}
+
 .gps-route-planner label {{
     display: block;
     margin: 0 0 5px;
@@ -1841,6 +1879,11 @@ body.page-gps .powered-by {{
         left: 48px;
         width: calc(100vw - 60px);
         padding: 10px;
+    }}
+
+    .gps-map-toolbar.collapsed {{
+        width: min(280px, calc(100vw - 60px));
+        padding: 6px;
     }}
 
     .gps-map-brand {{
@@ -3295,6 +3338,24 @@ def gps():
         <div id="map"></div>
 
         <div class="gps-map-toolbar" id="gps-map-toolbar">
+            <button
+                type="button"
+                class="gps-toolbar-toggle"
+                id="gps-toolbar-toggle"
+                aria-expanded="true"
+                aria-controls="gps-toolbar-content"
+            >
+                <span>Планування маршруту</span>
+                <span
+                    class="gps-toolbar-toggle-icon"
+                    id="gps-toolbar-toggle-icon"
+                >▲</span>
+            </button>
+
+            <div
+                class="gps-toolbar-content"
+                id="gps-toolbar-content"
+            >
             <div class="gps-route-planner">
                 <label for="route-vehicle-select">
                     Початок маршруту — автомобіль
@@ -3420,6 +3481,7 @@ def gps():
                 Натисніть «Виміряти маршрут», потім виберіть
                 дві точки на карті.
             </div>
+            </div>
         </div>
 
         <div class="gps-map-brand">
@@ -3501,6 +3563,15 @@ def gps():
 
     const mapElement = document.getElementById('map');
     const toolbar = document.getElementById('gps-map-toolbar');
+    const toolbarToggle = document.getElementById(
+        'gps-toolbar-toggle'
+    );
+    const toolbarContent = document.getElementById(
+        'gps-toolbar-content'
+    );
+    const toolbarToggleIcon = document.getElementById(
+        'gps-toolbar-toggle-icon'
+    );
     const measureButton = document.getElementById(
         'measure-route-button'
     );
@@ -3607,6 +3678,36 @@ def gps():
         option.selected = true;
         vehicleSelect.appendChild(option);
     }}
+
+    function setToolbarExpanded(expanded) {{
+        toolbarContent.hidden = !expanded;
+        toolbar.classList.toggle('collapsed', !expanded);
+        toolbarToggle.setAttribute(
+            'aria-expanded',
+            expanded ? 'true' : 'false'
+        );
+        toolbarToggleIcon.textContent = expanded ? '▲' : '▼';
+
+        try {{
+            localStorage.setItem(
+                'tranviq_gps_toolbar',
+                expanded ? 'open' : 'closed'
+            );
+        }} catch (error) {{}}
+    }}
+
+    let toolbarExpanded = false;
+    try {{
+        toolbarExpanded = localStorage.getItem(
+            'tranviq_gps_toolbar'
+        ) === 'open';
+    }} catch (error) {{}}
+
+    setToolbarExpanded(toolbarExpanded);
+    toolbarToggle.addEventListener('click', function() {{
+        toolbarExpanded = !toolbarExpanded;
+        setToolbarExpanded(toolbarExpanded);
+    }});
 
     function updateFuelConsumption() {{
         const selectedVehicle = vehicles.find(function(item) {{
