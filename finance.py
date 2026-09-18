@@ -156,6 +156,7 @@ def ensure_finance_schema():
                         id UUID PRIMARY KEY,
                         external_key TEXT NOT NULL UNIQUE,
                         source_message_id TEXT,
+                        source_account_email TEXT,
                         sender_email TEXT,
                         email_subject TEXT,
                         attachment_name TEXT,
@@ -186,6 +187,10 @@ def ensure_finance_schema():
                 cursor.execute("""
                     ALTER TABLE email_invoice_queue
                     ADD COLUMN IF NOT EXISTS source_mime_type TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS source_account_email TEXT
                 """)
                 cursor.execute("""
                     ALTER TABLE email_invoice_queue
@@ -412,9 +417,14 @@ def decrypt_token(value):
         return ""
 
 
-def get_gmail_integration():
+def gmail_provider_key(account_email):
+    normalized = clean_text(account_email, 300).lower()
+    return "gmail:" + normalized if normalized else "gmail"
+
+
+def get_gmail_integrations():
     if not database_available():
-        return None
+        return []
 
     try:
         with connect_database() as connection:
@@ -422,15 +432,43 @@ def get_gmail_integration():
                 cursor.execute("""
                     SELECT * FROM finance_integrations
                     WHERE provider = 'gmail'
-                    LIMIT 1
+                       OR provider LIKE 'gmail:%%'
+                    ORDER BY updated_at DESC
                 """)
-                return cursor.fetchone()
+                rows = cursor.fetchall()
+
+        unique = []
+        seen = set()
+        for row in rows:
+            key = clean_text(row["account_email"], 300).lower()
+            if not key:
+                key = row["provider"]
+            if key in seen:
+                continue
+            seen.add(key)
+            unique.append(row)
+        return unique
     except Exception:
+        return []
+
+
+def get_gmail_integration(account_email=""):
+    integrations = get_gmail_integrations()
+    requested = clean_text(account_email, 300).lower()
+    if requested:
+        for integration in integrations:
+            if clean_text(
+                integration["account_email"],
+                300
+            ).lower() == requested:
+                return integration
         return None
+    return integrations[0] if integrations else None
 
 
 def store_gmail_tokens(token_data, account_email=""):
-    existing = get_gmail_integration()
+    normalized_email = clean_text(account_email, 300).lower()
+    existing = get_gmail_integration(normalized_email)
     refresh_token = token_data.get("refresh_token") or ""
 
     if not refresh_token and existing:
@@ -451,7 +489,7 @@ def store_gmail_tokens(token_data, account_email=""):
                     refresh_token_encrypted, token_expires_at,
                     scopes, status, updated_at
                 ) VALUES (
-                    'gmail', %s, %s, %s, %s, %s, 'connected', NOW()
+                    %s, %s, %s, %s, %s, %s, 'connected', NOW()
                 )
                 ON CONFLICT (provider) DO UPDATE SET
                     account_email = EXCLUDED.account_email,
@@ -462,7 +500,8 @@ def store_gmail_tokens(token_data, account_email=""):
                     status = 'connected',
                     updated_at = NOW()
             """, (
-                account_email or (
+                gmail_provider_key(normalized_email),
+                normalized_email or (
                     existing["account_email"] if existing else None
                 ),
                 encrypt_token(token_data.get("access_token")),
@@ -472,8 +511,8 @@ def store_gmail_tokens(token_data, account_email=""):
             ))
 
 
-def gmail_access_token():
-    integration = get_gmail_integration()
+def gmail_access_token(account_email=""):
+    integration = get_gmail_integration(account_email)
     if not integration or integration["status"] != "connected":
         return ""
 
@@ -575,9 +614,10 @@ def gmail_document_content(
     message_id,
     attachment_name,
     saved_attachment_id="",
-    saved_mime_type=""
+    saved_mime_type="",
+    account_email=""
 ):
-    access_token = gmail_access_token()
+    access_token = gmail_access_token(account_email)
     if not access_token:
         raise RuntimeError("Gmail не підключено.")
 
@@ -867,7 +907,7 @@ def queue_email_invoice(data):
 
             cursor.execute("""
                 INSERT INTO email_invoice_queue (
-                    id, external_key, source_message_id,
+                    id, external_key, source_message_id, source_account_email,
                     sender_email, email_subject, attachment_name,
                     source_attachment_id, source_mime_type,
                     invoice_date, due_date, contractor_name,
@@ -876,7 +916,7 @@ def queue_email_invoice(data):
                     currency, vehicle_id, payment_status,
                     review_status, duplicate_reason
                 ) VALUES (
-                    %s, %s, %s, %s, %s, %s,
+                    %s, %s, %s, %s, %s, %s, %s,
                     %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
@@ -894,6 +934,7 @@ def queue_email_invoice(data):
                 str(uuid.uuid4()),
                 external_key,
                 clean_text(data.get("source_message_id"), 300) or None,
+                clean_text(data.get("source_account_email"), 300) or None,
                 clean_text(data.get("sender_email"), 300) or None,
                 clean_text(data.get("email_subject"), 500) or None,
                 clean_text(data.get("attachment_name"), 300) or None,
@@ -920,10 +961,10 @@ def queue_email_invoice(data):
     return inserted, duplicate_reason
 
 
-def sync_gmail_invoices():
-    access_token = gmail_access_token()
+def sync_one_gmail_account(account_email):
+    access_token = gmail_access_token(account_email)
     if not access_token:
-        return 0, "Gmail не підключено або потрібне повторне підключення."
+        raise RuntimeError("Потрібне повторне підключення Gmail.")
 
     listing = gmail_request(
         "messages",
@@ -990,20 +1031,21 @@ def sync_gmail_invoices():
                     "frachtauftrag"
                 )
             )
-            is_invoice_candidate = bool(
+            is_document_candidate = bool(
                 parsed.get("invoice_number")
                 or decimal_value(parsed.get("amount_gross")) > 0
                 or filename_suggests_document
                 or parsed.get("entry_kind") == "income"
             )
 
-            if not is_invoice_candidate:
+            if not is_document_candidate:
                 continue
 
             parsed.update({
                 "external_key": "gmail:file:"
                 + hashlib.sha256(content).hexdigest(),
                 "source_message_id": message_id,
+                "source_account_email": account_email,
                 "sender_email": sender_email,
                 "email_subject": subject,
                 "attachment_name": part["filename"],
@@ -1014,7 +1056,7 @@ def sync_gmail_invoices():
             if inserted:
                 imported += 1
 
-    sync_message = (
+    account_message = (
         f"Перевірено файлів: {checked}. Нових документів: {imported}."
     )
     with connect_database() as connection:
@@ -1024,10 +1066,53 @@ def sync_gmail_invoices():
                 SET last_sync_at = NOW(),
                     last_sync_message = %s,
                     updated_at = NOW()
-                WHERE provider = 'gmail'
-            """, (sync_message,))
+                WHERE (provider = 'gmail' OR provider LIKE 'gmail:%%')
+                  AND LOWER(COALESCE(account_email, '')) = LOWER(%s)
+            """, (account_message, account_email))
 
-    return imported, sync_message
+    return imported, checked
+
+
+def sync_gmail_invoices():
+    integrations = [
+        item
+        for item in get_gmail_integrations()
+        if item["status"] == "connected"
+    ]
+    if not integrations:
+        return 0, "Gmail не підключено."
+
+    total_imported = 0
+    total_checked = 0
+    checked_accounts = 0
+    errors = []
+
+    for integration in integrations:
+        account_email = clean_text(integration["account_email"], 300)
+        try:
+            imported, checked = sync_one_gmail_account(account_email)
+            total_imported += imported
+            total_checked += checked
+            checked_accounts += 1
+        except Exception as exc:
+            errors.append(
+                "{}: {}".format(
+                    account_email or "Gmail",
+                    clean_text(exc, 120)
+                )
+            )
+
+    if checked_accounts == 0 and errors:
+        raise RuntimeError("; ".join(errors))
+
+    sync_message = (
+        f"Перевірено поштових скриньок: {checked_accounts}. "
+        f"Файлів: {total_checked}. Нових документів: {total_imported}."
+    )
+    if errors:
+        sync_message += " Помилки: " + "; ".join(errors)
+
+    return total_imported, sync_message
 
 
 def register_finance_routes(app, page_renderer, vehicles, html_text):
@@ -1054,10 +1139,9 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             "response_type": "code",
             "scope": GMAIL_SCOPES,
             "access_type": "offline",
-            "prompt": "consent",
+            "prompt": "select_account consent",
             "include_granted_scopes": "true",
-            "state": state,
-            "login_hint": GMAIL_ACCOUNT_EMAIL
+            "state": state
         }
         return redirect(
             "https://accounts.google.com/o/oauth2/v2/auth?"
@@ -1149,15 +1233,20 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
     @app.route("/finance/gmail/disconnect", methods=["POST"])
     def finance_gmail_disconnect():
+        account_email = clean_text(
+            request.form.get("account_email"),
+            300
+        ).lower()
         schema_ok, _ = ensure_finance_schema()
-        if schema_ok:
+        if schema_ok and account_email:
             try:
                 with connect_database() as connection:
                     with connection.cursor() as cursor:
                         cursor.execute("""
                             DELETE FROM finance_integrations
-                            WHERE provider = 'gmail'
-                        """)
+                            WHERE (provider = 'gmail' OR provider LIKE 'gmail:%%')
+                              AND LOWER(COALESCE(account_email, '')) = %s
+                        """, (account_email,))
             except Exception:
                 pass
 
@@ -1299,7 +1388,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             with connect_database() as connection:
                 with connection.cursor() as cursor:
                     cursor.execute("""
-                        SELECT source_message_id, attachment_name,
+                        SELECT source_message_id, source_account_email,
+                               attachment_name,
                                source_attachment_id, source_mime_type
                         FROM email_invoice_queue
                         WHERE id = %s
@@ -1316,7 +1406,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 item["source_message_id"],
                 item["attachment_name"],
                 item["source_attachment_id"],
-                item["source_mime_type"]
+                item["source_mime_type"],
+                item["source_account_email"] or GMAIL_ACCOUNT_EMAIL
             )
             return send_file(
                 BytesIO(content),
@@ -1986,6 +2077,10 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             <span class="small">{sender}</span>
                         </div>
                         <div>
+                            <span class="invoice-label">Отримано на Gmail</span>
+                            <strong>{account_email}</strong>
+                        </div>
+                        <div>
                             <span class="invoice-label">Документ</span>
                             <strong>{number}</strong>
                             <span class="small">{attachment}</span>
@@ -2020,6 +2115,10 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 id=escape(str(item["id"])),
                 contractor=html_text(item["contractor_name"]),
                 sender=html_text(item["sender_email"], ""),
+                account_email=html_text(
+                    item["source_account_email"],
+                    "Основна пошта"
+                ),
                 number=html_text(item["invoice_number"]),
                 attachment=html_text(item["attachment_name"], ""),
                 description=html_text(item["description"]),
@@ -2073,33 +2172,68 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             )
             form_disabled = "disabled"
 
-        gmail_integration = get_gmail_integration() if schema_ok else None
+        gmail_integrations = (
+            [
+                item
+                for item in get_gmail_integrations()
+                if item["status"] == "connected"
+            ]
+            if schema_ok
+            else []
+        )
 
-        if gmail_integration and gmail_integration["status"] == "connected":
+        if gmail_integrations:
+            gmail_account_rows = []
+            for integration in gmail_integrations:
+                gmail_account_rows.append("""
+                    <div class="detail">
+                        <div class="label">Підключена пошта</div>
+                        <div class="value">{email}</div>
+                        <div class="small">
+                            Остання перевірка: {last_sync}<br>
+                            {last_message}
+                        </div>
+                        <form method="post" action="/finance/gmail/disconnect"
+                              style="margin-top:10px">
+                            <input type="hidden" name="account_email" value="{email_value}">
+                            <button type="submit" style="background:#8d1717">
+                                Відключити цю пошту
+                            </button>
+                        </form>
+                    </div>
+                """.format(
+                    email=html_text(integration["account_email"]),
+                    email_value=html_text(
+                        integration["account_email"],
+                        ""
+                    ),
+                    last_sync=html_text(integration["last_sync_at"]),
+                    last_message=html_text(
+                        integration["last_sync_message"],
+                        "Ще не перевірялося"
+                    )
+                ))
+
             gmail_block = """
             <div class="card">
-                <h2>Підключення Gmail</h2>
+                <h2>Підключені Gmail: {count}</h2>
                 <div class="alert alert-ok">
-                    Gmail підключено: <strong>{email}</strong>
+                    Усі підключені пошти перевіряються одночасно.
                 </div>
-                <p class="small">
-                    Остання перевірка: {last_sync}<br>
-                    {last_message}
-                </p>
+                <div class="detail-grid" style="margin:14px 0">
+                    {accounts}
+                </div>
                 <form method="post" action="/finance/gmail/sync" style="display:inline">
-                    <button type="submit">Завантажити нові документи</button>
+                    <button type="submit">Перевірити всі пошти</button>
                 </form>
-                <form method="post" action="/finance/gmail/disconnect" style="display:inline">
-                    <button type="submit" style="background:#8d1717">Відключити Gmail</button>
-                </form>
+                <a class="button" href="/finance/gmail/connect"
+                   style="background:#147a42">
+                    Додати ще один Gmail
+                </a>
             </div>
             """.format(
-                email=html_text(gmail_integration["account_email"]),
-                last_sync=html_text(gmail_integration["last_sync_at"]),
-                last_message=html_text(
-                    gmail_integration["last_sync_message"],
-                    "Ще не перевірялося"
-                )
+                count=len(gmail_integrations),
+                accounts="".join(gmail_account_rows)
             )
         elif gmail_oauth_ready():
             gmail_block = """
