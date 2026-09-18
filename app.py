@@ -20,6 +20,16 @@ from flask import (
 import requests
 
 from company_logo import COMPANY_LOGO_BASE64
+from branding import (
+    get_company_branding,
+    get_company_logo,
+    register_branding_routes
+)
+from i18n import (
+    LANGUAGES,
+    translate,
+    translate_title
+)
 
 app = Flask(__name__)
 
@@ -43,6 +53,13 @@ COMPANY_NAME = os.environ.get("COMPANY_NAME", "O&O TRANS")
 COMPANY_ID = os.environ.get("COMPANY_ID", "O&O-TRANS")
 PLATFORM_NAME = "TRANVIQ"
 PLATFORM_TAGLINE = "Transport Intelligence Platform"
+DEFAULT_LANGUAGE = os.environ.get(
+    "DEFAULT_LANGUAGE",
+    "uk"
+).strip().lower()
+
+if DEFAULT_LANGUAGE not in LANGUAGES:
+    DEFAULT_LANGUAGE = "uk"
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DISPATCHER_USER = os.environ.get("DISPATCHER_USER", "")
@@ -56,6 +73,20 @@ ROLE_LABELS = {
     "dispatcher": "Логіст",
     "driver": "Водій"
 }
+
+
+def current_language():
+    language = session.get(
+        "language",
+        DEFAULT_LANGUAGE
+    )
+    if language not in LANGUAGES:
+        return DEFAULT_LANGUAGE
+    return language
+
+
+def t(key):
+    return translate(current_language(), key)
 
 ROLE_HOME_ENDPOINTS = {
     "director": "home",
@@ -811,30 +842,40 @@ def get_total_number(data, names):
 
 def page(title, body, active=""):
     role = current_role()
+    language = current_language()
+    visible_title = translate_title(language, title)
+    branding = get_company_branding(
+        COMPANY_ID,
+        COMPANY_NAME
+    )
+    company_display_name = escape(
+        branding["company_name"]
+    )
 
     if role == "driver":
         nav_items = [
-            ("driver", "/driver", "Мої рейси")
+            ("driver", "/driver", t("my_trips"))
         ]
     elif role == "dispatcher":
         nav_items = [
-            ("dispatcher", "/dispatcher", "Робоча панель"),
-            ("vehicles", "/vehicles", "Автомобілі"),
-            ("gps", "/gps", "GPS"),
-            ("history", "/history", "Історія маршрутів"),
-            ("fuel", "/fuel", "Паливо"),
-            ("tachograph", "/tachograph", "Тахограф")
+            ("dispatcher", "/dispatcher", t("work_panel")),
+            ("vehicles", "/vehicles", t("vehicles")),
+            ("gps", "/gps", t("gps")),
+            ("history", "/history", t("history")),
+            ("fuel", "/fuel", t("fuel")),
+            ("tachograph", "/tachograph", t("tachograph"))
         ]
     elif role == "director":
         nav_items = [
-            ("home", "/", "Головна"),
-            ("vehicles", "/vehicles", "Автомобілі"),
-            ("gps", "/gps", "GPS"),
-            ("history", "/history", "Історія маршрутів"),
-            ("fuel", "/fuel", "Паливо"),
-            ("tachograph", "/tachograph", "Тахограф"),
-            ("finance", "/finance", "Фінанси"),
-            ("health", "/health", "Health")
+            ("home", "/", t("home")),
+            ("vehicles", "/vehicles", t("vehicles")),
+            ("gps", "/gps", t("gps")),
+            ("history", "/history", t("history")),
+            ("fuel", "/fuel", t("fuel")),
+            ("tachograph", "/tachograph", t("tachograph")),
+            ("finance", "/finance", t("finance")),
+            ("branding", "/settings/branding", t("branding")),
+            ("health", "/health", t("health"))
         ]
     else:
         nav_items = []
@@ -852,7 +893,11 @@ def page(title, body, active=""):
         )
 
     if role:
-        nav_links.append('<a href="/logout">Вийти</a>')
+        nav_links.append(
+            '<a href="/logout">{}</a>'.format(
+                escape(t("logout"))
+            )
+        )
 
     nav = '<nav class="nav">{}</nav>'.format(
         "".join(nav_links)
@@ -863,13 +908,45 @@ def page(title, body, active=""):
     if role:
         role_badge = (
             '<div class="small" style="margin-top:5px;color:#dfe6e9">'
-            'Роль: <strong>{}</strong>'
+            '{}: <strong>{}</strong>'
             '</div>'
-        ).format(ROLE_LABELS.get(role, role))
+        ).format(
+            escape(t("role")),
+            escape(t(role))
+        )
+
+    language_options = []
+    for language_code, language_name in LANGUAGES.items():
+        selected = " selected" if language_code == language else ""
+        language_options.append(
+            '<option value="{}"{}>{}</option>'.format(
+                language_code,
+                selected,
+                escape(language_name)
+            )
+        )
+
+    language_picker = """
+    <form class="language-picker" method="post" action="/language">
+        <input type="hidden" name="next" value="{next_url}">
+        <label for="language-select">{language_label}</label>
+        <select
+            id="language-select"
+            name="language"
+            onchange="this.form.submit()"
+        >
+            {language_options}
+        </select>
+    </form>
+    """.format(
+        next_url=escape(request.full_path.rstrip("?")),
+        language_label=escape(t("language")),
+        language_options="".join(language_options)
+    )
 
     return """
 <!doctype html>
-<html lang="uk">
+<html lang="{language}">
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
@@ -972,6 +1049,31 @@ body {{
     font-weight: 800;
 }}
 
+.language-picker {{
+    margin-left: auto;
+    min-width: 170px;
+}}
+
+.language-picker label {{
+    display: block;
+    margin-bottom: 4px;
+    color: #91acbf;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .6px;
+    text-transform: uppercase;
+}}
+
+.language-picker select {{
+    min-width: 170px;
+    padding: 8px 31px 8px 10px;
+    border: 1px solid rgba(255, 255, 255, .24);
+    border-radius: 8px;
+    background: #18364e;
+    color: white;
+    cursor: pointer;
+}}
+
 .nav {{
     display: flex;
     flex-wrap: wrap;
@@ -1010,6 +1112,41 @@ body {{
 .powered-by strong {{
     color: #173c55;
     letter-spacing: .5px;
+}}
+
+.login-watermark {{
+    position: fixed;
+    z-index: 0;
+    top: 145px;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+    pointer-events: none;
+}}
+
+.login-watermark img {{
+    width: min(72vw, 820px);
+    max-height: 72vh;
+    object-fit: contain;
+    opacity: .075;
+    mix-blend-mode: multiply;
+    filter:
+        saturate(.85)
+        drop-shadow(0 0 28px rgba(31, 148, 180, .18));
+}}
+
+.login-choice-grid {{
+    position: relative;
+    z-index: 1;
+}}
+
+.login-choice-grid .card {{
+    background: rgba(255, 255, 255, .91);
+    backdrop-filter: blur(2px);
 }}
 
 h1 {{
@@ -1303,9 +1440,27 @@ button,
         width: 100%;
     }}
 
+    .language-picker {{
+        width: 100%;
+        margin-left: 0;
+    }}
+
+    .language-picker select {{
+        width: 100%;
+    }}
+
     .company-logo {{
         width: 52px;
         height: 52px;
+    }}
+
+    .login-watermark {{
+        top: 190px;
+    }}
+
+    .login-watermark img {{
+        width: 94vw;
+        opacity: .065;
     }}
 
     .wrap {{
@@ -1342,14 +1497,16 @@ button,
             <img
                 class="company-logo"
                 src="/assets/company-logo.jpg"
-                alt="Логотип {company}"
+                alt="{company}"
             >
             <div>
-                <div class="company-caption">Компанія</div>
+                <div class="company-caption">{company_label}</div>
                 <div class="company-name">{company}</div>
                 {role_badge}
             </div>
         </div>
+
+        {language_picker}
     </div>
     {nav}
 </div>
@@ -1366,10 +1523,13 @@ button,
 </body>
 </html>
 """.format(
-        title=title,
-        company=COMPANY_NAME,
+        title=visible_title,
+        language=language,
+        company=company_display_name,
+        company_label=escape(t("company")),
         platform=PLATFORM_NAME,
         platform_tagline=PLATFORM_TAGLINE,
+        language_picker=language_picker,
         nav=nav,
         role_badge=role_badge,
         body=body,
@@ -1379,6 +1539,20 @@ button,
 
 @app.route("/assets/company-logo.jpg")
 def company_logo_asset():
+    logo_bytes, logo_mime_type = get_company_logo(
+        COMPANY_ID
+    )
+
+    if logo_bytes:
+        response = Response(
+            logo_bytes,
+            mimetype=logo_mime_type
+        )
+        response.headers["Cache-Control"] = (
+            "public, max-age=300"
+        )
+        return response
+
     try:
         logo_bytes = base64.b64decode(
             COMPANY_LOGO_BASE64,
@@ -1395,6 +1569,27 @@ def company_logo_asset():
         "public, max-age=86400"
     )
     return response
+
+
+@app.route("/language", methods=["POST"])
+def change_language():
+    language = request.form.get("language", "")
+    if language in LANGUAGES:
+        session["language"] = language
+
+    next_url = request.form.get("next", "/login")
+    if not next_url.startswith("/") or next_url.startswith("//"):
+        next_url = "/login"
+    return redirect(next_url)
+
+
+register_branding_routes(
+    app,
+    page,
+    COMPANY_ID,
+    COMPANY_NAME,
+    t
+)
 
 
 try:
@@ -1420,25 +1615,40 @@ except Exception as finance_exc:
 def login(role):
     if role is None:
         body = """
-        <div class="grid">
+        <div class="login-watermark" aria-hidden="true">
+            <img
+                src="/assets/company-logo.jpg"
+                alt=""
+            >
+        </div>
+
+        <div class="grid login-choice-grid">
             <div class="card">
-                <h2>Директор</h2>
-                <p>Повний доступ до всієї системи.</p>
-                <a class="button" href="/login/director">Увійти</a>
+                <h2>{director}</h2>
+                <p>{director_desc}</p>
+                <a class="button" href="/login/director">{sign_in}</a>
             </div>
             <div class="card">
-                <h2>Логіст</h2>
-                <p>Рейси, автомобілі, GPS і робочі документи.</p>
-                <a class="button" href="/login/dispatcher">Увійти</a>
+                <h2>{dispatcher}</h2>
+                <p>{dispatcher_desc}</p>
+                <a class="button" href="/login/dispatcher">{sign_in}</a>
             </div>
             <div class="card">
-                <h2>Водій</h2>
-                <p>Власні завдання, статуси рейсу та CMR.</p>
-                <a class="button" href="/login/driver">Увійти</a>
+                <h2>{driver}</h2>
+                <p>{driver_desc}</p>
+                <a class="button" href="/login/driver">{sign_in}</a>
             </div>
         </div>
-        """
-        return page("Виберіть вхід", body)
+        """.format(
+            director=escape(t("director")),
+            director_desc=escape(t("director_desc")),
+            dispatcher=escape(t("dispatcher")),
+            dispatcher_desc=escape(t("dispatcher_desc")),
+            driver=escape(t("driver")),
+            driver_desc=escape(t("driver_desc")),
+            sign_in=escape(t("sign_in"))
+        )
+        return page(t("choose_login"), body)
 
     if role not in ROLE_LABELS:
         return redirect(url_for("login"))
@@ -1477,14 +1687,14 @@ def login(role):
         if not credentials_configured:
             error = (
                 "<p class='error'>"
-                "Цей вхід ще не налаштований адміністратором."
-                "</p>"
+                + escape(t("login_not_configured"))
+                + "</p>"
             )
         else:
             error = (
                 "<p class='error'>"
-                "Неправильний логін або пароль."
-                "</p>"
+                + escape(t("wrong_credentials"))
+                + "</p>"
             )
     else:
         error = ""
@@ -1496,7 +1706,7 @@ def login(role):
         <form method="post">
 
             <p>
-                <label>Логін</label>
+                <label>{login_label}</label>
                 <input
                     name="username"
                     autocomplete="username"
@@ -1504,7 +1714,7 @@ def login(role):
             </p>
 
             <p>
-                <label>Пароль</label>
+                <label>{password_label}</label>
                 <input
                     name="password"
                     type="password"
@@ -1512,14 +1722,19 @@ def login(role):
                 >
             </p>
 
-            <button type="submit">Увійти</button>
+            <button type="submit">{sign_in}</button>
 
         </form>
     </div>
-    """.format(error=error)
+    """.format(
+        error=error,
+        login_label=escape(t("login")),
+        password_label=escape(t("password")),
+        sign_in=escape(t("sign_in"))
+    )
 
     return page(
-        "Вхід: " + ROLE_LABELS[role],
+        t("login_title") + ": " + t(role),
         body
     )
 
@@ -1537,6 +1752,7 @@ def require_login():
         or request.path == "/login"
         or request.path.startswith("/login/")
         or request.path == "/assets/company-logo.jpg"
+        or request.path == "/language"
         or request.path == "/api/finance/email-invoices/import"
     ):
         return None
