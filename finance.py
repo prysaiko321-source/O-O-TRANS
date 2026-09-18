@@ -65,6 +65,7 @@ GMAIL_SEARCH_QUERY = os.environ.get(
     "GMAIL_SEARCH_QUERY",
     (
         "newer_than:120d has:attachment "
+        "{filename:pdf filename:xml} "
         "{faktura invoice rechnung facture rachunek} "
         "-in:spam -in:trash"
     )
@@ -195,6 +196,72 @@ def ensure_finance_schema():
                         created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
+                """)
+                # Перша версія імпорту могла захопити картинки з підписів.
+                # Вони не є бухгалтерськими документами, тому безпечно
+                # видаляємо лише ще не підтверджені зображення.
+                cursor.execute("""
+                    UPDATE email_invoice_queue
+                    SET review_status = 'filtered',
+                        duplicate_reason = 'Автоматично приховано: це не PDF/XML-фактура.'
+                    WHERE review_status = 'pending'
+                      AND LOWER(COALESCE(attachment_name, ''))
+                          NOT LIKE '%%.pdf'
+                      AND LOWER(COALESCE(attachment_name, ''))
+                          NOT LIKE '%%.xml'
+                """)
+                cursor.execute("""
+                    UPDATE email_invoice_queue
+                    SET invoice_number = NULL
+                    WHERE review_status = 'pending'
+                      AND UPPER(COALESCE(invoice_number, '')) IN (
+                          'VAT', 'PER', 'FAKTURA', 'INVOICE', 'WYSTAWIONA',
+                          'ZGODNIE', 'REVERSE', 'KORYGUJ'
+                      )
+                """)
+                cursor.execute("""
+                    UPDATE email_invoice_queue
+                    SET review_status = 'filtered',
+                        duplicate_reason = 'Автоматично приховано: допоміжний документ.'
+                    WHERE review_status = 'pending'
+                      AND (
+                          LOWER(COALESCE(attachment_name, '')) LIKE '%%registry%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%list of passages%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%umowa%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%regulamin%%'
+                          OR LOWER(COALESCE(attachment_name, '')) LIKE '%%potwierdzenie%%'
+                      )
+                """)
+                cursor.execute("""
+                    UPDATE email_invoice_queue
+                    SET review_status = 'filtered',
+                        duplicate_reason = 'Автоматично приховано: немає номера та суми.'
+                    WHERE review_status = 'pending'
+                      AND invoice_number IS NULL
+                      AND amount_gross = 0
+                """)
+                # Однакова фактура інколи є в кількох пересланих листах.
+                # Залишаємо один примірник за відправником та назвою файла.
+                cursor.execute("""
+                    WITH ranked AS (
+                        SELECT
+                            id,
+                            ROW_NUMBER() OVER (
+                                PARTITION BY
+                                    LOWER(COALESCE(sender_email, '')),
+                                    LOWER(COALESCE(attachment_name, ''))
+                                ORDER BY imported_at ASC
+                            ) AS row_number
+                        FROM email_invoice_queue
+                        WHERE review_status = 'pending'
+                          AND attachment_name IS NOT NULL
+                    )
+                    UPDATE email_invoice_queue target
+                    SET review_status = 'duplicate',
+                        duplicate_reason = 'Повтор того самого вкладення.'
+                    FROM ranked
+                    WHERE target.id = ranked.id
+                      AND ranked.row_number > 1
                 """)
         return True, ""
     except Exception as exc:
@@ -439,12 +506,10 @@ def gmail_attachment_parts(part):
         mime_type in {
             "application/pdf",
             "application/xml",
-            "text/xml",
-            "image/jpeg",
-            "image/png"
+            "text/xml"
         }
         or filename.lower().endswith(
-            (".pdf", ".xml", ".jpg", ".jpeg", ".png")
+            (".pdf", ".xml")
         )
     ):
         found.append({
@@ -532,8 +597,9 @@ def invoice_amount(text, labels):
 def invoice_data_from_text(text, sender_name, sender_email, subject):
     compact = re.sub(r"[ \t]+", " ", text or "")
     number = first_regex(compact, [
-        r"faktura(?:\s+vat)?(?:\s+nr|\s+numer)?\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
-        r"invoice(?:\s+(?:no|number))?\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
+        r"faktura\s+vat\s+(?:nr|numer)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
+        r"faktura(?:\s+vat)?\s+(?:nr|numer)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
+        r"invoice\s+(?:no|number)\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})",
         r"rechnungsnummer\s*[:#]?\s*([A-Z0-9][A-Z0-9./_-]{2,})"
     ])
     issue_date = first_regex(compact, [
@@ -557,7 +623,9 @@ def invoice_data_from_text(text, sender_name, sender_email, subject):
         "amount due"
     ])
 
-    if gross == 0 and net > 0:
+    if net > 0 and vat > 0 and (gross == 0 or gross <= net):
+        gross = net + vat
+    elif gross == 0 and net > 0:
         gross = net + vat
 
     upper_text = compact.upper()
@@ -756,11 +824,26 @@ def sync_gmail_invoices():
                 sender_email,
                 subject
             )
+
+            filename_lower = part["filename"].lower()
+            filename_suggests_invoice = any(
+                marker in filename_lower
+                for marker in (
+                    "invoice", "faktura", "rechnung", "rachunek"
+                )
+            )
+            is_invoice_candidate = bool(
+                parsed.get("invoice_number")
+                or decimal_value(parsed.get("amount_gross")) > 0
+                or filename_suggests_invoice
+            )
+
+            if not is_invoice_candidate:
+                continue
+
             parsed.update({
-                "external_key": "gmail:{}:{}".format(
-                    message_id,
-                    part.get("attachment_id") or part["filename"]
-                ),
+                "external_key": "gmail:file:"
+                + hashlib.sha256(content).hexdigest(),
                 "source_message_id": message_id,
                 "sender_email": sender_email,
                 "email_subject": subject,
@@ -1038,6 +1121,163 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             }), 500
 
     @app.route(
+        "/finance/email-invoices/<invoice_id>/edit",
+        methods=["GET", "POST"]
+    )
+    def finance_email_edit(invoice_id):
+        schema_ok, _ = ensure_finance_schema()
+        if not schema_ok:
+            return redirect(url_for("finance_dashboard", error="database"))
+
+        if request.method == "POST":
+            category = request.form.get("category", "other")
+            if category not in FINANCE_CATEGORIES:
+                category = "other"
+
+            currency = request.form.get("currency", "PLN").upper()
+            if currency not in {"PLN", "EUR", "USD", "GBP"}:
+                currency = "PLN"
+
+            try:
+                with connect_database() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE email_invoice_queue
+                            SET invoice_date = %s,
+                                due_date = %s,
+                                contractor_name = %s,
+                                invoice_number = %s,
+                                description = %s,
+                                category = %s,
+                                amount_net = %s,
+                                amount_vat = %s,
+                                amount_gross = %s,
+                                currency = %s,
+                                vehicle_id = %s
+                            WHERE id = %s
+                              AND review_status = 'pending'
+                        """, (
+                            optional_date(request.form.get("invoice_date")),
+                            optional_date(request.form.get("due_date")),
+                            clean_text(
+                                request.form.get("contractor_name"),
+                                300
+                            ) or None,
+                            clean_text(
+                                request.form.get("invoice_number"),
+                                200
+                            ) or None,
+                            clean_text(
+                                request.form.get("description"),
+                                500
+                            ) or "Фактура з Gmail",
+                            category,
+                            decimal_value(request.form.get("amount_net")),
+                            decimal_value(request.form.get("amount_vat")),
+                            decimal_value(request.form.get("amount_gross")),
+                            currency,
+                            clean_text(
+                                request.form.get("vehicle_id"),
+                                100
+                            ) or None,
+                            invoice_id
+                        ))
+                return redirect(url_for("finance_dashboard", edited="1"))
+            except Exception:
+                return redirect(url_for("finance_dashboard", error="edit"))
+
+        try:
+            with connect_database() as connection:
+                with connection.cursor() as cursor:
+                    cursor.execute("""
+                        SELECT * FROM email_invoice_queue
+                        WHERE id = %s AND review_status = 'pending'
+                        LIMIT 1
+                    """, (invoice_id,))
+                    item = cursor.fetchone()
+        except Exception:
+            item = None
+
+        if not item:
+            return redirect(url_for(
+                "finance_dashboard",
+                error="invoice_not_pending"
+            ))
+
+        category_options = []
+        for key, label in FINANCE_CATEGORIES.items():
+            selected = " selected" if item["category"] == key else ""
+            category_options.append(
+                '<option value="{}"{}>{}</option>'.format(
+                    escape(key),
+                    selected,
+                    escape(label)
+                )
+            )
+
+        vehicle_options = ['<option value="">Вся компанія</option>']
+        for vehicle in vehicles:
+            selected = (
+                " selected"
+                if item["vehicle_id"] == vehicle["id"]
+                else ""
+            )
+            vehicle_options.append(
+                '<option value="{}"{}>{}</option>'.format(
+                    escape(vehicle["id"]),
+                    selected,
+                    escape(vehicle["name"])
+                )
+            )
+
+        currency_options = []
+        for code in ("PLN", "EUR", "USD", "GBP"):
+            selected = " selected" if item["currency"] == code else ""
+            currency_options.append(
+                '<option{}>{}</option>'.format(selected, code)
+            )
+
+        body = """
+        <div class="card">
+            <p class="small">
+                Перевірте дані за оригінальною фактурою перед підтвердженням.
+                Файл: <strong>{attachment}</strong>
+            </p>
+            <form method="post">
+                <div class="form-grid">
+                    <p><label>Дата фактури</label><input type="date" name="invoice_date" value="{invoice_date}"></p>
+                    <p><label>Термін оплати</label><input type="date" name="due_date" value="{due_date}"></p>
+                    <p><label>Контрагент</label><input name="contractor_name" value="{contractor}"></p>
+                    <p><label>Номер фактури</label><input name="invoice_number" value="{number}"></p>
+                    <p><label>Опис</label><input name="description" value="{description}" required></p>
+                    <p><label>Категорія</label><select name="category">{categories}</select></p>
+                    <p><label>Автомобіль</label><select name="vehicle_id">{vehicles}</select></p>
+                    <p><label>Netto</label><input name="amount_net" value="{net}"></p>
+                    <p><label>VAT</label><input name="amount_vat" value="{vat}"></p>
+                    <p><label>Brutto</label><input name="amount_gross" value="{gross}"></p>
+                    <p><label>Валюта</label><select name="currency">{currencies}</select></p>
+                </div>
+                <button type="submit">Зберегти перевірені дані</button>
+                <a class="button" href="/finance" style="background:#687078">Скасувати</a>
+            </form>
+        </div>
+        """.format(
+            attachment=html_text(item["attachment_name"]),
+            invoice_date=html_text(item["invoice_date"], ""),
+            due_date=html_text(item["due_date"], ""),
+            contractor=html_text(item["contractor_name"], ""),
+            number=html_text(item["invoice_number"], ""),
+            description=html_text(item["description"], ""),
+            categories="".join(category_options),
+            vehicles="".join(vehicle_options),
+            net=html_text(item["amount_net"], "0.00"),
+            vat=html_text(item["amount_vat"], "0.00"),
+            gross=html_text(item["amount_gross"], "0.00"),
+            currencies="".join(currency_options)
+        )
+        return page_renderer("Перевірка фактури", body, "finance")
+
+    @app.route(
         "/finance/email-invoices/<invoice_id>/approve",
         methods=["POST"]
     )
@@ -1060,6 +1300,12 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         return redirect(url_for(
                             "finance_dashboard",
                             error="invoice_not_pending"
+                        ))
+
+                    if decimal_value(item["amount_gross"]) <= 0:
+                        return redirect(url_for(
+                            "finance_dashboard",
+                            error="invoice_needs_review"
                         ))
 
                     entry_id = str(uuid.uuid4())
@@ -1225,6 +1471,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 "</div>"
             )
 
+        if request.args.get("edited") == "1":
+            message = (
+                "<div class='alert alert-ok'>"
+                "Перевірені дані фактури збережено."
+                "</div>"
+            )
+
         if request.args.get("error"):
             message = (
                 "<div class='alert alert-error'>"
@@ -1307,6 +1560,9 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         cursor.execute("""
                             SELECT *
                             FROM email_invoice_queue
+                            WHERE review_status IN (
+                                'pending', 'approved', 'rejected'
+                            )
                             ORDER BY
                                 CASE review_status
                                     WHEN 'pending' THEN 0
@@ -1411,14 +1667,30 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         for item in email_invoices:
             actions = "—"
             if item["review_status"] == "pending":
+                approve_action = ""
+                if decimal_value(item["amount_gross"]) > 0:
+                    approve_action = """
+                        <form method="post" action="/finance/email-invoices/{id}/approve" style="display:inline">
+                            <button type="submit">Підтвердити</button>
+                        </form>
+                    """.format(id=escape(str(item["id"])))
+                else:
+                    approve_action = (
+                        "<span class='small'>Спочатку перевірте суму.</span>"
+                    )
+
                 actions = """
-                    <form method="post" action="/finance/email-invoices/{id}/approve" style="display:inline">
-                        <button type="submit">Підтвердити</button>
-                    </form>
+                    <a class="button" href="/finance/email-invoices/{id}/edit">
+                        Перевірити
+                    </a>
+                    {approve_action}
                     <form method="post" action="/finance/email-invoices/{id}/reject" style="display:inline">
                         <button type="submit" style="background:#8d1717">Відхилити</button>
                     </form>
-                """.format(id=escape(str(item["id"])))
+                """.format(
+                    id=escape(str(item["id"])),
+                    approve_action=approve_action
+                )
 
             warning = ""
             if item["duplicate_reason"]:
@@ -1603,7 +1875,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         <div class="card">
             <h2>Фактури з пошти</h2>
             <p>
-                Вкладення PDF, JPG і XML потрапляють сюди спочатку
+                Вкладення PDF і XML потрапляють сюди спочатку
                 зі статусом «На перевірку».
             </p>
             <p class="small">
