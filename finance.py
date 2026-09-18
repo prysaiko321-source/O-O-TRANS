@@ -65,8 +65,8 @@ GMAIL_TOKEN_KEY_SOURCE = (
 GMAIL_SEARCH_QUERY = os.environ.get(
     "GMAIL_SEARCH_QUERY",
     (
-        "newer_than:30d has:attachment "
-        "{filename:pdf filename:xml} "
+        "newer_than:90d has:attachment "
+        "{filename:pdf filename:xml filename:xlsx filename:xls filename:csv} "
         "-in:spam -in:trash"
     )
 ).strip()
@@ -98,6 +98,24 @@ FINANCE_CATEGORIES = {
     "office": "Офісні витрати",
     "other": "Інше"
 }
+
+ACCOUNTING_DOCUMENT_TYPES = {
+    "tax": "Податки",
+    "zus": "ZUS і страхові внески",
+    "payroll": "Зарплати",
+    "driver_settlement": "Розрахунки водіїв",
+    "hr": "Кадрові документи",
+    "other": "Інші бухгалтерські документи"
+}
+
+DEFAULT_ACCOUNTING_PROVIDER_NAME = os.environ.get(
+    "ACCOUNTING_PROVIDER_NAME",
+    "MaWo Group"
+).strip()
+DEFAULT_ACCOUNTING_PROVIDER_MATCHERS = os.environ.get(
+    "ACCOUNTING_PROVIDER_MATCHERS",
+    "mawogroup.pl"
+).strip()
 
 ENTRY_KINDS = {
     "income": "Дохід",
@@ -284,6 +302,23 @@ def ensure_finance_schema():
                     ADD COLUMN IF NOT EXISTS vehicle_registration TEXT
                 """)
                 cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS document_group TEXT NOT NULL
+                    DEFAULT 'finance'
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS accounting_type TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS accounting_provider_name TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE email_invoice_queue
+                    ADD COLUMN IF NOT EXISTS accounting_period TEXT
+                """)
+                cursor.execute("""
                     UPDATE email_invoice_queue
                     SET entry_kind = 'income',
                         category = 'transport',
@@ -326,6 +361,39 @@ def ensure_finance_schema():
                         updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
                     )
                 """)
+                cursor.execute("""
+                    CREATE TABLE IF NOT EXISTS accounting_providers (
+                        id UUID PRIMARY KEY,
+                        name TEXT NOT NULL,
+                        sender_match TEXT NOT NULL,
+                        active BOOLEAN NOT NULL DEFAULT TRUE,
+                        created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+                        updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+                    )
+                """)
+                cursor.execute("""
+                    CREATE UNIQUE INDEX IF NOT EXISTS
+                    accounting_provider_name_unique
+                    ON accounting_providers (LOWER(name))
+                    WHERE active = TRUE
+                """)
+                if (
+                    DEFAULT_ACCOUNTING_PROVIDER_NAME
+                    and DEFAULT_ACCOUNTING_PROVIDER_MATCHERS
+                ):
+                    cursor.execute("""
+                        INSERT INTO accounting_providers (
+                            id, name, sender_match, active
+                        )
+                        SELECT %s, %s, %s, TRUE
+                        WHERE NOT EXISTS (
+                            SELECT 1 FROM accounting_providers
+                        )
+                    """, (
+                        str(uuid.uuid4()),
+                        DEFAULT_ACCOUNTING_PROVIDER_NAME,
+                        DEFAULT_ACCOUNTING_PROVIDER_MATCHERS
+                    ))
                 # Перша версія імпорту могла захопити картинки з підписів.
                 # Вони не є бухгалтерськими документами, тому безпечно
                 # видаляємо лише ще не підтверджені зображення.
@@ -334,6 +402,7 @@ def ensure_finance_schema():
                     SET review_status = 'filtered',
                         duplicate_reason = 'Автоматично приховано: це не PDF/XML-фактура.'
                     WHERE review_status = 'pending'
+                      AND document_group <> 'accounting'
                       AND LOWER(COALESCE(attachment_name, ''))
                           NOT LIKE '%%.pdf'
                       AND LOWER(COALESCE(attachment_name, ''))
@@ -353,6 +422,7 @@ def ensure_finance_schema():
                     SET review_status = 'filtered',
                         duplicate_reason = 'Автоматично приховано: допоміжний документ.'
                     WHERE review_status = 'pending'
+                      AND document_group <> 'accounting'
                       AND (
                           LOWER(COALESCE(attachment_name, '')) LIKE '%%registry%%'
                           OR LOWER(COALESCE(attachment_name, '')) LIKE '%%list of passages%%'
@@ -366,6 +436,7 @@ def ensure_finance_schema():
                     SET review_status = 'filtered',
                         duplicate_reason = 'Автоматично приховано: немає номера та суми.'
                     WHERE review_status = 'pending'
+                      AND document_group <> 'accounting'
                       AND entry_kind <> 'income'
                       AND invoice_number IS NULL
                       AND amount_gross = 0
@@ -384,6 +455,7 @@ def ensure_finance_schema():
                             ) AS row_number
                         FROM email_invoice_queue
                         WHERE review_status = 'pending'
+                          AND document_group <> 'accounting'
                           AND attachment_name IS NOT NULL
                     )
                     UPDATE email_invoice_queue target
@@ -537,6 +609,46 @@ def get_gmail_integrations():
         return unique
     except Exception:
         return []
+
+
+def get_accounting_providers():
+    if not database_available():
+        return []
+
+    try:
+        with connect_database() as connection:
+            with connection.cursor() as cursor:
+                cursor.execute("""
+                    SELECT * FROM accounting_providers
+                    WHERE active = TRUE
+                    ORDER BY name
+                """)
+                return cursor.fetchall()
+    except Exception:
+        return []
+
+
+def provider_matchers(value):
+    return [
+        item.strip().lower().lstrip("@")
+        for item in re.split(r"[,;\s]+", str(value or ""))
+        if item.strip()
+    ]
+
+
+def accounting_provider_for_sender(sender_email, providers):
+    sender = clean_text(sender_email, 300).lower()
+    if not sender or "@" not in sender:
+        return None
+
+    sender_domain = sender.rsplit("@", 1)[-1]
+    for provider in providers:
+        for matcher in provider_matchers(provider["sender_match"]):
+            if "@" in matcher and sender == matcher:
+                return provider
+            if "@" not in matcher and sender_domain == matcher:
+                return provider
+    return None
 
 
 def get_gmail_integration(account_email=""):
@@ -779,6 +891,12 @@ def extract_attachment_text(filename, mime_type, content):
     }:
         return content.decode("utf-8", errors="replace")[:200000]
 
+    if lower_name.endswith(".csv") or mime_type in {
+        "text/csv",
+        "application/csv"
+    }:
+        return content.decode("utf-8", errors="replace")[:200000]
+
     return ""
 
 
@@ -821,6 +939,108 @@ def invoice_amount(text, labels):
 
 def normalized_vehicle_registration(value):
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def accounting_period_from_text(value):
+    source = str(value or "")
+    match = re.search(
+        r"(?<!\d)(20\d{2})[./_-](0?[1-9]|1[0-2])(?!\d)",
+        source
+    )
+    if match:
+        return "{}-{:02d}".format(
+            match.group(1),
+            int(match.group(2))
+        )
+
+    match = re.search(
+        r"(?<!\d)(0[1-9]|1[0-2])(20\d{2})(?!\d)",
+        source
+    )
+    if match:
+        return "{}-{}".format(match.group(2), match.group(1))
+
+    match = re.search(
+        r"(?<!\d)(0?[1-9]|1[0-2])[./_-](20\d{2})(?!\d)",
+        source
+    )
+    if match:
+        return "{}-{:02d}".format(
+            match.group(2),
+            int(match.group(1))
+        )
+    return ""
+
+
+def accounting_document_data(
+    provider,
+    subject,
+    attachment_name,
+    extracted_text
+):
+    if not provider:
+        return None
+
+    primary_searchable = " ".join([
+        attachment_name or "",
+        (extracted_text or "")[:30000]
+    ]).lower()
+
+    def detect_document_type(source):
+        if any(marker in source for marker in (
+            "rozliczenia kierow", "rozliczenie kierow",
+            "ewidencja kierow", "podróży służbow", "podrozy sluzbow"
+        )):
+            return "driver_settlement"
+        if any(marker in source for marker in (
+            "urlop", "badania", "medycyn", "umowa o prac",
+            "akta osobowe", "kadry"
+        )):
+            return "hr"
+        if any(marker in source for marker in (
+            "zus", "dra", "składk", "skladk"
+        )):
+            return "zus"
+        if any(marker in source for marker in (
+            "pit", "cit", "podatek", "podatk", "jpk", "vat-7", "vat 7"
+        )):
+            return "tax"
+        if any(marker in source for marker in (
+            "lista płac", "lista plac", "wynagrodzen", "rachunek do umowy",
+            "lista rach", "płace", "place"
+        )):
+            return "payroll"
+        return "other"
+
+    document_type = detect_document_type(primary_searchable)
+    if document_type == "other":
+        document_type = detect_document_type((subject or "").lower())
+
+    searchable = " ".join([
+        subject or "",
+        primary_searchable
+    ]).lower()
+
+    category = {
+        "tax": "tax",
+        "zus": "tax",
+        "payroll": "salary",
+        "driver_settlement": "salary",
+        "hr": "other",
+        "other": "other"
+    }[document_type]
+
+    return {
+        "document_group": "accounting",
+        "accounting_type": document_type,
+        "accounting_provider_name": clean_text(provider["name"], 200),
+        "accounting_period": accounting_period_from_text(searchable),
+        "entry_kind": "expense",
+        "category": category,
+        "contractor_name": clean_text(provider["name"], 300),
+        "description": ACCOUNTING_DOCUMENT_TYPES[document_type]
+        + " — документ із бухгалтерії"
+    }
 
 
 def transport_order_details(text):
@@ -1089,6 +1309,17 @@ def queue_email_invoice(data):
     if entry_kind not in ENTRY_KINDS:
         entry_kind = "expense"
 
+    document_group = clean_text(
+        data.get("document_group") or "finance",
+        30
+    )
+    if document_group not in {"finance", "accounting"}:
+        document_group = "finance"
+
+    accounting_type = clean_text(data.get("accounting_type"), 40)
+    if accounting_type not in ACCOUNTING_DOCUMENT_TYPES:
+        accounting_type = None
+
     contractor = clean_text(data.get("contractor_name"), 300)
     invoice_number = clean_text(data.get("invoice_number"), 200)
     description = clean_text(
@@ -1101,7 +1332,7 @@ def queue_email_invoice(data):
 
     with connect_database() as connection:
         with connection.cursor() as cursor:
-            if invoice_number:
+            if invoice_number and document_group != "accounting":
                 cursor.execute("""
                     SELECT id
                     FROM finance_entries
@@ -1126,6 +1357,8 @@ def queue_email_invoice(data):
                     id, external_key, source_message_id, source_account_email,
                     sender_email, email_subject, attachment_name,
                     source_attachment_id, source_mime_type,
+                    document_group, accounting_type,
+                    accounting_provider_name, accounting_period,
                     invoice_date, due_date, contractor_name,
                     invoice_number, customer_order_number,
                     loading_date, loading_place,
@@ -1138,6 +1371,7 @@ def queue_email_invoice(data):
                 ) VALUES (
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s,
+                    %s, %s, %s, %s,
                     %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s, %s,
                     %s, %s, %s, %s, %s, %s,
@@ -1188,6 +1422,35 @@ def queue_email_invoice(data):
                         EXCLUDED.vehicle_id,
                         email_invoice_queue.vehicle_id
                     ),
+                    document_group = CASE
+                        WHEN EXCLUDED.document_group = 'accounting'
+                        THEN 'accounting'
+                        ELSE email_invoice_queue.document_group
+                    END,
+                    accounting_type = COALESCE(
+                        EXCLUDED.accounting_type,
+                        email_invoice_queue.accounting_type
+                    ),
+                    accounting_provider_name = COALESCE(
+                        EXCLUDED.accounting_provider_name,
+                        email_invoice_queue.accounting_provider_name
+                    ),
+                    accounting_period = COALESCE(
+                        EXCLUDED.accounting_period,
+                        email_invoice_queue.accounting_period
+                    ),
+                    review_status = CASE
+                        WHEN EXCLUDED.document_group = 'accounting'
+                             AND email_invoice_queue.review_status = 'filtered'
+                        THEN 'pending'
+                        ELSE email_invoice_queue.review_status
+                    END,
+                    duplicate_reason = CASE
+                        WHEN EXCLUDED.document_group = 'accounting'
+                             AND email_invoice_queue.review_status = 'filtered'
+                        THEN NULL
+                        ELSE email_invoice_queue.duplicate_reason
+                    END,
                     entry_kind = CASE
                         WHEN email_invoice_queue.review_status = 'pending'
                              AND EXCLUDED.entry_kind = 'income'
@@ -1195,12 +1458,22 @@ def queue_email_invoice(data):
                         ELSE email_invoice_queue.entry_kind
                     END,
                     category = CASE
+                        WHEN EXCLUDED.document_group = 'accounting'
+                             AND email_invoice_queue.review_status IN (
+                                 'pending', 'filtered'
+                             )
+                        THEN EXCLUDED.category
                         WHEN email_invoice_queue.review_status = 'pending'
                              AND EXCLUDED.entry_kind = 'income'
                         THEN 'transport'
                         ELSE email_invoice_queue.category
                     END,
                     description = CASE
+                        WHEN EXCLUDED.document_group = 'accounting'
+                             AND email_invoice_queue.review_status IN (
+                                 'pending', 'filtered'
+                             )
+                        THEN EXCLUDED.description
                         WHEN email_invoice_queue.review_status = 'pending'
                              AND EXCLUDED.entry_kind = 'income'
                         THEN EXCLUDED.description
@@ -1231,7 +1504,7 @@ def queue_email_invoice(data):
                         ELSE email_invoice_queue.currency
                     END
                 WHERE email_invoice_queue.review_status IN (
-                    'pending', 'approved'
+                    'pending', 'approved', 'filtered'
                 )
                 RETURNING id, (xmax = 0) AS was_inserted
             """, (
@@ -1244,6 +1517,13 @@ def queue_email_invoice(data):
                 clean_text(data.get("attachment_name"), 300) or None,
                 clean_text(data.get("source_attachment_id"), 1000) or None,
                 clean_text(data.get("source_mime_type"), 100) or None,
+                document_group,
+                accounting_type,
+                clean_text(
+                    data.get("accounting_provider_name"),
+                    200
+                ) or None,
+                clean_text(data.get("accounting_period"), 20) or None,
                 optional_date(data.get("invoice_date")),
                 optional_date(data.get("due_date")),
                 contractor or None,
@@ -1284,6 +1564,7 @@ def sync_one_gmail_account(account_email):
     )
     imported = 0
     checked = 0
+    accounting_providers = get_accounting_providers()
 
     for summary in listing.get("messages") or []:
         message_id = summary.get("id")
@@ -1299,6 +1580,10 @@ def sync_one_gmail_account(account_email):
         sender_name, sender_email = parseaddr(sender_header)
         subject = gmail_header(message, "Subject")
         parts = gmail_attachment_parts(message.get("payload") or {})
+        accounting_provider = accounting_provider_for_sender(
+            sender_email,
+            accounting_providers
+        )
 
         for part in parts:
             checked += 1
@@ -1333,6 +1618,24 @@ def sync_one_gmail_account(account_email):
                 part["filename"]
             )
 
+            accounting_data = accounting_document_data(
+                accounting_provider,
+                subject,
+                part["filename"],
+                extracted_text
+            )
+            accounting_extensions = (
+                ".pdf", ".xml", ".xlsx", ".xls", ".csv"
+            )
+            is_accounting_document = bool(
+                accounting_data
+                and part["filename"].lower().endswith(
+                    accounting_extensions
+                )
+            )
+            if is_accounting_document:
+                parsed.update(accounting_data)
+
             filename_lower = part["filename"].lower()
             filename_suggests_document = any(
                 marker in filename_lower
@@ -1343,7 +1646,8 @@ def sync_one_gmail_account(account_email):
                 )
             )
             is_document_candidate = bool(
-                parsed.get("invoice_number")
+                is_accounting_document
+                or parsed.get("invoice_number")
                 or decimal_value(parsed.get("amount_gross")) > 0
                 or filename_suggests_document
                 or parsed.get("entry_kind") == "income"
@@ -1607,6 +1911,99 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             gmail_disconnected="1"
         ))
 
+    @app.route("/finance/accounting-providers/save", methods=["POST"])
+    def finance_accounting_provider_save():
+        schema_ok, _ = ensure_finance_schema()
+        if not schema_ok:
+            return redirect(url_for("finance_dashboard", error="database"))
+
+        provider_id = clean_text(request.form.get("provider_id"), 100)
+        name = clean_text(request.form.get("name"), 200)
+        sender_match = clean_text(
+            request.form.get("sender_match"),
+            1000
+        )
+        if not name or not provider_matchers(sender_match):
+            return redirect(url_for(
+                "finance_dashboard",
+                accounting_error="Вкажіть назву та адресу або домен бухгалтерії."
+            ))
+
+        try:
+            with connect_database() as connection:
+                with connection.cursor() as cursor:
+                    if provider_id:
+                        cursor.execute("""
+                            UPDATE accounting_providers
+                            SET name = %s,
+                                sender_match = %s,
+                                active = TRUE,
+                                updated_at = NOW()
+                            WHERE id = %s
+                        """, (name, sender_match, provider_id))
+                    else:
+                        cursor.execute("""
+                            INSERT INTO accounting_providers (
+                                id, name, sender_match, active
+                            ) VALUES (%s, %s, %s, TRUE)
+                        """, (str(uuid.uuid4()), name, sender_match))
+            return redirect(url_for(
+                "finance_dashboard",
+                accounting_saved="1"
+            ))
+        except Exception as exc:
+            return redirect(url_for(
+                "finance_dashboard",
+                accounting_error=clean_text(exc, 160)
+            ))
+
+    @app.route(
+        "/finance/accounting-providers/<provider_id>/disable",
+        methods=["POST"]
+    )
+    def finance_accounting_provider_disable(provider_id):
+        schema_ok, _ = ensure_finance_schema()
+        if schema_ok:
+            try:
+                with connect_database() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE accounting_providers
+                            SET active = FALSE, updated_at = NOW()
+                            WHERE id = %s
+                        """, (provider_id,))
+            except Exception:
+                pass
+        return redirect(url_for(
+            "finance_dashboard",
+            accounting_disabled="1"
+        ))
+
+    @app.route(
+        "/finance/accounting-documents/<document_id>/archive",
+        methods=["POST"]
+    )
+    def finance_accounting_document_archive(document_id):
+        schema_ok, _ = ensure_finance_schema()
+        if schema_ok:
+            try:
+                with connect_database() as connection:
+                    with connection.cursor() as cursor:
+                        cursor.execute("""
+                            UPDATE email_invoice_queue
+                            SET review_status = 'archived',
+                                reviewed_at = NOW()
+                            WHERE id = %s
+                              AND document_group = 'accounting'
+                              AND review_status = 'pending'
+                        """, (document_id,))
+            except Exception:
+                pass
+        return redirect(url_for(
+            "finance_dashboard",
+            accounting_archived="1"
+        ))
+
     @app.route("/api/finance/email-invoices/import", methods=["POST"])
     def finance_email_import():
         if not import_is_authorized():
@@ -1751,7 +2148,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
             if not item or not item["source_message_id"]:
                 raise RuntimeError(
-                    "Для цієї фактури немає посилання на лист Gmail."
+                    "Для цього документа немає посилання на лист Gmail."
                 )
 
             content, mime_type, filename = gmail_document_content(
@@ -2010,7 +2407,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             gross=html_text(item["amount_gross"], "0.00"),
             currencies="".join(currency_options)
         )
-        return page_renderer("Перевірка фактури", body, "finance")
+        return page_renderer("Перевірка документа", body, "finance")
 
     @app.route(
         "/finance/email-invoices/<invoice_id>/approve",
@@ -2700,8 +3097,39 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 + "</div>"
             )
 
+        if request.args.get("accounting_saved") == "1":
+            message = (
+                "<div class='alert alert-ok'>"
+                "Налаштування бухгалтерії збережено."
+                "</div>"
+            )
+
+        if request.args.get("accounting_disabled") == "1":
+            message = (
+                "<div class='alert alert-warning'>"
+                "Бухгалтерію відключено. Раніше отримані документи збережені."
+                "</div>"
+            )
+
+        if request.args.get("accounting_archived") == "1":
+            message = (
+                "<div class='alert alert-ok'>"
+                "Документ збережено в бухгалтерському архіві."
+                "</div>"
+            )
+
+        if request.args.get("accounting_error"):
+            message = (
+                "<div class='alert alert-error'>"
+                "Не вдалося зберегти бухгалтерію: "
+                + html_text(request.args.get("accounting_error"))
+                + "</div>"
+            )
+
         rows = []
         email_invoices = []
+        accounting_documents = []
+        accounting_provider_rows = []
         totals = {}
 
         if schema_ok:
@@ -2775,7 +3203,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         cursor.execute("""
                             SELECT *
                             FROM email_invoice_queue
-                            WHERE review_status IN (
+                            WHERE document_group <> 'accounting'
+                              AND review_status IN (
                                 'pending', 'approved', 'rejected'
                             )
                             ORDER BY
@@ -2788,6 +3217,31 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             LIMIT 100
                         """)
                         email_invoices = cursor.fetchall()
+
+                        cursor.execute("""
+                            SELECT *
+                            FROM email_invoice_queue
+                            WHERE document_group = 'accounting'
+                              AND review_status IN (
+                                'pending', 'approved', 'archived', 'rejected'
+                            )
+                            ORDER BY
+                                CASE review_status
+                                    WHEN 'pending' THEN 0
+                                    WHEN 'duplicate' THEN 1
+                                    ELSE 2
+                                END,
+                                imported_at DESC
+                            LIMIT 100
+                        """)
+                        accounting_documents = cursor.fetchall()
+
+                        cursor.execute("""
+                            SELECT * FROM accounting_providers
+                            WHERE active = TRUE
+                            ORDER BY name
+                        """)
+                        accounting_provider_rows = cursor.fetchall()
             except Exception as exc:
                 schema_ok = False
                 schema_error = f"Помилка читання PostgreSQL: {exc}"
@@ -2950,6 +3404,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         status_labels = {
             "pending": "На перевірку",
             "approved": "Підтверджено",
+            "archived": "В архіві",
             "rejected": "Відхилено",
             "duplicate": "Дублікат"
         }
@@ -3144,6 +3599,223 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 <div class="invoice-empty">Документів із пошти ще немає.</div>
             """)
 
+        accounting_provider_cards = []
+        for provider in accounting_provider_rows:
+            accounting_provider_cards.append("""
+                <div class="detail">
+                    <form method="post"
+                          action="/finance/accounting-providers/save">
+                        <input type="hidden" name="provider_id" value="{id}">
+                        <p>
+                            <label>Назва бухгалтерії</label>
+                            <input name="name" value="{name}" required>
+                        </p>
+                        <p>
+                            <label>Адреса або домен відправника</label>
+                            <input name="sender_match" value="{sender_match}"
+                                   placeholder="biuro@example.pl або example.pl"
+                                   required>
+                        </p>
+                        <button type="submit">Зберегти</button>
+                    </form>
+                    <form method="post"
+                          action="/finance/accounting-providers/{id}/disable"
+                          style="margin-top:8px">
+                        <button type="submit" style="background:#8d1717">
+                            Відключити
+                        </button>
+                    </form>
+                </div>
+            """.format(
+                id=escape(str(provider["id"])),
+                name=html_text(provider["name"], ""),
+                sender_match=html_text(provider["sender_match"], "")
+            ))
+
+        accounting_document_cards = []
+        for item in accounting_documents:
+            imported_at = item["imported_at"]
+            if imported_at and imported_at.tzinfo is None:
+                imported_at = imported_at.replace(tzinfo=timezone.utc)
+            is_new = bool(
+                imported_at
+                and imported_at >= datetime.now(timezone.utc)
+                - timedelta(hours=24)
+                and item["review_status"] == "pending"
+            )
+            new_badge = (
+                '<span class="badge badge-ready">Нове</span>'
+                if is_new
+                else ""
+            )
+
+            accounting_actions = ""
+            if item["review_status"] == "pending":
+                add_expense = ""
+                if (
+                    item["accounting_type"] in {"tax", "zus", "payroll"}
+                    and decimal_value(item["amount_gross"]) > 0
+                ):
+                    add_expense = """
+                        <form method="post"
+                              action="/finance/email-invoices/{id}/approve"
+                              style="display:inline">
+                            <button type="submit">Додати у витрати</button>
+                        </form>
+                    """.format(id=escape(str(item["id"])))
+
+                accounting_actions = """
+                    <a class="button"
+                       href="/finance/email-invoices/{id}/edit">
+                        Перевірити дані
+                    </a>
+                    {add_expense}
+                    <form method="post"
+                          action="/finance/accounting-documents/{id}/archive"
+                          style="display:inline">
+                        <button type="submit" style="background:#687078">
+                            Зберегти в архіві
+                        </button>
+                    </form>
+                """.format(
+                    id=escape(str(item["id"])),
+                    add_expense=add_expense
+                )
+
+            amount_text = (
+                money(item["amount_gross"], item["currency"])
+                if decimal_value(item["amount_gross"]) > 0
+                else "Суму ще не визначено"
+            )
+            accounting_document_cards.append("""
+                <div class="invoice-card">
+                    {new_badge}
+                    <div class="invoice-facts">
+                        <div>
+                            <span class="invoice-label">Бухгалтерія</span>
+                            <strong>{provider}</strong>
+                            <span class="small">{sender}</span>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Тип</span>
+                            <strong>{document_type}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Період</span>
+                            <strong>{period}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Сума</span>
+                            <strong>{amount}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Статус</span>
+                            <strong>{status}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Отримано на Gmail</span>
+                            <strong>{account_email}</strong>
+                        </div>
+                    </div>
+                    <div class="invoice-description">
+                        <span class="invoice-label">Документ</span>
+                        <strong>{attachment}</strong><br>
+                        <span class="small">{subject}</span>
+                    </div>
+                    <div class="invoice-actions">
+                        <a class="button"
+                           href="/finance/email-invoices/{id}/document"
+                           target="_blank" rel="noopener"
+                           style="background:#147a42">
+                            Відкрити документ
+                        </a>
+                        {actions}
+                    </div>
+                </div>
+            """.format(
+                id=escape(str(item["id"])),
+                new_badge=new_badge,
+                provider=html_text(
+                    item["accounting_provider_name"],
+                    "Бухгалтерія"
+                ),
+                sender=html_text(item["sender_email"], ""),
+                document_type=html_text(
+                    ACCOUNTING_DOCUMENT_TYPES.get(
+                        item["accounting_type"],
+                        ACCOUNTING_DOCUMENT_TYPES["other"]
+                    )
+                ),
+                period=html_text(item["accounting_period"], "Не визначено"),
+                amount=amount_text,
+                status=html_text(status_labels.get(
+                    item["review_status"],
+                    item["review_status"]
+                )),
+                account_email=html_text(
+                    item["source_account_email"],
+                    "Основна пошта"
+                ),
+                attachment=html_text(item["attachment_name"], "Документ"),
+                subject=html_text(item["email_subject"], ""),
+                actions=accounting_actions
+            ))
+
+        if not accounting_document_cards:
+            accounting_document_cards.append("""
+                <div class="invoice-empty">
+                    Бухгалтерських документів із пошти ще немає.
+                </div>
+            """)
+
+        accounting_block = """
+        <div class="card">
+            <h2>Бухгалтерія</h2>
+            <p>
+                Вкажіть назву бухгалтерії та адресу або домен, з якого вона
+                надсилає документи. Можна підключити декілька бухгалтерій.
+            </p>
+            <div class="detail-grid" style="margin:14px 0">
+                {providers}
+            </div>
+            <details>
+                <summary class="button" style="cursor:pointer">
+                    Додати бухгалтерію
+                </summary>
+                <form method="post"
+                      action="/finance/accounting-providers/save"
+                      style="margin-top:14px">
+                    <div class="form-grid">
+                        <p>
+                            <label>Назва бухгалтерії</label>
+                            <input name="name" placeholder="Наприклад, MaWo Group"
+                                   required>
+                        </p>
+                        <p>
+                            <label>Адреса або домен відправника</label>
+                            <input name="sender_match"
+                                   placeholder="biuro@example.pl або example.pl"
+                                   required>
+                        </p>
+                    </div>
+                    <button type="submit">Додати</button>
+                </form>
+            </details>
+        </div>
+
+        <div class="card">
+            <h2>Документи бухгалтерії</h2>
+            <p>
+                Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи
+                зберігаються окремо від фактур і транспортних замовлень.
+            </p>
+            <div class="invoice-list">{documents}</div>
+        </div>
+        """.format(
+            providers="".join(accounting_provider_cards),
+            documents="".join(accounting_document_cards)
+        )
+
         vehicle_options = [
             '<option value="">Вся компанія</option>'
         ]
@@ -3280,6 +3952,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         <div style="height:18px"></div>
         {gmail_block}
 
+        {accounting_block}
+
         <div class="card">
             <h2>Додати операцію</h2>
             <form method="post">
@@ -3342,6 +4016,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             message=message,
             summary="".join(summary_cards),
             gmail_block=gmail_block,
+            accounting_block=accounting_block,
             disabled=form_disabled,
             today=date.today().isoformat(),
             categories="".join(category_options),
