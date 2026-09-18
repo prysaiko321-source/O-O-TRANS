@@ -3,12 +3,23 @@ import json
 import math
 import hmac
 import secrets
+import base64
 from datetime import datetime, timezone
 from html import escape
 from zoneinfo import ZoneInfo
 
-from flask import Flask, request, redirect, url_for, session, jsonify
+from flask import (
+    Flask,
+    Response,
+    request,
+    redirect,
+    url_for,
+    session,
+    jsonify
+)
 import requests
+
+from company_logo import COMPANY_LOGO_BASE64
 
 app = Flask(__name__)
 
@@ -30,6 +41,8 @@ NAVIREC_ACCOUNT_ID = os.environ.get(
 
 COMPANY_NAME = os.environ.get("COMPANY_NAME", "O&O TRANS")
 COMPANY_ID = os.environ.get("COMPANY_ID", "O&O-TRANS")
+PLATFORM_NAME = "TRANVIQ"
+PLATFORM_TAGLINE = "Transport Intelligence Platform"
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DISPATCHER_USER = os.environ.get("DISPATCHER_USER", "")
@@ -860,7 +873,7 @@ def page(title, body, active=""):
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>{title} — {company}</title>
+<title>{title} — {platform} · {company}</title>
 
 <style>
 * {{ box-sizing: border-box; }}
@@ -873,14 +886,90 @@ body {{
 }}
 
 .topbar {{
-    background: #17202a;
+    background:
+        linear-gradient(135deg, #0b1724 0%, #12283c 100%);
     color: white;
-    padding: 16px 22px;
+    padding: 15px 22px 14px;
+    box-shadow: 0 3px 14px rgba(6, 18, 31, .22);
 }}
 
-.brand {{
-    font-size: 22px;
+.brand-row {{
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px;
+}}
+
+.platform-brand-block {{
+    min-width: 190px;
+}}
+
+.platform-brand {{
+    display: inline-flex;
+    align-items: center;
+    color: white;
+    text-decoration: none;
+    font-size: 28px;
+    font-weight: 900;
+    letter-spacing: 1.1px;
+    line-height: 1;
+}}
+
+.platform-iq {{
+    display: inline-block;
+    margin-left: 3px;
+    padding: 4px 7px 5px;
+    border-radius: 8px;
+    color: #07131f;
+    background: linear-gradient(135deg, #56e6ff, #71ee9f);
+    box-shadow: 0 0 18px rgba(86, 230, 255, .38);
+    letter-spacing: .5px;
+}}
+
+.platform-tagline {{
+    margin-top: 5px;
+    color: #a9c4d7;
+    font-size: 11px;
     font-weight: 700;
+    letter-spacing: .7px;
+    text-transform: uppercase;
+}}
+
+.brand-divider {{
+    width: 1px;
+    height: 57px;
+    background: rgba(255, 255, 255, .18);
+}}
+
+.company-brand {{
+    display: flex;
+    align-items: center;
+    gap: 11px;
+}}
+
+.company-logo {{
+    width: 62px;
+    height: 62px;
+    object-fit: contain;
+    border-radius: 10px;
+    padding: 3px;
+    background: #f8f5ef;
+    box-shadow: 0 2px 9px rgba(0, 0, 0, .24);
+}}
+
+.company-caption {{
+    color: #91acbf;
+    font-size: 11px;
+    font-weight: 700;
+    letter-spacing: .7px;
+    text-transform: uppercase;
+}}
+
+.company-name {{
+    margin-top: 3px;
+    color: white;
+    font-size: 17px;
+    font-weight: 800;
 }}
 
 .nav {{
@@ -907,6 +996,20 @@ body {{
     max-width: 1600px;
     margin: 0 auto;
     padding: 22px;
+}}
+
+.powered-by {{
+    max-width: 1600px;
+    margin: 0 auto;
+    padding: 0 22px 22px;
+    color: #7b8790;
+    font-size: 12px;
+    text-align: right;
+}}
+
+.powered-by strong {{
+    color: #173c55;
+    letter-spacing: .5px;
 }}
 
 h1 {{
@@ -1183,6 +1286,28 @@ button,
 }}
 
 @media (max-width: 700px) {{
+    .topbar {{
+        padding: 14px;
+    }}
+
+    .brand-row {{
+        align-items: flex-start;
+        gap: 12px;
+    }}
+
+    .brand-divider {{
+        display: none;
+    }}
+
+    .platform-brand-block {{
+        width: 100%;
+    }}
+
+    .company-logo {{
+        width: 52px;
+        height: 52px;
+    }}
+
     .wrap {{
         padding: 14px;
     }}
@@ -1203,8 +1328,29 @@ button,
 <body>
 
 <div class="topbar">
-    <div class="brand">{company}</div>
-    {role_badge}
+    <div class="brand-row">
+        <div class="platform-brand-block">
+            <a class="platform-brand" href="/">
+                TRANV<span class="platform-iq">IQ</span>
+            </a>
+            <div class="platform-tagline">{platform_tagline}</div>
+        </div>
+
+        <div class="brand-divider"></div>
+
+        <div class="company-brand">
+            <img
+                class="company-logo"
+                src="/assets/company-logo.jpg"
+                alt="Логотип {company}"
+            >
+            <div>
+                <div class="company-caption">Компанія</div>
+                <div class="company-name">{company}</div>
+                {role_badge}
+            </div>
+        </div>
+    </div>
     {nav}
 </div>
 
@@ -1213,16 +1359,42 @@ button,
     {body}
 </div>
 
+<div class="powered-by">
+    Powered by <strong>TRANVIQ</strong>
+</div>
+
 </body>
 </html>
 """.format(
         title=title,
         company=COMPANY_NAME,
+        platform=PLATFORM_NAME,
+        platform_tagline=PLATFORM_TAGLINE,
         nav=nav,
         role_badge=role_badge,
         body=body,
         extra_head=""
     )
+
+
+@app.route("/assets/company-logo.jpg")
+def company_logo_asset():
+    try:
+        logo_bytes = base64.b64decode(
+            COMPANY_LOGO_BASE64,
+            validate=True
+        )
+    except (ValueError, TypeError):
+        return Response(status=404)
+
+    response = Response(
+        logo_bytes,
+        mimetype="image/jpeg"
+    )
+    response.headers["Cache-Control"] = (
+        "public, max-age=86400"
+    )
+    return response
 
 
 try:
@@ -1364,6 +1536,7 @@ def require_login():
         request.path == "/health"
         or request.path == "/login"
         or request.path.startswith("/login/")
+        or request.path == "/assets/company-logo.jpg"
         or request.path == "/api/finance/email-invoices/import"
     ):
         return None
