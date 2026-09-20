@@ -3278,7 +3278,7 @@ def geocode_search():
                         "(transport route planner)"
                     )
                 },
-                timeout=10
+                timeout=20
             )
             GEOCODE_LAST_REQUEST_AT = time.monotonic()
             response.raise_for_status()
@@ -5393,29 +5393,73 @@ def gps():
         }});
     }}
 
+    function waitForGeocode(milliseconds) {{
+        return new Promise(function(resolve) {{
+            window.setTimeout(resolve, milliseconds);
+        }});
+    }}
+
+    async function geocodeDeliveryStop(stop, index, total) {{
+        let lastError = null;
+        for (let attempt = 1; attempt <= 3; attempt += 1) {{
+            const retryText = attempt > 1
+                ? ' — повтор ' + attempt + '/3'
+                : '';
+            buildDeliveryRouteButton.textContent =
+                'Шукаю адресу ' + (index + 1) + '/' + total +
+                retryText + '...';
+
+            const controller = new AbortController();
+            const requestTimeout = window.setTimeout(function() {{
+                controller.abort();
+            }}, 25000);
+
+            try {{
+                const response = await fetch(
+                    '/api/geocode?mode=address&q=' +
+                    encodeURIComponent(stop.address),
+                    {{
+                        headers: {{'Accept': 'application/json'}},
+                        signal: controller.signal
+                    }}
+                );
+                const data = await response.json();
+                if (response.ok && data.results && data.results.length) {{
+                    return Object.assign({{}}, stop, {{
+                        latitude: Number(data.results[0].latitude),
+                        longitude: Number(data.results[0].longitude),
+                        map_name: data.results[0].name
+                    }});
+                }}
+                lastError = new Error(
+                    (data && data.error) || 'Адресу не знайдено.'
+                );
+            }} catch (error) {{
+                lastError = error;
+            }} finally {{
+                window.clearTimeout(requestTimeout);
+            }}
+
+            if (attempt < 3) {{
+                await waitForGeocode(1500 * attempt);
+            }}
+        }}
+
+        throw new Error(
+            'Не вдалося знайти адресу №' + (index + 1) + ': ' +
+            stop.address + '. Спробуйте ще раз через хвилину.'
+        );
+    }}
+
     async function geocodeDeliveryStops(stops) {{
         const geocoded = [];
         for (let index = 0; index < stops.length; index += 1) {{
             const stop = stops[index];
-            buildDeliveryRouteButton.textContent =
-                'Шукаю адресу ' + (index + 1) + '/' + stops.length + '...';
-            const response = await fetch(
-                '/api/geocode?mode=address&q=' +
-                encodeURIComponent(stop.address),
-                {{headers: {{'Accept': 'application/json'}}}}
-            );
-            const data = await response.json();
-            if (!response.ok || !data.results || !data.results.length) {{
-                throw new Error(
-                    'Не знайдено адресу №' + (index + 1) + ': ' +
-                    stop.address
-                );
-            }}
-            geocoded.push(Object.assign({{}}, stop, {{
-                latitude: Number(data.results[0].latitude),
-                longitude: Number(data.results[0].longitude),
-                map_name: data.results[0].name
-            }}));
+            geocoded.push(await geocodeDeliveryStop(
+                stop,
+                index,
+                stops.length
+            ));
         }}
         return geocoded;
     }}
