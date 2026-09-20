@@ -3871,6 +3871,16 @@ def gps():
         return selectedMode && selectedMode.value === 'free';
     }}
 
+    function selectRouteDestination(result) {{
+        selectedDestination = result;
+        destinationInput.value = result.name;
+        buildRouteButton.disabled = !vehicles.length;
+        addressResults.hidden = true;
+        measureResult.textContent =
+            'Адресу вибрано: ' + result.name +
+            '. Натисніть «Прокласти маршрут».';
+    }}
+
     function formatTollInformation(routeData) {{
         if (routeData.avoid_tolls) {{
             return 'Платні дороги: маршрут намагається їх уникати.';
@@ -3981,16 +3991,24 @@ def gps():
                 return;
             }}
 
+            if (data.results.length === 1) {{
+                selectRouteDestination(data.results[0]);
+                return;
+            }}
+
+            const resultsHint = document.createElement('div');
+            resultsHint.className = 'small';
+            resultsHint.textContent =
+                'Виберіть потрібну адресу зі списку:';
+            addressResults.appendChild(resultsHint);
+
             data.results.forEach(function(result) {{
                 const resultButton = document.createElement('button');
                 resultButton.type = 'button';
                 resultButton.className = 'gps-address-result';
                 resultButton.textContent = result.name;
                 resultButton.addEventListener('click', function() {{
-                    selectedDestination = result;
-                    destinationInput.value = result.name;
-                    buildRouteButton.disabled = !vehicles.length;
-                    addressResults.hidden = true;
+                    selectRouteDestination(result);
                 }});
                 addressResults.appendChild(resultButton);
             }});
