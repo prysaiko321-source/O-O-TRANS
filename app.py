@@ -3219,6 +3219,10 @@ def geocode_search():
     query = request.args.get("q", "").strip()
     search_mode = request.args.get("mode", "address").strip().lower()
     selected_city = request.args.get("city", "").strip()[:100]
+    delivery_consent = (
+        request.args.get("purpose") == "delivery"
+        and request.args.get("consent") == "addresses_only"
+    )
 
     if len(query) < 3:
         return jsonify({"results": []})
@@ -3238,6 +3242,7 @@ def geocode_search():
         search_mode,
         query.casefold(),
         selected_city.casefold(),
+        delivery_consent,
         round(bias_latitude, 3) if bias_latitude is not None else None,
         round(bias_longitude, 3) if bias_longitude is not None else None
     )
@@ -3247,6 +3252,7 @@ def geocode_search():
     if cached and now - cached[0] < GEOCODE_CACHE_TTL:
         return jsonify({"results": cached[1]})
 
+    photon_failed = False
     try:
         with GEOCODE_LOCK:
             cached = GEOCODE_CACHE.get(cache_key)
@@ -3269,20 +3275,25 @@ def geocode_search():
                 photon_params["lat"] = bias_latitude
                 photon_params["lon"] = bias_longitude
 
-            response = requests.get(
-                "https://photon.komoot.io/api/",
-                params=photon_params,
-                headers={
-                    "User-Agent": (
-                        "TRANVIQ/1.0 "
-                        "(transport route planner)"
-                    )
-                },
-                timeout=20
-            )
-            GEOCODE_LAST_REQUEST_AT = time.monotonic()
-            response.raise_for_status()
-            raw_results = response.json().get("features") or []
+            try:
+                response = requests.get(
+                    "https://photon.komoot.io/api/",
+                    params=photon_params,
+                    headers={
+                        "User-Agent": (
+                            "TRANVIQ/1.0 "
+                            "(transport route planner)"
+                        )
+                    },
+                    timeout=20
+                )
+                response.raise_for_status()
+                raw_results = response.json().get("features") or []
+            except (requests.RequestException, ValueError):
+                photon_failed = True
+                raw_results = []
+            finally:
+                GEOCODE_LAST_REQUEST_AT = time.monotonic()
 
         results = []
         seen = set()
@@ -3381,6 +3392,70 @@ def geocode_search():
 
             if len(results) >= 7:
                 break
+
+        if (
+            not results
+            and search_mode == "address"
+            and delivery_consent
+            and GOOGLE_MAPS_API_KEY
+        ):
+            google_response = requests.post(
+                "https://routes.googleapis.com/directions/v2:computeRoutes",
+                headers={
+                    "Content-Type": "application/json",
+                    "X-Goog-Api-Key": GOOGLE_MAPS_API_KEY,
+                    "X-Goog-FieldMask": "routes.legs.endLocation"
+                },
+                json={
+                    "origin": {
+                        "location": {
+                            "latLng": {
+                                "latitude": bias_latitude or 52.5,
+                                "longitude": bias_longitude or 10.0
+                            }
+                        }
+                    },
+                    "destination": {"address": query},
+                    "travelMode": "DRIVE",
+                    "languageCode": current_language(),
+                    "units": "METRIC"
+                },
+                timeout=20
+            )
+            google_response.raise_for_status()
+            google_routes = google_response.json().get("routes") or []
+            if google_routes:
+                google_legs = google_routes[0].get("legs") or []
+                if google_legs:
+                    end_location = (
+                        google_legs[-1].get("endLocation", {})
+                        .get("latLng", {})
+                    )
+                    try:
+                        google_latitude = float(
+                            end_location.get("latitude")
+                        )
+                        google_longitude = float(
+                            end_location.get("longitude")
+                        )
+                    except (TypeError, ValueError):
+                        pass
+                    else:
+                        results = [{
+                            "name": query,
+                            "short_name": query,
+                            "latitude": google_latitude,
+                            "longitude": google_longitude,
+                            "type": "route_destination",
+                            "city": selected_city,
+                            "country_code": ""
+                        }]
+
+        if photon_failed and not results:
+            return jsonify({
+                "results": [],
+                "error": "Пошук адреси тимчасово недоступний."
+            }), 503
 
         GEOCODE_CACHE[cache_key] = (
             time.monotonic(),
@@ -5417,7 +5492,8 @@ def gps():
             try {{
                 const response = await fetch(
                     '/api/geocode?mode=address&q=' +
-                    encodeURIComponent(stop.address),
+                    encodeURIComponent(stop.address) +
+                    '&purpose=delivery&consent=addresses_only',
                     {{
                         headers: {{'Accept': 'application/json'}},
                         signal: controller.signal
