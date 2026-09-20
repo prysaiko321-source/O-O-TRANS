@@ -3053,6 +3053,77 @@ def parse_vehicle_profile(value):
     }
 
 
+def estimate_poland_a2_toll(route, vehicle_profile, avoid_tolls):
+    """Estimate A2 toll when Google omits tollInfo.
+
+    The official category-1 tariff valid from 2026-09-11 is 141 PLN
+    for the 255 km Swiecko-Konin concession. Google route steps let us
+    estimate how many Polish A2 kilometres the selected route uses.
+    """
+    if avoid_tolls:
+        return None
+    if vehicle_profile["weight_kg"] > 3500:
+        return None
+    if vehicle_profile["axles"] != 2:
+        return None
+
+    distance_m = 0.0
+    for leg in route.get("legs") or []:
+        for step in leg.get("steps") or []:
+            instruction = str(
+                step.get("navigationInstruction", {}).get(
+                    "instructions"
+                ) or ""
+            ).upper()
+            compact_instruction = (
+                instruction.replace(" ", "")
+                .replace("-", "")
+            )
+            if "A2" not in compact_instruction:
+                continue
+
+            locations = []
+            for key in ("startLocation", "endLocation"):
+                lat_lng = step.get(key, {}).get("latLng", {})
+                try:
+                    locations.append((
+                        float(lat_lng.get("latitude")),
+                        float(lat_lng.get("longitude"))
+                    ))
+                except (TypeError, ValueError):
+                    pass
+
+            # Do not count the German A2. The Polish A2 concession starts
+            # near the border at Swiecko (longitude about 14.6 E).
+            if locations:
+                average_longitude = sum(
+                    point[1] for point in locations
+                ) / len(locations)
+                if average_longitude < 14.5:
+                    continue
+
+            try:
+                distance_m += float(step.get("distanceMeters") or 0)
+            except (TypeError, ValueError):
+                continue
+
+    if distance_m < 1000:
+        return None
+
+    distance_km = distance_m / 1000
+    rate_pln_per_km = 141 / 255
+    amount = max(3, round(distance_km * rate_pln_per_km))
+    return {
+        "road": "A2",
+        "amount": amount,
+        "currency": "PLN",
+        "distance_km": round(distance_km, 1),
+        "method": "official_average_rate",
+        "tariff_date": "2026-09-11",
+        "source_url": "https://www.autostrada-a2.pl/oplaty/"
+    }
+
+
 def google_route(
     origin,
     destination,
@@ -3074,7 +3145,11 @@ def google_route(
             "X-Goog-FieldMask": (
                 "routes.distanceMeters,routes.duration,"
                 "routes.polyline.encodedPolyline,"
-                "routes.travelAdvisory.tollInfo"
+                "routes.travelAdvisory.tollInfo,"
+                "routes.legs.steps.distanceMeters,"
+                "routes.legs.steps.startLocation,"
+                "routes.legs.steps.endLocation,"
+                "routes.legs.steps.navigationInstruction.instructions"
             )
         },
         json={
@@ -3142,6 +3217,14 @@ def google_route(
             "currency": str(price.get("currencyCode") or "")
         })
 
+    toll_estimate = None
+    if not toll_prices:
+        toll_estimate = estimate_poland_a2_toll(
+            route,
+            vehicle_profile,
+            avoid_tolls
+        )
+
     return {
         "provider": "google",
         "distance_m": float(route.get("distanceMeters") or 0),
@@ -3150,6 +3233,7 @@ def google_route(
         "avoid_tolls": avoid_tolls,
         "has_tolls": bool(toll_info),
         "toll_prices": toll_prices,
+        "toll_estimate": toll_estimate,
         "vehicle_profile": vehicle_profile
     }
 
@@ -3892,20 +3976,29 @@ def gps():
                 'Це не означає, що маршрут безплатний.';
         }}
 
-        if (!routeData.has_tolls) {{
-            return 'Google не надав підтверджених даних про оплату. ' +
-                'Це не означає, що платних ділянок немає.';
+        if (routeData.toll_prices && routeData.toll_prices.length) {{
+            const prices = routeData.toll_prices.map(function(price) {{
+                return Number(price.amount).toFixed(2) +
+                    ' ' + price.currency;
+            }});
+            return 'Орієнтовна оплата доріг: ' + prices.join(' + ');
         }}
 
-        if (!routeData.toll_prices || !routeData.toll_prices.length) {{
+        if (routeData.toll_estimate) {{
+            const estimate = routeData.toll_estimate;
+            return 'Орієнтовна оплата ' + estimate.road + ': ≈ ' +
+                Number(estimate.amount).toFixed(0) + ' ' +
+                estimate.currency + ' (' +
+                Number(estimate.distance_km).toFixed(1) +
+                ' км платною дорогою; тариф від 11.09.2026).';
+        }}
+
+        if (routeData.has_tolls) {{
             return 'Є платні ділянки, але їхня ціна не визначена.';
         }}
 
-        const prices = routeData.toll_prices.map(function(price) {{
-            return Number(price.amount).toFixed(2) +
-                ' ' + price.currency;
-        }});
-        return 'Орієнтовна оплата доріг: ' + prices.join(' + ');
+        return 'Google не надав підтверджених даних про оплату. ' +
+            'Це не означає, що платних ділянок немає.';
     }}
 
     function destinationRoadRule(profile) {{
