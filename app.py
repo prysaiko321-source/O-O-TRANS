@@ -4053,6 +4053,7 @@ def gps():
             "speed": speed,
             "ignition": bool(state.get("ignition")),
             "activity": get_activity(state),
+            "activity_started_at": state.get("activity_started_at"),
             "fuel": fuel,
             "fuel_consumption": fuel_consumption
         }
@@ -4815,12 +4816,52 @@ def gps():
         dailyRestHours
     ) {{
         const now = new Date();
-        let cursor = new Date(now.getTime());
         const standardDailyDriving = 9 * 3600;
         const standardContinuousDriving = 4.5 * 3600;
         const standardShift = 13 * 3600;
         const dailyRestSeconds = dailyRestHours * 3600;
         const serviceSeconds = serviceMinutes * 60;
+        const legs = routeData.legs || [];
+        const firstLegSeconds = legs.length
+            ? Number(legs[0].duration_s) || 0
+            : routeData.duration_s /
+                Math.max(1, deliveryRoute.stops.length);
+        const firstWindowStart = deliveryWindow(
+            deliveryRoute.date,
+            deliveryRoute.stops[0].window_start
+        );
+        let routeStart = new Date(
+            firstWindowStart.getTime() - firstLegSeconds * 1000
+        );
+        if (routeStart < now) {{
+            routeStart = new Date(now.getTime());
+        }}
+        let cursor = new Date(routeStart.getTime());
+
+        const parkingStartedAt = vehicle.activity_started_at
+            ? new Date(vehicle.activity_started_at)
+            : null;
+        const parkingActivity = [
+            'parking', 'stopped', 'stop'
+        ].includes(String(vehicle.activity || '').toLowerCase());
+        const validParkingStart = parkingStartedAt &&
+            !Number.isNaN(parkingStartedAt.getTime());
+        const parkingRestSeconds = (
+            !vehicle.ignition &&
+            parkingActivity &&
+            validParkingStart &&
+            routeStart > parkingStartedAt
+        )
+            ? Math.max(
+                0,
+                Math.round(
+                    (routeStart.getTime() -
+                        parkingStartedAt.getTime()) / 1000
+                )
+            )
+            : 0;
+        const restBeforeStart =
+            parkingRestSeconds >= dailyRestSeconds;
         const tachographAge = numberOrNull(vehicle.age_seconds);
         const tachoFresh = tachographAge === null || tachographAge <= 1800;
         const hasTachograph = Boolean(
@@ -4910,7 +4951,6 @@ def gps():
             }}
         }}
 
-        const legs = routeData.legs || [];
         deliveryRoute.stops.forEach(function(stop, index) {{
             const leg = legs[index] || {{
                 distance_m: 0,
@@ -4978,17 +5018,33 @@ def gps():
         let nextSafeStart = new Date(freeAt.getTime());
         let nextRecommendation = '';
 
-        if (!hasTachograph) {{
+        if (!hasTachograph && !restBeforeStart) {{
             nextSafeStart = new Date(
                 freeAt.getTime() + dailyRestSeconds * 1000
             );
             nextRecommendation =
                 'Без повних даних тахографа безпечно планувати новий ' +
                 'виїзд лише після добового відпочинку.';
-        }} else if (canDriveAfter >= 60 * 60) {{
+        }} else if (
+            dailyRemaining >= 60 * 60 &&
+            shiftRemaining >= 60 * 60 &&
+            continuousRemaining < 60 * 60
+        ) {{
+            nextSafeStart = new Date(
+                freeAt.getTime() + 45 * 60 * 1000
+            );
             nextRecommendation =
-                'Після завершення залишається щонайменше ' +
-                formatDuration(canDriveAfter) + ' керування.';
+                'Наступне завантаження можна виконувати після ' +
+                'розвізки, а подальший рух планувати після перерви ' +
+                '45 хв. Остаточно звірити з тахографом.';
+        }} else if (canDriveAfter >= 60 * 60) {{
+            nextRecommendation = restBeforeStart && !hasTachograph
+                ? 'До ранкового виїзду за стоянкою набирається ' +
+                    'добовий відпочинок. Після завершення залишається ' +
+                    'орієнтовно ' + formatDuration(canDriveAfter) +
+                    ' керування; після запуску звірити з тахографом.'
+                : 'Після завершення залишається щонайменше ' +
+                    formatDuration(canDriveAfter) + ' керування.';
         }} else {{
             nextSafeStart = new Date(
                 freeAt.getTime() + dailyRestSeconds * 1000
@@ -4999,6 +5055,9 @@ def gps():
 
         return {{
             has_tachograph: hasTachograph,
+            rest_before_start: restBeforeStart,
+            parking_rest_s: parkingRestSeconds,
+            route_start: routeStart,
             free_at: freeAt,
             next_safe_start: nextSafeStart,
             next_recommendation: nextRecommendation,
@@ -5689,14 +5748,20 @@ def gps():
             const fuelCost = fuelLitres * fuelPrice;
             const feasibilityClass = schedule.late_count
                 ? 'error'
-                : (schedule.has_tachograph ? 'ok' : 'warning');
+                : (schedule.has_tachograph || schedule.rest_before_start
+                    ? 'ok'
+                    : 'warning');
             const feasibilityTitle = schedule.late_count
                 ? 'Є ризик запізнення: ' +
                     schedule.late_count + ' точок поза вікном.'
                 : (schedule.has_tachograph
                     ? 'Маршрут узгоджено з актуальним тахографом.'
-                    : 'Маршрут розраховано, але тахограф не дав ' +
-                        'повного залишку часу.');
+                    : (schedule.rest_before_start
+                        ? 'До виїзду враховано стоянку з вимкненим ' +
+                            'запалюванням як розрахункову паузу. ' +
+                            'Після запуску звірити з тахографом.'
+                        : 'Маршрут розраховано, але тахограф не дав ' +
+                            'повного залишку часу.'));
 
             const stopRows = schedule.stops.map(function(stop) {{
                 let note = '';
@@ -5729,6 +5794,16 @@ def gps():
                 distanceKm.toFixed(1) + ' км</strong>' +
                 '<br>Чистий час керування: ' +
                 formatDuration(routeData.duration_s) +
+                '<br>Планований виїзд: <strong>' +
+                formatDateTime(schedule.route_start) + '</strong>' +
+                (schedule.parking_rest_s > 0
+                    ? '<br>Стоянка до виїзду: <strong>' +
+                        formatDuration(schedule.parking_rest_s) +
+                        '</strong>' +
+                        (schedule.rest_before_start
+                            ? ' — добову паузу набрано'
+                            : ' — повну добову паузу ще не набрано')
+                    : '') +
                 '<br>Паливо: <strong>' + fuelLitres.toFixed(1) +
                 ' л ≈ ' + fuelCost.toFixed(2) + ' ' +
                 fuelCurrencySelect.value + '</strong>' +
@@ -5737,7 +5812,9 @@ def gps():
                 schedule.daily_rest_count +
                 '<br><strong>Фізично вільний: ' +
                 formatDateTime(schedule.free_at) + '</strong>' +
-                '<br><strong>Рекомендоване наступне завантаження: ' +
+                '<br><strong>Наступне завантаження можна планувати: ' +
+                formatDateTime(schedule.free_at) + '</strong>' +
+                '<br><strong>Рекомендований наступний виїзд: ' +
                 formatDateTime(schedule.next_safe_start) + '</strong>' +
                 '<br><span class="small">' +
                 escapeHtml(schedule.next_recommendation) + '</span>' +
