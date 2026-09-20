@@ -146,7 +146,6 @@ VEHICLES = [
     }
 ]
 
-
 def is_logged_in():
     return bool(session.get("logged_in"))
 
@@ -654,6 +653,169 @@ def merge_tachograph_state(vehicle_state, driver_state):
                 merged[key] = value
 
     return merged
+
+
+def build_tachograph_snapshots(vehicle_states):
+    """Return privacy-safe driver-time data keyed by vehicle id.
+
+    Only operational values required for route feasibility are exposed to
+    the GPS page. Card numbers and other personal data stay on the server.
+    """
+    driver_states_result = get_driver_states_result()
+    drivers_result = get_drivers_result()
+
+    driver_states_by_vehicle = {}
+    driver_states_by_driver = {}
+
+    for driver_state in driver_states_result["items"]:
+        vehicle_id = normalize_api_id(
+            driver_state.get("vehicle")
+        )
+        driver_id = normalize_api_id(
+            driver_state.get("driver")
+        )
+
+        if vehicle_id:
+            driver_states_by_vehicle[vehicle_id] = driver_state
+        if driver_id:
+            driver_states_by_driver[driver_id] = driver_state
+
+    drivers_by_id = {
+        normalize_api_id(driver.get("id") or driver.get("url")): driver
+        for driver in drivers_result["items"]
+        if normalize_api_id(driver.get("id") or driver.get("url"))
+    }
+    vehicle_state_map = state_map_by_vehicle(vehicle_states)
+    snapshots = {}
+
+    for vehicle in VEHICLES:
+        vehicle_id = vehicle["id"]
+        vehicle_state = vehicle_state_map.get(vehicle_id, {})
+        driver_id = normalize_api_id(vehicle_state.get("driver"))
+        driver_state = driver_states_by_vehicle.get(vehicle_id)
+
+        if not driver_state and driver_id:
+            driver_state = driver_states_by_driver.get(driver_id)
+
+        if driver_state:
+            driver_id = normalize_api_id(
+                driver_state.get("driver")
+            ) or driver_id
+
+        combined = merge_tachograph_state(
+            vehicle_state,
+            driver_state
+        )
+        driver = drivers_by_id.get(driver_id, {})
+        driver_name = str(driver.get("name") or "").strip()
+
+        if not driver_name:
+            first_name = str(
+                combined.get("driver_name") or ""
+            ).strip()
+            surname = str(
+                combined.get("driver_surname") or ""
+            ).strip()
+            driver_name = " ".join(
+                part for part in (first_name, surname) if part
+            )
+
+        update_time = get_first_value(
+            combined,
+            ["time", "updated_at", "received_at"]
+        )
+        card_present = get_first_value(
+            combined,
+            ["driver_1_card_present"]
+        )
+        if card_present is None:
+            card_present = bool(
+                get_first_value(
+                    combined,
+                    ["driver_1_card_id", "driver_code"]
+                )
+            )
+
+        current_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_current_driving_time",
+                "driver_1_remaining_current_driving_time"
+            ]
+        )
+        daily_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_daily_driving_time",
+                "driver_1_remaining_daily_driving_time"
+            ]
+        )
+        shift_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_shift_driving_time",
+                "driver_1_remaining_shift_driving_time"
+            ]
+        )
+        weekly_drive_remaining = get_duration_value(
+            combined,
+            [
+                "driver_remaining_weekly_driving_time",
+                "driver_1_remaining_weekly_driving_time"
+            ]
+        )
+        time_until_break = get_duration_value(
+            combined,
+            [
+                "driver_time_until_next_break",
+                "driver_1_time_until_next_break"
+            ]
+        )
+        time_until_daily_rest = get_duration_value(
+            combined,
+            [
+                "driver_time_until_next_daily_rest",
+                "driver_1_time_until_next_daily_rest_period"
+            ]
+        )
+
+        remaining_values = [
+            current_drive_remaining,
+            daily_drive_remaining,
+            shift_drive_remaining,
+            weekly_drive_remaining,
+            time_until_break,
+            time_until_daily_rest
+        ]
+        snapshots[vehicle_id] = {
+            "driver_name": driver_name or "Водія не визначено",
+            "card_present": bool(card_present),
+            "working_state": get_first_value(
+                combined,
+                ["driver_working_state", "driver_1_working_state"]
+            ),
+            "time_state": get_first_value(
+                combined,
+                ["driver_time_state", "driver_1_time_state"]
+            ),
+            "updated_at": update_time,
+            "age_seconds": state_age_seconds(update_time),
+            "remaining_current_driving_s": current_drive_remaining,
+            "remaining_daily_driving_s": daily_drive_remaining,
+            "remaining_shift_driving_s": shift_drive_remaining,
+            "remaining_weekly_driving_s": weekly_drive_remaining,
+            "time_until_break_s": time_until_break,
+            "time_until_daily_rest_s": time_until_daily_rest,
+            "has_remaining_time": any(
+                value is not None for value in remaining_values
+            ),
+            "api_ok": bool(
+                driver_states_result["ok"]
+                and drivers_result["ok"]
+            )
+        }
+
+    return snapshots
 
 
 def state_age_seconds(value):
@@ -1751,6 +1913,100 @@ body.page-gps .powered-by {{
 .gps-build-route {{
     width: 100%;
     margin-top: 9px;
+}}
+
+.gps-delivery-planner {{
+    margin-top: 12px;
+    padding: 10px;
+    border: 1px solid #b8d4dc;
+    border-radius: 9px;
+    background: #eef8fa;
+}}
+
+.gps-delivery-planner-title {{
+    margin-bottom: 7px;
+    color: #123b50;
+    font-size: 13px;
+    font-weight: 900;
+}}
+
+.gps-delivery-planner textarea {{
+    width: 100%;
+    min-height: 108px;
+    margin: 0 0 9px;
+    padding: 9px;
+    border: 1px solid #b8c8d1;
+    border-radius: 7px;
+    resize: vertical;
+    font: inherit;
+    font-size: 12px;
+    line-height: 1.35;
+}}
+
+.gps-delivery-settings {{
+    display: grid;
+    grid-template-columns: 1fr 1fr;
+    gap: 7px;
+}}
+
+.gps-delivery-planner button {{
+    width: 100%;
+    margin-top: 2px;
+}}
+
+.gps-privacy-consent {{
+    display: flex !important;
+    align-items: flex-start;
+    gap: 7px;
+    margin: 2px 0 8px !important;
+    padding: 8px;
+    border-radius: 7px;
+    background: #ffffff;
+    font-weight: 700 !important;
+    line-height: 1.3;
+}}
+
+.gps-privacy-consent input {{
+    width: auto !important;
+    margin: 2px 0 0 !important;
+}}
+
+.gps-delivery-privacy {{
+    margin-top: 7px;
+    color: #4d6875;
+    font-size: 11px;
+    line-height: 1.35;
+}}
+
+.route-feasibility {{
+    margin-top: 10px;
+    padding: 10px;
+    border-radius: 8px;
+    background: #edf1f3;
+}}
+
+.route-feasibility.ok {{
+    background: #e7f6ed;
+    color: #17652c;
+}}
+
+.route-feasibility.warning {{
+    background: #fff4db;
+    color: #744d00;
+}}
+
+.route-feasibility.error {{
+    background: #fdebea;
+    color: #8d1717;
+}}
+
+.route-stop-list {{
+    margin: 9px 0 0;
+    padding-left: 20px;
+}}
+
+.route-stop-list li {{
+    margin: 5px 0;
 }}
 
 .gps-route-options {{
@@ -3381,8 +3637,10 @@ def google_route(
     origin,
     destination,
     avoid_tolls,
-    vehicle_profile
+    vehicle_profile,
+    waypoints=None
 ):
+    waypoints = waypoints or []
     vehicle_info = {
         "emissionType": vehicle_profile["emission_type"],
         "totalHeightMm": str(vehicle_profile["height_mm"]),
@@ -3399,6 +3657,8 @@ def google_route(
                 "routes.distanceMeters,routes.duration,"
                 "routes.polyline.encodedPolyline,"
                 "routes.travelAdvisory.tollInfo,"
+                "routes.legs.distanceMeters,"
+                "routes.legs.duration,"
                 "routes.legs.steps.distanceMeters,"
                 "routes.legs.steps.startLocation,"
                 "routes.legs.steps.endLocation,"
@@ -3422,6 +3682,18 @@ def google_route(
                     }
                 }
             },
+            "intermediates": [
+                {
+                    "location": {
+                        "latLng": {
+                            "latitude": waypoint[0],
+                            "longitude": waypoint[1]
+                        }
+                    },
+                    "vehicleStopover": True
+                }
+                for waypoint in waypoints
+            ],
             "travelMode": "DRIVE",
             "routingPreference": "TRAFFIC_AWARE_OPTIMAL",
             "polylineQuality": "OVERVIEW",
@@ -3478,6 +3750,20 @@ def google_route(
             avoid_tolls
         )
 
+    route_legs = []
+    for leg in route.get("legs") or []:
+        duration_text = str(leg.get("duration") or "0s")
+        try:
+            leg_duration = float(
+                duration_text.removesuffix("s") or 0
+            )
+        except (TypeError, ValueError):
+            leg_duration = 0
+        route_legs.append({
+            "distance_m": float(leg.get("distanceMeters") or 0),
+            "duration_s": leg_duration
+        })
+
     return {
         "provider": "google",
         "distance_m": float(route.get("distanceMeters") or 0),
@@ -3487,14 +3773,20 @@ def google_route(
         "has_tolls": bool(toll_info),
         "toll_prices": toll_prices,
         "toll_estimate": toll_estimate,
+        "legs": route_legs,
         "vehicle_profile": vehicle_profile
     }
 
 
-def osrm_route(origin, destination):
-    coordinates = (
-        f"{origin[1]},{origin[0]};"
-        f"{destination[1]},{destination[0]}"
+def osrm_route(origin, destination, waypoints=None):
+    route_points_input = [
+        origin,
+        *(waypoints or []),
+        destination
+    ]
+    coordinates = ";".join(
+        f"{point[1]},{point[0]}"
+        for point in route_points_input
     )
     response = requests.get(
         "https://router.project-osrm.org/route/v1/driving/"
@@ -3523,6 +3815,13 @@ def osrm_route(origin, destination):
                 coordinate[0]
             ])
 
+    route_legs = []
+    for leg in route.get("legs") or []:
+        route_legs.append({
+            "distance_m": float(leg.get("distance") or 0),
+            "duration_s": float(leg.get("duration") or 0)
+        })
+
     return {
         "provider": "osrm",
         "distance_m": float(route.get("distance") or 0),
@@ -3530,7 +3829,8 @@ def osrm_route(origin, destination):
         "points": route_points,
         "avoid_tolls": False,
         "has_tolls": None,
-        "toll_prices": []
+        "toll_prices": [],
+        "legs": route_legs
     }
 
 
@@ -3539,6 +3839,14 @@ def route_calculate():
     payload = request.get_json(silent=True) or {}
     origin = parse_route_point(payload.get("origin"))
     destination = parse_route_point(payload.get("destination"))
+    raw_waypoints = payload.get("waypoints") or []
+    waypoints = []
+
+    if isinstance(raw_waypoints, list):
+        for raw_waypoint in raw_waypoints[:23]:
+            waypoint = parse_route_point(raw_waypoint)
+            if waypoint:
+                waypoints.append(waypoint)
     avoid_tolls = bool(payload.get("avoid_tolls"))
     vehicle_profile = parse_vehicle_profile(
         payload.get("vehicle_profile")
@@ -3554,6 +3862,10 @@ def route_calculate():
         round(origin[1], 5),
         round(destination[0], 5),
         round(destination[1], 5),
+        tuple(
+            (round(point[0], 5), round(point[1], 5))
+            for point in waypoints
+        ),
         avoid_tolls,
         vehicle_profile["profile"],
         vehicle_profile["weight_kg"],
@@ -3585,10 +3897,15 @@ def route_calculate():
                 origin,
                 destination,
                 avoid_tolls,
-                vehicle_profile
+                vehicle_profile,
+                waypoints
             )
         else:
-            route_data = osrm_route(origin, destination)
+            route_data = osrm_route(
+                origin,
+                destination,
+                waypoints
+            )
 
         if len(ROUTE_CACHE) >= 500:
             oldest_key = min(
@@ -3605,7 +3922,11 @@ def route_calculate():
     except (requests.RequestException, ValueError):
         if GOOGLE_MAPS_API_KEY and not avoid_tolls:
             try:
-                route_data = osrm_route(origin, destination)
+                route_data = osrm_route(
+                    origin,
+                    destination,
+                    waypoints
+                )
                 return jsonify(route_data)
             except (requests.RequestException, ValueError):
                 pass
@@ -3622,6 +3943,7 @@ def gps():
     )
 
     states = get_vehicle_states()
+    tachograph_snapshots = build_tachograph_snapshots(states)
 
     markers = []
 
@@ -3647,7 +3969,7 @@ def gps():
             vehicle["id"]
         )
 
-        markers.append({
+        marker = {
             "id": vehicle["id"],
             "name": vehicle["name"],
             "plate": vehicle.get("plate") or vehicle["name"],
@@ -3658,7 +3980,11 @@ def gps():
             "activity": get_activity(state),
             "fuel": fuel,
             "fuel_consumption": fuel_consumption
-        })
+        }
+        marker.update(
+            tachograph_snapshots.get(vehicle["id"], {})
+        )
+        markers.append(marker)
 
     marker_json = json.dumps(
         markers,
@@ -3835,6 +4161,71 @@ def gps():
                 >
                     Прокласти маршрут
                 </button>
+                <div class="gps-delivery-planner">
+                    <div class="gps-delivery-planner-title">
+                        Розвізний маршрут
+                    </div>
+                    <label for="delivery-route-date">
+                        Дата доставок
+                        <input
+                            type="date"
+                            id="delivery-route-date"
+                        >
+                    </label>
+                    <label for="delivery-stops-input">
+                        Адреси й часові вікна
+                    </label>
+                    <textarea
+                        id="delivery-stops-input"
+                        rows="6"
+                        placeholder="Кожна точка з нового рядка: адреса | 08:00 | 10:00"
+                    ></textarea>
+                    <div class="gps-delivery-settings">
+                        <label for="delivery-service-minutes">
+                            Розвантаження, хв
+                            <input
+                                type="number"
+                                id="delivery-service-minutes"
+                                min="5"
+                                max="180"
+                                step="5"
+                                value="25"
+                            >
+                        </label>
+                        <label for="delivery-daily-rest-hours">
+                            Добовий відпочинок, год
+                            <input
+                                type="number"
+                                id="delivery-daily-rest-hours"
+                                min="9"
+                                max="11"
+                                step="1"
+                                value="11"
+                            >
+                        </label>
+                    </div>
+                    <label class="gps-privacy-consent">
+                        <input
+                            type="checkbox"
+                            id="delivery-map-consent"
+                        >
+                        <span>
+                            Дозволяю передати картографічним сервісам
+                            лише адреси цього маршруту
+                        </span>
+                    </label>
+                    <button
+                        type="button"
+                        id="build-delivery-route-button"
+                        disabled
+                    >
+                        Прорахувати всі доставки
+                    </button>
+                    <div class="gps-delivery-privacy">
+                        Для карти використовуються лише адреси й часові
+                        вікна. Імена та телефони не передаються.
+                    </div>
+                </div>
                 <div class="gps-toll-note" id="toll-note">
                     Вартість є орієнтовною. Вона залежить від ваги,
                     осей, екологічного класу, віньєт і способу оплати.
@@ -4017,6 +4408,24 @@ def gps():
     const fuelCurrencySelect = document.getElementById(
         'route-fuel-currency'
     );
+    const deliveryRouteDate = document.getElementById(
+        'delivery-route-date'
+    );
+    const deliveryStopsInput = document.getElementById(
+        'delivery-stops-input'
+    );
+    const deliveryServiceMinutes = document.getElementById(
+        'delivery-service-minutes'
+    );
+    const deliveryDailyRestHours = document.getElementById(
+        'delivery-daily-rest-hours'
+    );
+    const buildDeliveryRouteButton = document.getElementById(
+        'build-delivery-route-button'
+    );
+    const deliveryMapConsent = document.getElementById(
+        'delivery-map-consent'
+    );
 
     const vehicleProfiles = {{
         van_35: {{
@@ -4078,6 +4487,24 @@ def gps():
             option.selected = true;
         }}
         vehicleSelect.appendChild(option);
+    }});
+
+    const tomorrow = new Date();
+    tomorrow.setDate(tomorrow.getDate() + 1);
+    deliveryRouteDate.value = [
+        tomorrow.getFullYear(),
+        String(tomorrow.getMonth() + 1).padStart(2, '0'),
+        String(tomorrow.getDate()).padStart(2, '0')
+    ].join('-');
+    deliveryMapConsent.addEventListener('change', function() {{
+        buildDeliveryRouteButton.disabled =
+            !deliveryMapConsent.checked ||
+            !deliveryStopsInput.value.trim();
+    }});
+    deliveryStopsInput.addEventListener('input', function() {{
+        buildDeliveryRouteButton.disabled =
+            !deliveryMapConsent.checked ||
+            !deliveryStopsInput.value.trim();
     }});
 
     if (!vehicles.length) {{
@@ -4204,6 +4631,7 @@ def gps():
     let selectedDestination = null;
     let plannedRouteLayer = null;
     let destinationMarker = null;
+    let deliveryMarkers = [];
     let citySearchTimer = null;
     let citySearchRequest = 0;
     let addressSearchTimer = null;
@@ -4240,6 +4668,10 @@ def gps():
             map.removeLayer(destinationMarker);
             destinationMarker = null;
         }}
+        deliveryMarkers.forEach(function(marker) {{
+            map.removeLayer(marker);
+        }});
+        deliveryMarkers = [];
     }}
 
     function clearMapRoutes() {{
@@ -4271,6 +4703,239 @@ def gps():
             hour: '2-digit',
             minute: '2-digit'
         }});
+    }}
+
+    function formatDateTime(value) {{
+        return value.toLocaleString([], {{
+            day: '2-digit',
+            month: '2-digit',
+            hour: '2-digit',
+            minute: '2-digit'
+        }});
+    }}
+
+    function escapeHtml(value) {{
+        const node = document.createElement('span');
+        node.textContent = String(value || '');
+        return node.innerHTML;
+    }}
+
+    function numberOrNull(value) {{
+        if (value === null || value === undefined || value === '') {{
+            return null;
+        }}
+        const number = Number(value);
+        return Number.isFinite(number) ? number : null;
+    }}
+
+    function deliveryWindow(routeDate, clock) {{
+        return new Date(routeDate + 'T' + clock + ':00');
+    }}
+
+    function calculateDeliverySchedule(
+        vehicle,
+        deliveryRoute,
+        routeData,
+        serviceMinutes,
+        dailyRestHours
+    ) {{
+        const now = new Date();
+        let cursor = new Date(now.getTime());
+        const standardDailyDriving = 9 * 3600;
+        const standardContinuousDriving = 4.5 * 3600;
+        const standardShift = 13 * 3600;
+        const dailyRestSeconds = dailyRestHours * 3600;
+        const serviceSeconds = serviceMinutes * 60;
+        const tachographAge = numberOrNull(vehicle.age_seconds);
+        const tachoFresh = tachographAge === null || tachographAge <= 1800;
+        const hasTachograph = Boolean(
+            vehicle.card_present &&
+            vehicle.has_remaining_time &&
+            vehicle.api_ok &&
+            tachoFresh
+        );
+
+        const dailyCandidates = [
+            numberOrNull(vehicle.remaining_daily_driving_s),
+            numberOrNull(vehicle.remaining_shift_driving_s),
+            numberOrNull(vehicle.remaining_weekly_driving_s)
+        ].filter(function(value) {{
+            return value !== null && value >= 0;
+        }});
+
+        let dailyRemaining = hasTachograph && dailyCandidates.length
+            ? Math.min.apply(null, dailyCandidates)
+            : standardDailyDriving;
+        let continuousRemaining = hasTachograph
+            ? numberOrNull(vehicle.time_until_break_s)
+            : standardContinuousDriving;
+        if (continuousRemaining === null) {{
+            continuousRemaining = hasTachograph
+                ? numberOrNull(vehicle.remaining_current_driving_s)
+                : standardContinuousDriving;
+        }}
+        if (continuousRemaining === null) {{
+            continuousRemaining = standardContinuousDriving;
+        }}
+        let shiftRemaining = hasTachograph
+            ? numberOrNull(vehicle.time_until_daily_rest_s)
+            : standardShift;
+        if (shiftRemaining === null) {{
+            shiftRemaining = standardShift;
+        }}
+
+        let breakCount = 0;
+        let dailyRestCount = 0;
+        let totalWaitSeconds = 0;
+        let totalServiceSeconds = 0;
+        let totalDrivingSeconds = 0;
+        let lateCount = 0;
+        const stops = [];
+
+        function advance(seconds, countsAsWork) {{
+            cursor = new Date(cursor.getTime() + seconds * 1000);
+            if (countsAsWork) {{
+                shiftRemaining = Math.max(0, shiftRemaining - seconds);
+            }}
+        }}
+
+        function takeDailyRest() {{
+            advance(dailyRestSeconds, false);
+            dailyRestCount += 1;
+            dailyRemaining = standardDailyDriving;
+            continuousRemaining = standardContinuousDriving;
+            shiftRemaining = standardShift;
+        }}
+
+        function drive(seconds) {{
+            let remaining = Math.max(0, seconds);
+            while (remaining > 1) {{
+                if (dailyRemaining <= 1 || shiftRemaining <= 1) {{
+                    takeDailyRest();
+                    continue;
+                }}
+                if (continuousRemaining <= 1) {{
+                    advance(45 * 60, false);
+                    breakCount += 1;
+                    continuousRemaining = standardContinuousDriving;
+                    continue;
+                }}
+
+                const part = Math.min(
+                    remaining,
+                    dailyRemaining,
+                    continuousRemaining,
+                    shiftRemaining
+                );
+                advance(part, true);
+                remaining -= part;
+                totalDrivingSeconds += part;
+                dailyRemaining -= part;
+                continuousRemaining -= part;
+            }}
+        }}
+
+        const legs = routeData.legs || [];
+        deliveryRoute.stops.forEach(function(stop, index) {{
+            const leg = legs[index] || {{
+                distance_m: 0,
+                duration_s: routeData.duration_s /
+                    Math.max(1, deliveryRoute.stops.length)
+            }};
+            drive(Number(leg.duration_s) || 0);
+
+            const arrival = new Date(cursor.getTime());
+            const windowStart = deliveryWindow(
+                deliveryRoute.date,
+                stop.window_start
+            );
+            const windowEnd = deliveryWindow(
+                deliveryRoute.date,
+                stop.window_end
+            );
+            let waitSeconds = 0;
+
+            if (cursor < windowStart) {{
+                waitSeconds = Math.round(
+                    (windowStart.getTime() - cursor.getTime()) / 1000
+                );
+                totalWaitSeconds += waitSeconds;
+                advance(waitSeconds, false);
+
+                if (waitSeconds >= dailyRestSeconds) {{
+                    dailyRestCount += 1;
+                    dailyRemaining = standardDailyDriving;
+                    continuousRemaining = standardContinuousDriving;
+                    shiftRemaining = standardShift;
+                }} else if (waitSeconds >= 45 * 60) {{
+                    continuousRemaining = standardContinuousDriving;
+                }}
+            }}
+
+            const serviceStart = new Date(cursor.getTime());
+            const late = serviceStart > windowEnd;
+            if (late) {{
+                lateCount += 1;
+            }}
+            advance(serviceSeconds, true);
+            totalServiceSeconds += serviceSeconds;
+
+            stops.push({{
+                index: index + 1,
+                address: stop.address,
+                distance_m: Number(leg.distance_m) || 0,
+                arrival: arrival,
+                service_start: serviceStart,
+                departure: new Date(cursor.getTime()),
+                wait_seconds: waitSeconds,
+                late: late,
+                window_start: stop.window_start,
+                window_end: stop.window_end
+            }});
+        }});
+
+        const freeAt = new Date(cursor.getTime());
+        const canDriveAfter = Math.min(
+            dailyRemaining,
+            continuousRemaining,
+            shiftRemaining
+        );
+        let nextSafeStart = new Date(freeAt.getTime());
+        let nextRecommendation = '';
+
+        if (!hasTachograph) {{
+            nextSafeStart = new Date(
+                freeAt.getTime() + dailyRestSeconds * 1000
+            );
+            nextRecommendation =
+                'Без повних даних тахографа безпечно планувати новий ' +
+                'виїзд лише після добового відпочинку.';
+        }} else if (canDriveAfter >= 60 * 60) {{
+            nextRecommendation =
+                'Після завершення залишається щонайменше ' +
+                formatDuration(canDriveAfter) + ' керування.';
+        }} else {{
+            nextSafeStart = new Date(
+                freeAt.getTime() + dailyRestSeconds * 1000
+            );
+            nextRecommendation =
+                'Для наступного рейсу потрібен добовий відпочинок.';
+        }}
+
+        return {{
+            has_tachograph: hasTachograph,
+            free_at: freeAt,
+            next_safe_start: nextSafeStart,
+            next_recommendation: nextRecommendation,
+            remaining_driving_s: Math.max(0, canDriveAfter),
+            break_count: breakCount,
+            daily_rest_count: dailyRestCount,
+            total_wait_s: totalWaitSeconds,
+            total_service_s: totalServiceSeconds,
+            total_driving_s: totalDrivingSeconds,
+            late_count: lateCount,
+            stops: stops
+        }};
     }}
 
     function selectedVehicleProfile() {{
@@ -4689,6 +5354,296 @@ def gps():
         }}
     }}
 
+    function parseDeliveryStopLines() {{
+        const lines = deliveryStopsInput.value
+            .split(/\\r?\\n/)
+            .map(function(line) {{ return line.trim(); }})
+            .filter(Boolean);
+
+        if (lines.length < 2) {{
+            throw new Error(
+                'Для розвізки потрібно щонайменше дві адреси.'
+            );
+        }}
+        if (lines.length > 24) {{
+            throw new Error('За один раз можна додати до 24 точок.');
+        }}
+
+        return lines.map(function(line, index) {{
+            const parts = line.split('|').map(function(part) {{
+                return part.trim();
+            }});
+            const address = parts[0] || '';
+            const windowStart = parts[1] || '';
+            const windowEnd = parts[2] || '';
+            const validTime = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+
+            if (!address || !validTime.test(windowStart) ||
+                    !validTime.test(windowEnd)) {{
+                throw new Error(
+                    'Рядок ' + (index + 1) +
+                    ': формат має бути «адреса | 08:00 | 10:00».'
+                );
+            }}
+            return {{
+                address: address,
+                window_start: windowStart,
+                window_end: windowEnd
+            }};
+        }});
+    }}
+
+    async function geocodeDeliveryStops(stops) {{
+        const geocoded = [];
+        for (let index = 0; index < stops.length; index += 1) {{
+            const stop = stops[index];
+            buildDeliveryRouteButton.textContent =
+                'Шукаю адресу ' + (index + 1) + '/' + stops.length + '...';
+            const response = await fetch(
+                '/api/geocode?mode=address&q=' +
+                encodeURIComponent(stop.address),
+                {{headers: {{'Accept': 'application/json'}}}}
+            );
+            const data = await response.json();
+            if (!response.ok || !data.results || !data.results.length) {{
+                throw new Error(
+                    'Не знайдено адресу №' + (index + 1) + ': ' +
+                    stop.address
+                );
+            }}
+            geocoded.push(Object.assign({{}}, stop, {{
+                latitude: Number(data.results[0].latitude),
+                longitude: Number(data.results[0].longitude),
+                map_name: data.results[0].name
+            }}));
+        }}
+        return geocoded;
+    }}
+
+    async function buildDeliveryRoute() {{
+        if (!deliveryMapConsent.checked) {{
+            measureResult.textContent =
+                'Потрібне підтвердження передачі адрес карті.';
+            return;
+        }}
+        let parsedStops;
+        try {{
+            parsedStops = parseDeliveryStopLines();
+        }} catch (error) {{
+            measureResult.textContent = error.message;
+            return;
+        }}
+
+        if (!deliveryRouteDate.value) {{
+            measureResult.textContent = 'Виберіть дату доставок.';
+            return;
+        }}
+
+        const vehicle = vehicles.find(function(item) {{
+            return item.id === vehicleSelect.value;
+        }});
+        if (!vehicle) {{
+            measureResult.textContent =
+                'Для автомобіля немає актуальної GPS-позиції.';
+            return;
+        }}
+
+        vehicleSelect.value = vehicle.id;
+        updateFuelConsumption();
+        removeMeasurementLayers();
+        removePlannedRoute();
+        measureMode = false;
+        measureButton.classList.remove('active');
+        buildDeliveryRouteButton.disabled = true;
+        buildDeliveryRouteButton.textContent =
+            'Готую ' + parsedStops.length + ' точок...';
+        measureResult.textContent =
+            'Будую розвізний маршрут від поточної позиції ' +
+            vehicle.name + '...';
+
+        const avoidTolls = selectedRouteAvoidsTolls();
+        const vehicleProfile = selectedVehicleProfile();
+
+        try {{
+            const stops = await geocodeDeliveryStops(parsedStops);
+            const deliveryRoute = {{
+                label: 'Розвізка ' + deliveryRouteDate.value,
+                vehicle_id: vehicle.id,
+                date: deliveryRouteDate.value,
+                stops: stops
+            }};
+            const destination = stops[stops.length - 1];
+            const waypoints = stops.slice(0, -1).map(function(stop) {{
+                return {{
+                    latitude: stop.latitude,
+                    longitude: stop.longitude
+                }};
+            }});
+
+            stops.forEach(function(stop, index) {{
+                const marker = L.marker([
+                    stop.latitude,
+                    stop.longitude
+                ]).addTo(map);
+                marker.bindTooltip(String(index + 1), {{
+                    permanent: true,
+                    direction: 'top',
+                    className: 'vehicle-number-label'
+                }});
+                marker.bindPopup(
+                    '<strong>Доставка ' + (index + 1) + '</strong><br>' +
+                    escapeHtml(stop.address) + '<br>' +
+                    stop.window_start + '–' + stop.window_end
+                );
+                deliveryMarkers.push(marker);
+            }});
+
+            buildDeliveryRouteButton.textContent =
+                'Будую маршрут через усі точки...';
+            const response = await fetch('/api/route', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{
+                    origin: {{
+                        latitude: vehicle.latitude,
+                        longitude: vehicle.longitude
+                    }},
+                    destination: {{
+                        latitude: destination.latitude,
+                        longitude: destination.longitude
+                    }},
+                    waypoints: waypoints,
+                    avoid_tolls: avoidTolls,
+                    vehicle_profile: vehicleProfile
+                }})
+            }});
+            const routeData = await response.json();
+
+            if (!response.ok) {{
+                throw new Error(
+                    routeData.error || 'Розвізний маршрут недоступний.'
+                );
+            }}
+            if (!routeData.points || !routeData.points.length) {{
+                throw new Error('Маршрут через усі точки не знайдено.');
+            }}
+
+            plannedRouteLayer = L.polyline(routeData.points, {{
+                color: '#087f8c',
+                weight: 6,
+                opacity: .9
+            }}).addTo(map);
+            map.fitBounds(
+                plannedRouteLayer.getBounds(),
+                {{padding: [45, 45]}}
+            );
+
+            const serviceMinutes = Math.max(
+                5,
+                Number(deliveryServiceMinutes.value) || 25
+            );
+            const dailyRestHours = Math.max(
+                9,
+                Math.min(
+                    11,
+                    Number(deliveryDailyRestHours.value) || 11
+                )
+            );
+            const schedule = calculateDeliverySchedule(
+                vehicle,
+                deliveryRoute,
+                routeData,
+                serviceMinutes,
+                dailyRestHours
+            );
+            const distanceKm = routeData.distance_m / 1000;
+            const fuelConsumption = Math.max(
+                0,
+                Number(fuelConsumptionInput.value) || 0
+            );
+            const fuelPrice = Math.max(
+                0,
+                Number(fuelPriceInput.value) || 0
+            );
+            const fuelLitres = distanceKm * fuelConsumption / 100;
+            const fuelCost = fuelLitres * fuelPrice;
+            const feasibilityClass = schedule.late_count
+                ? 'error'
+                : (schedule.has_tachograph ? 'ok' : 'warning');
+            const feasibilityTitle = schedule.late_count
+                ? 'Є ризик запізнення: ' +
+                    schedule.late_count + ' точок поза вікном.'
+                : (schedule.has_tachograph
+                    ? 'Маршрут узгоджено з актуальним тахографом.'
+                    : 'Маршрут розраховано, але тахограф не дав ' +
+                        'повного залишку часу.');
+
+            const stopRows = schedule.stops.map(function(stop) {{
+                let note = '';
+                if (stop.wait_seconds >= 60) {{
+                    note += ' · очікування ' +
+                        formatDuration(stop.wait_seconds);
+                }}
+                if (stop.late) {{
+                    note += ' · <strong>ЗАПІЗНЕННЯ</strong>';
+                }}
+                return '<li><strong>' + stop.index + '. ' +
+                    formatDateTime(stop.service_start) + '</strong> — ' +
+                    escapeHtml(stop.address) +
+                    ' (' + stop.window_start + '–' + stop.window_end + ')' +
+                    '<br><span class="small">виїзд ' +
+                    formatDateTime(stop.departure) +
+                    ', від попередньої точки ' +
+                    (stop.distance_m / 1000).toFixed(1) +
+                    ' км' + note + '</span></li>';
+            }}).join('');
+
+            measureResult.innerHTML =
+                '<strong>' + escapeHtml(deliveryRoute.label) + '</strong>' +
+                '<br>Автомобіль: <strong>' +
+                escapeHtml(vehicle.name) + '</strong>' +
+                '<br>Водій: <strong>' +
+                escapeHtml(vehicle.driver_name || 'не визначено') +
+                '</strong>' +
+                '<br>Відстань: <strong>' +
+                distanceKm.toFixed(1) + ' км</strong>' +
+                '<br>Чистий час керування: ' +
+                formatDuration(routeData.duration_s) +
+                '<br>Паливо: <strong>' + fuelLitres.toFixed(1) +
+                ' л ≈ ' + fuelCost.toFixed(2) + ' ' +
+                fuelCurrencySelect.value + '</strong>' +
+                '<br>Перерв 45 хв: ' + schedule.break_count +
+                '; добових відпочинків: ' +
+                schedule.daily_rest_count +
+                '<br><strong>Фізично вільний: ' +
+                formatDateTime(schedule.free_at) + '</strong>' +
+                '<br><strong>Рекомендоване наступне завантаження: ' +
+                formatDateTime(schedule.next_safe_start) + '</strong>' +
+                '<br><span class="small">' +
+                escapeHtml(schedule.next_recommendation) + '</span>' +
+                '<div class="route-feasibility ' +
+                feasibilityClass + '"><strong>' +
+                escapeHtml(feasibilityTitle) + '</strong></div>' +
+                '<ol class="route-stop-list">' + stopRows + '</ol>' +
+                '<br><strong>' +
+                escapeHtml(formatTollInformation(routeData)) +
+                '</strong>' +
+                '<br><span class="small">Розвантаження прийнято по ' +
+                serviceMinutes + ' хв на точку. Після виконання рейсу ' +
+                'порівняємо прогноз із фактом і скоригуємо норматив.</span>';
+        }} catch (error) {{
+            measureResult.textContent =
+                error.message ||
+                'Не вдалося прорахувати розвізний маршрут.';
+        }} finally {{
+            buildDeliveryRouteButton.disabled =
+                !deliveryMapConsent.checked ||
+                !deliveryStopsInput.value.trim();
+            buildDeliveryRouteButton.textContent =
+                'Прорахувати всі доставки';
+        }}
+    }}
+
     cityInput.addEventListener('keydown', function(event) {{
         if (event.key === 'Enter') {{
             event.preventDefault();
@@ -4767,6 +5722,10 @@ def gps():
         }}, 500);
     }});
     buildRouteButton.addEventListener('click', buildPlannedRoute);
+    buildDeliveryRouteButton.addEventListener(
+        'click',
+        buildDeliveryRoute
+    );
 
     measureButton.addEventListener('click', function() {{
         removePlannedRoute();
