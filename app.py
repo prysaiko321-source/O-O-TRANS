@@ -1625,6 +1625,10 @@ body.page-gps .powered-by {{
     gap: 7px;
 }}
 
+.gps-address-row.city-only {{
+    grid-template-columns: minmax(0, 1fr);
+}}
+
 .gps-address-row input {{
     margin-bottom: 0;
 }}
@@ -2866,13 +2870,30 @@ def geocode_search():
     global GEOCODE_LAST_REQUEST_AT
 
     query = request.args.get("q", "").strip()
+    search_mode = request.args.get("mode", "address").strip().lower()
+    selected_city = request.args.get("city", "").strip()[:100]
 
     if len(query) < 3:
         return jsonify({"results": []})
 
+    if search_mode not in {"city", "address"}:
+        search_mode = "address"
+
     query = query[:180]
-    language = current_language()
-    cache_key = (language, query.casefold())
+    try:
+        bias_latitude = float(request.args.get("lat", ""))
+        bias_longitude = float(request.args.get("lon", ""))
+    except (TypeError, ValueError):
+        bias_latitude = None
+        bias_longitude = None
+
+    cache_key = (
+        search_mode,
+        query.casefold(),
+        selected_city.casefold(),
+        round(bias_latitude, 3) if bias_latitude is not None else None,
+        round(bias_longitude, 3) if bias_longitude is not None else None
+    )
     now = time.monotonic()
     cached = GEOCODE_CACHE.get(cache_key)
 
@@ -2893,15 +2914,17 @@ def geocode_search():
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
 
+            photon_params = {
+                "q": query,
+                "limit": 15
+            }
+            if bias_latitude is not None and bias_longitude is not None:
+                photon_params["lat"] = bias_latitude
+                photon_params["lon"] = bias_longitude
+
             response = requests.get(
-                "https://nominatim.openstreetmap.org/search",
-                params={
-                    "q": query,
-                    "format": "jsonv2",
-                    "limit": 5,
-                    "addressdetails": 1,
-                    "accept-language": language
-                },
+                "https://photon.komoot.io/api/",
+                params=photon_params,
                 headers={
                     "User-Agent": (
                         "TRANVIQ/1.0 "
@@ -2912,33 +2935,105 @@ def geocode_search():
             )
             GEOCODE_LAST_REQUEST_AT = time.monotonic()
             response.raise_for_status()
-            raw_results = response.json()
+            raw_results = response.json().get("features") or []
 
         results = []
+        seen = set()
         for item in raw_results:
+            properties = item.get("properties") or {}
+            geometry = item.get("geometry") or {}
+            coordinates = geometry.get("coordinates") or []
             try:
-                latitude = float(item.get("lat"))
-                longitude = float(item.get("lon"))
-            except (TypeError, ValueError):
+                longitude = float(coordinates[0])
+                latitude = float(coordinates[1])
+            except (IndexError, TypeError, ValueError):
                 continue
 
-            display_name = str(
-                item.get("display_name") or ""
+            result_type = str(properties.get("type") or "").lower()
+            short_name = str(properties.get("name") or "").strip()
+            city_name = str(
+                properties.get("city")
+                or properties.get("town")
+                or properties.get("village")
+                or ""
             ).strip()
-            if not display_name:
+            country = str(properties.get("country") or "").strip()
+            state = str(properties.get("state") or "").strip()
+            country_code = str(
+                properties.get("countrycode") or ""
+            ).lower()
+
+            if not short_name:
                 continue
 
+            if search_mode == "city":
+                if result_type not in {
+                    "city", "town", "village", "hamlet"
+                }:
+                    continue
+                label_parts = [short_name, state, country]
+                dedupe_key = (
+                    short_name.casefold(),
+                    state.casefold(),
+                    country.casefold()
+                )
+            else:
+                if selected_city:
+                    locality_values = {
+                        city_name.casefold(),
+                        str(properties.get("district") or "").casefold(),
+                        str(properties.get("county") or "").casefold()
+                    }
+                    if selected_city.casefold() not in locality_values:
+                        continue
+
+                house_number = str(
+                    properties.get("housenumber") or ""
+                ).strip()
+                street_name = str(
+                    properties.get("street") or ""
+                ).strip()
+                if result_type == "house" and street_name:
+                    first_part = street_name
+                    if house_number:
+                        first_part += " " + house_number
+                else:
+                    first_part = short_name
+
+                postcode = str(
+                    properties.get("postcode") or ""
+                ).strip()
+                locality = city_name or selected_city
+                locality_part = " ".join(
+                    part for part in (postcode, locality) if part
+                )
+                label_parts = [first_part, locality_part, country]
+                dedupe_key = (
+                    first_part.casefold(),
+                    locality.casefold(),
+                    country.casefold()
+                )
+
+            if dedupe_key in seen:
+                continue
+            seen.add(dedupe_key)
+            display_name = ", ".join(
+                dict.fromkeys(
+                    part for part in label_parts if part
+                )
+            )
             results.append({
                 "name": display_name,
+                "short_name": short_name,
                 "latitude": latitude,
                 "longitude": longitude,
-                "type": str(item.get("type") or ""),
-                "country_code": str(
-                    (item.get("address") or {}).get(
-                        "country_code"
-                    ) or ""
-                ).lower()
+                "type": result_type,
+                "city": city_name or short_name,
+                "country_code": country_code
             })
+
+            if len(results) >= 7:
+                break
 
         GEOCODE_CACHE[cache_key] = (
             time.monotonic(),
@@ -3585,17 +3680,39 @@ def gps():
                     </label>
                 </div>
 
+                <label for="city-search">
+                    Місто
+                </label>
+                <div class="gps-address-row city-only">
+                    <input
+                        type="search"
+                        id="city-search"
+                        placeholder="Почніть вводити назву міста"
+                        autocomplete="off"
+                    >
+                </div>
+                <div
+                    class="gps-address-results"
+                    id="city-search-results"
+                    hidden
+                ></div>
+
                 <label for="destination-search">
-                    Куди їдемо
+                    Вулиця або точна адреса
                 </label>
                 <div class="gps-address-row">
                     <input
                         type="search"
                         id="destination-search"
-                        placeholder="Місто, вулиця або повна адреса"
+                        placeholder="Спочатку виберіть місто"
                         autocomplete="off"
+                        disabled
                     >
-                    <button type="button" id="address-search-button">
+                    <button
+                        type="button"
+                        id="address-search-button"
+                        disabled
+                    >
                         Шукати
                     </button>
                 </div>
@@ -3734,6 +3851,10 @@ def gps():
     );
     const vehicleSelect = document.getElementById(
         'route-vehicle-select'
+    );
+    const cityInput = document.getElementById('city-search');
+    const cityResults = document.getElementById(
+        'city-search-results'
     );
     const destinationInput = document.getElementById(
         'destination-search'
@@ -3942,9 +4063,12 @@ def gps():
     let measurePoints = [];
     let measureMarkers = [];
     let measureLayer = null;
+    let selectedCity = null;
     let selectedDestination = null;
     let plannedRouteLayer = null;
     let destinationMarker = null;
+    let citySearchTimer = null;
+    let citySearchRequest = 0;
     let addressSearchTimer = null;
     let addressSearchRequest = 0;
 
@@ -4032,6 +4156,27 @@ def gps():
         measureResult.textContent =
             'Адресу вибрано: ' + result.name +
             '. Натисніть «Прокласти маршрут».';
+    }}
+
+    function selectCityResult(result) {{
+        selectedCity = result;
+        selectedDestination = result;
+        cityInput.value = result.name;
+        cityResults.hidden = true;
+        cityResults.replaceChildren();
+        destinationInput.value = '';
+        destinationInput.disabled = false;
+        destinationInput.placeholder =
+            'Введіть вулицю у ' +
+            (result.short_name || result.city || 'місті');
+        addressSearchButton.disabled = false;
+        addressResults.hidden = true;
+        addressResults.replaceChildren();
+        buildRouteButton.disabled = !vehicles.length;
+        measureResult.textContent =
+            'Місто вибрано: ' + result.name +
+            '. Можна прокласти маршрут до міста або ввести вулицю.';
+        destinationInput.focus();
     }}
 
     function formatTollInformation(routeData) {{
@@ -4123,9 +4268,87 @@ def gps():
             'Перевірте правила віньєтки для країни призначення.';
     }}
 
+    async function searchCity() {{
+        const query = cityInput.value.trim();
+        const requestNumber = ++citySearchRequest;
+
+        selectedCity = null;
+        selectedDestination = null;
+        destinationInput.value = '';
+        destinationInput.disabled = true;
+        destinationInput.placeholder = 'Спочатку виберіть місто';
+        addressSearchButton.disabled = true;
+        addressResults.hidden = true;
+        buildRouteButton.disabled = true;
+        cityResults.replaceChildren();
+
+        if (query.length < 3) {{
+            cityResults.hidden = false;
+            cityResults.textContent =
+                'Введіть щонайменше 3 символи.';
+            return;
+        }}
+
+        cityResults.hidden = false;
+        cityResults.textContent = 'Шукаю міста...';
+
+        try {{
+            const response = await fetch(
+                '/api/geocode?mode=city&q=' +
+                encodeURIComponent(query),
+                {{headers: {{'Accept': 'application/json'}}}}
+            );
+            const data = await response.json();
+
+            if (requestNumber !== citySearchRequest) {{
+                return;
+            }}
+            if (!response.ok) {{
+                throw new Error(
+                    data.error || 'Пошук тимчасово недоступний.'
+                );
+            }}
+
+            cityResults.replaceChildren();
+            if (!data.results || !data.results.length) {{
+                cityResults.textContent =
+                    'Місто не знайдено. Введіть ще кілька літер.';
+                return;
+            }}
+
+            const resultsHint = document.createElement('div');
+            resultsHint.className = 'small';
+            resultsHint.textContent = 'Виберіть місто:';
+            cityResults.appendChild(resultsHint);
+
+            data.results.forEach(function(result) {{
+                const resultButton = document.createElement('button');
+                resultButton.type = 'button';
+                resultButton.className = 'gps-address-result';
+                resultButton.textContent = result.name;
+                resultButton.addEventListener('click', function() {{
+                    selectCityResult(result);
+                }});
+                cityResults.appendChild(resultButton);
+            }});
+        }} catch (error) {{
+            if (requestNumber !== citySearchRequest) {{
+                return;
+            }}
+            cityResults.textContent =
+                error.message || 'Пошук тимчасово недоступний.';
+        }}
+    }}
+
     async function searchAddress() {{
         const query = destinationInput.value.trim();
         const requestNumber = ++addressSearchRequest;
+
+        if (!selectedCity) {{
+            addressResults.hidden = false;
+            addressResults.textContent = 'Спочатку виберіть місто.';
+            return;
+        }}
 
         selectedDestination = null;
         buildRouteButton.disabled = true;
@@ -4145,7 +4368,13 @@ def gps():
 
         try {{
             const response = await fetch(
-                '/api/geocode?q=' + encodeURIComponent(query),
+                '/api/geocode?mode=address&q=' +
+                encodeURIComponent(query) +
+                '&city=' + encodeURIComponent(
+                    selectedCity.short_name || selectedCity.city
+                ) +
+                '&lat=' + encodeURIComponent(selectedCity.latitude) +
+                '&lon=' + encodeURIComponent(selectedCity.longitude),
                 {{headers: {{'Accept': 'application/json'}}}}
             );
             const data = await response.json();
@@ -4168,15 +4397,10 @@ def gps():
                 return;
             }}
 
-            if (data.results.length === 1) {{
-                selectRouteDestination(data.results[0]);
-                return;
-            }}
-
             const resultsHint = document.createElement('div');
             resultsHint.className = 'small';
             resultsHint.textContent =
-                'Виберіть потрібну адресу зі списку:';
+                'Виберіть вулицю або адресу:';
             addressResults.appendChild(resultsHint);
 
             data.results.forEach(function(result) {{
@@ -4328,25 +4552,69 @@ def gps():
         }}
     }}
 
+    cityInput.addEventListener('keydown', function(event) {{
+        if (event.key === 'Enter') {{
+            event.preventDefault();
+            window.clearTimeout(citySearchTimer);
+            searchCity();
+        }}
+    }});
+    cityInput.addEventListener('input', function() {{
+        window.clearTimeout(citySearchTimer);
+        citySearchRequest += 1;
+        selectedCity = null;
+        selectedDestination = null;
+        destinationInput.value = '';
+        destinationInput.disabled = true;
+        destinationInput.placeholder = 'Спочатку виберіть місто';
+        addressSearchButton.disabled = true;
+        addressResults.hidden = true;
+        buildRouteButton.disabled = true;
+
+        const query = cityInput.value.trim();
+        if (!query) {{
+            cityResults.hidden = true;
+            cityResults.replaceChildren();
+            return;
+        }}
+
+        cityResults.hidden = false;
+        if (query.length < 3) {{
+            cityResults.textContent =
+                'Введіть ще ' + (3 - query.length) +
+                ' символ(и), і з’являться міста.';
+            return;
+        }}
+
+        cityResults.textContent = 'Шукаю міста...';
+        citySearchTimer = window.setTimeout(function() {{
+            searchCity();
+        }}, 500);
+    }});
+
     addressSearchButton.addEventListener('click', searchAddress);
     destinationInput.addEventListener('keydown', function(event) {{
         if (event.key === 'Enter') {{
             event.preventDefault();
+            window.clearTimeout(addressSearchTimer);
             searchAddress();
         }}
     }});
     destinationInput.addEventListener('input', function() {{
         window.clearTimeout(addressSearchTimer);
-        selectedDestination = null;
-        buildRouteButton.disabled = true;
         addressSearchRequest += 1;
 
         const query = destinationInput.value.trim();
         if (!query) {{
+            selectedDestination = selectedCity;
+            buildRouteButton.disabled = !selectedCity || !vehicles.length;
             addressResults.hidden = true;
             addressResults.replaceChildren();
             return;
         }}
+
+        selectedDestination = null;
+        buildRouteButton.disabled = true;
 
         addressResults.hidden = false;
         if (query.length < 3) {{
