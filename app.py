@@ -131,15 +131,18 @@ VEHICLE_CONSUMPTION_CACHE = {}
 VEHICLES = [
     {
         "id": "aaaa9acd-5bb5-467e-8241-81444292bbfe",
-        "name": "Renault Master SH 9203G"
+        "name": "Renault Master SH 9203G",
+        "plate": "SH 9203G"
     },
     {
         "id": "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb",
-        "name": "Renault Master DX 9034F"
+        "name": "Renault Master DX 9034F",
+        "plate": "DX 9034F"
     },
     {
         "id": "f016af91-dee6-4e72-9f86-4b2e27a253c1",
-        "name": "Renault Master DX 5405A"
+        "name": "Renault Master DX 5405A",
+        "plate": "DX 5405A"
     }
 ]
 
@@ -1550,6 +1553,85 @@ body.page-gps .powered-by {{
     border-radius: 0;
 }}
 
+.vehicle-marker-icon {{
+    background: transparent;
+    border: 0;
+}}
+
+.vehicle-marker-pin {{
+    position: relative;
+    width: 28px;
+    height: 28px;
+    border: 3px solid #ffffff;
+    border-radius: 50% 50% 50% 0;
+    box-shadow: 0 3px 8px rgba(0, 0, 0, .38);
+    transform: rotate(-45deg);
+}}
+
+.vehicle-marker-pin::after {{
+    content: '';
+    position: absolute;
+    top: 7px;
+    left: 7px;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: rgba(255, 255, 255, .9);
+}}
+
+.vehicle-marker-moving {{ background: #149447; }}
+.vehicle-marker-idling {{ background: #f2ad16; }}
+.vehicle-marker-stopped {{ background: #d63b32; }}
+
+.vehicle-number-label {{
+    padding: 4px 7px !important;
+    border: 1px solid rgba(16, 42, 59, .24) !important;
+    border-radius: 6px !important;
+    background: rgba(255, 255, 255, .96) !important;
+    color: #102a3b !important;
+    box-shadow: 0 2px 7px rgba(0, 0, 0, .18) !important;
+    font-size: 12px !important;
+    font-weight: 900 !important;
+    white-space: nowrap;
+}}
+
+.vehicle-number-label::before {{
+    border-top-color: rgba(255, 255, 255, .96) !important;
+}}
+
+.gps-status-legend {{
+    position: absolute;
+    z-index: 750;
+    top: 12px;
+    right: 12px;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 7px 11px;
+    padding: 8px 10px;
+    border-radius: 9px;
+    background: rgba(255, 255, 255, .94);
+    box-shadow: 0 3px 12px rgba(15, 37, 51, .18);
+    color: #21313c;
+    font-size: 11px;
+    font-weight: 800;
+}}
+
+.gps-status-legend span {{
+    display: inline-flex;
+    align-items: center;
+    gap: 5px;
+}}
+
+.gps-status-dot {{
+    width: 10px;
+    height: 10px;
+    border-radius: 50%;
+}}
+
+.gps-status-dot.moving {{ background: #149447; }}
+.gps-status-dot.idling {{ background: #f2ad16; }}
+.gps-status-dot.stopped {{ background: #d63b32; }}
+
 .gps-map-toolbar {{
     position: absolute;
     z-index: 800;
@@ -1893,6 +1975,15 @@ body.page-gps .powered-by {{
     .gps-map-brand {{
         right: 8px;
         bottom: 21px;
+    }}
+
+    .gps-status-legend {{
+        top: auto;
+        right: auto;
+        bottom: 42px;
+        left: 8px;
+        gap: 5px 8px;
+        padding: 6px 8px;
     }}
 
     .gps-fuel-fields {{
@@ -3559,9 +3650,12 @@ def gps():
         markers.append({
             "id": vehicle["id"],
             "name": vehicle["name"],
+            "plate": vehicle.get("plate") or vehicle["name"],
             "latitude": latitude,
             "longitude": longitude,
             "speed": speed,
+            "ignition": bool(state.get("ignition")),
+            "activity": get_activity(state),
             "fuel": fuel,
             "fuel_consumption": fuel_consumption
         })
@@ -3582,6 +3676,18 @@ def gps():
     body = """
     <div class="gps-screen">
         <div id="map"></div>
+
+        <div class="gps-status-legend">
+            <span>
+                <i class="gps-status-dot moving"></i> Їде
+            </span>
+            <span>
+                <i class="gps-status-dot idling"></i> Заведена
+            </span>
+            <span>
+                <i class="gps-status-dot stopped"></i> Стоїть
+            </span>
+        </div>
 
         <div class="gps-map-toolbar" id="gps-map-toolbar">
             <button
@@ -3788,10 +3894,26 @@ def gps():
 
     vehicles.forEach(function(vehicle) {{
 
+        const moving = Number(vehicle.speed || 0) > 1;
+        const markerStatus = moving
+            ? 'moving'
+            : (vehicle.ignition ? 'idling' : 'stopped');
+        const markerColorClass =
+            'vehicle-marker-' + markerStatus;
+        const markerIcon = L.divIcon({{
+            className: 'vehicle-marker-icon',
+            html: '<div class="vehicle-marker-pin ' +
+                markerColorClass + '"></div>',
+            iconSize: [28, 36],
+            iconAnchor: [14, 34],
+            popupAnchor: [0, -31],
+            tooltipAnchor: [0, -30]
+        }});
+
         const marker = L.marker([
             vehicle.latitude,
             vehicle.longitude
-        ]).addTo(map);
+        ], {{icon: markerIcon}}).addTo(map);
 
         const speed =
             vehicle.speed === null
@@ -3803,8 +3925,23 @@ def gps():
             ? '—'
             : vehicle.fuel.toFixed(1) + '%';
 
+        const statusLabel = markerStatus === 'moving'
+            ? 'Їде'
+            : (markerStatus === 'idling' ? 'Заведена' : 'Стоїть');
+
+        const numberLabel = document.createElement('span');
+        numberLabel.textContent = vehicle.plate || vehicle.name;
+        marker.bindTooltip(numberLabel, {{
+            permanent: true,
+            direction: 'top',
+            offset: [0, -4],
+            opacity: 1,
+            className: 'vehicle-number-label'
+        }});
+
         marker.bindPopup(
             '<strong>' + vehicle.name + '</strong><br>' +
+            'Статус: ' + statusLabel + '<br>' +
             'Швидкість: ' + speed + '<br>' +
             'Паливо: ' + fuel + '<br>' +
             vehicle.latitude.toFixed(6) +
