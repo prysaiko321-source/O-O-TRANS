@@ -3053,6 +3053,54 @@ def parse_vehicle_profile(value):
     }
 
 
+A2_CATEGORY_1_STATIONS = [
+    ("Konin Modła", 18.25),
+    ("Sługocin", 18.10),
+    ("Słupca", 17.87),
+    ("Września", 17.58),
+    ("Poznań Wschód", 17.20),
+    ("Poznań Krzesiny", 17.02),
+    ("Poznań Luboń", 16.93),
+    ("Poznań Komorniki", 16.82),
+    ("Poznań Zachód", 16.72),
+    ("Buk", 16.52),
+    ("Nowy Tomyśl", 16.13),
+    ("Trzciel", 15.87),
+    ("Jordanowo", 15.54),
+    ("Torzym", 15.12),
+    ("Rzepin", 14.79),
+    ("Świecko", 14.59)
+]
+
+A2_CATEGORY_1_PRICES = [
+    [0, 0, 41, 41, 82, 82, 82, 82, 82, 97, 123, 126, 131, 138, 141, 141],
+    [0, 0, 41, 41, 82, 82, 82, 82, 82, 97, 123, 126, 131, 138, 141, 141],
+    [41, 41, 0, 17, 58, 58, 58, 58, 58, 73, 99, 102, 107, 114, 117, 117],
+    [41, 41, 17, 0, 41, 41, 41, 41, 41, 56, 82, 85, 90, 97, 100, 100],
+    [82, 82, 58, 41, 0, 0, 0, 0, 0, 15, 41, 44, 49, 56, 59, 59],
+    [82, 82, 58, 41, 0, 0, 0, 0, 0, 15, 41, 44, 49, 56, 59, 59],
+    [82, 82, 58, 41, 0, 0, 0, 0, 0, 15, 41, 44, 49, 56, 59, 59],
+    [82, 82, 58, 41, 0, 0, 0, 0, 0, 15, 41, 44, 49, 56, 59, 59],
+    [82, 82, 58, 41, 0, 0, 0, 0, 0, 15, 41, 44, 49, 56, 59, 59],
+    [97, 97, 73, 56, 15, 15, 15, 15, 15, 0, 26, 29, 34, 41, 44, 44],
+    [123, 123, 99, 82, 41, 41, 41, 41, 41, 26, 0, 3, 8, 15, 18, 18],
+    [126, 126, 102, 85, 44, 44, 44, 44, 44, 29, 3, 0, 5, 12, 15, 15],
+    [131, 131, 107, 90, 49, 49, 49, 49, 49, 34, 8, 5, 0, 7, 10, 10],
+    [138, 138, 114, 97, 56, 56, 56, 56, 56, 41, 15, 12, 7, 0, 3, 3],
+    [141, 141, 117, 100, 59, 59, 59, 59, 59, 44, 18, 15, 10, 3, 0, 0],
+    [141, 141, 117, 100, 59, 59, 59, 59, 59, 44, 18, 15, 10, 3, 0, 0]
+]
+
+
+def nearest_a2_station(longitude):
+    return min(
+        range(len(A2_CATEGORY_1_STATIONS)),
+        key=lambda index: abs(
+            A2_CATEGORY_1_STATIONS[index][1] - longitude
+        )
+    )
+
+
 def estimate_poland_a2_toll(route, vehicle_profile, avoid_tolls):
     """Estimate A2 toll when Google omits tollInfo.
 
@@ -3068,6 +3116,7 @@ def estimate_poland_a2_toll(route, vehicle_profile, avoid_tolls):
         return None
 
     distance_m = 0.0
+    a2_longitudes = []
     for leg in route.get("legs") or []:
         for step in leg.get("steps") or []:
             instruction = str(
@@ -3096,11 +3145,13 @@ def estimate_poland_a2_toll(route, vehicle_profile, avoid_tolls):
             # Do not count the German A2. The Polish A2 concession starts
             # near the border at Swiecko (longitude about 14.6 E).
             if locations:
-                average_longitude = sum(
-                    point[1] for point in locations
-                ) / len(locations)
-                if average_longitude < 14.5:
+                if max(point[1] for point in locations) < 14.5:
                     continue
+                a2_longitudes.extend(
+                    point[1]
+                    for point in locations
+                    if 14.45 <= point[1] <= 18.35
+                )
 
             try:
                 distance_m += float(step.get("distanceMeters") or 0)
@@ -3111,14 +3162,30 @@ def estimate_poland_a2_toll(route, vehicle_profile, avoid_tolls):
         return None
 
     distance_km = distance_m / 1000
-    rate_pln_per_km = 141 / 255
-    amount = max(3, round(distance_km * rate_pln_per_km))
+    amount = None
+    segment = ""
+    method = "official_average_rate"
+
+    if len(a2_longitudes) >= 2:
+        west_index = nearest_a2_station(min(a2_longitudes))
+        east_index = nearest_a2_station(max(a2_longitudes))
+        amount = A2_CATEGORY_1_PRICES[west_index][east_index]
+        west_name = A2_CATEGORY_1_STATIONS[west_index][0]
+        east_name = A2_CATEGORY_1_STATIONS[east_index][0]
+        segment = f"{west_name} – {east_name}"
+        method = "official_entry_exit_table"
+
+    if amount is None:
+        rate_pln_per_km = 141 / 255
+        amount = max(3, round(distance_km * rate_pln_per_km))
+
     return {
         "road": "A2",
         "amount": amount,
         "currency": "PLN",
         "distance_km": round(distance_km, 1),
-        "method": "official_average_rate",
+        "segment": segment,
+        "method": method,
         "tariff_date": "2026-09-11",
         "source_url": "https://www.autostrada-a2.pl/oplaty/"
     }
@@ -3878,6 +3945,8 @@ def gps():
     let selectedDestination = null;
     let plannedRouteLayer = null;
     let destinationMarker = null;
+    let addressSearchTimer = null;
+    let addressSearchRequest = 0;
 
     function removeMeasurementLayers() {{
         measureMarkers.forEach(function(item) {{
@@ -3986,11 +4055,15 @@ def gps():
 
         if (routeData.toll_estimate) {{
             const estimate = routeData.toll_estimate;
+            const segmentText = estimate.segment
+                ? '; ділянка ' + estimate.segment
+                : '';
             return 'Орієнтовна оплата ' + estimate.road + ': ≈ ' +
                 Number(estimate.amount).toFixed(0) + ' ' +
                 estimate.currency + ' (' +
                 Number(estimate.distance_km).toFixed(1) +
-                ' км платною дорогою; тариф від 11.09.2026).';
+                ' км платною дорогою' + segmentText +
+                '; тариф від 11.09.2026).';
         }}
 
         if (routeData.has_tolls) {{
@@ -4052,6 +4125,7 @@ def gps():
 
     async function searchAddress() {{
         const query = destinationInput.value.trim();
+        const requestNumber = ++addressSearchRequest;
 
         selectedDestination = null;
         buildRouteButton.disabled = true;
@@ -4075,6 +4149,10 @@ def gps():
                 {{headers: {{'Accept': 'application/json'}}}}
             );
             const data = await response.json();
+
+            if (requestNumber !== addressSearchRequest) {{
+                return;
+            }}
 
             if (!response.ok) {{
                 throw new Error(
@@ -4112,11 +4190,16 @@ def gps():
                 addressResults.appendChild(resultButton);
             }});
         }} catch (error) {{
+            if (requestNumber !== addressSearchRequest) {{
+                return;
+            }}
             addressResults.textContent =
                 error.message || 'Пошук тимчасово недоступний.';
         }} finally {{
-            addressSearchButton.disabled = false;
-            addressSearchButton.textContent = 'Шукати';
+            if (requestNumber === addressSearchRequest) {{
+                addressSearchButton.disabled = false;
+                addressSearchButton.textContent = 'Шукати';
+            }}
         }}
     }}
 
@@ -4253,8 +4336,30 @@ def gps():
         }}
     }});
     destinationInput.addEventListener('input', function() {{
+        window.clearTimeout(addressSearchTimer);
         selectedDestination = null;
         buildRouteButton.disabled = true;
+        addressSearchRequest += 1;
+
+        const query = destinationInput.value.trim();
+        if (!query) {{
+            addressResults.hidden = true;
+            addressResults.replaceChildren();
+            return;
+        }}
+
+        addressResults.hidden = false;
+        if (query.length < 3) {{
+            addressResults.textContent =
+                'Введіть ще ' + (3 - query.length) +
+                ' символ(и), і з’являться підказки.';
+            return;
+        }}
+
+        addressResults.textContent = 'Шукаю варіанти...';
+        addressSearchTimer = window.setTimeout(function() {{
+            searchAddress();
+        }}, 500);
     }});
     buildRouteButton.addEventListener('click', buildPlannedRoute);
 
