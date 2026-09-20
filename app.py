@@ -950,6 +950,56 @@ def get_vehicle_history(vehicle_id, date_string):
         }
 
 
+@app.route("/api/vehicle-day-summary")
+def vehicle_day_summary():
+    vehicle_id = normalize_vehicle_id(
+        request.args.get("vehicle", "")
+    )
+    date_string = request.args.get(
+        "date",
+        datetime.now(POLAND_TZ).strftime("%Y-%m-%d")
+    )
+
+    if not vehicle_by_id(vehicle_id):
+        return jsonify({"error": "Автомобіль не знайдено."}), 404
+
+    result = get_vehicle_history(vehicle_id, date_string)
+    if not result["ok"]:
+        return jsonify({
+            "error": result["error"],
+            "available": False
+        }), 503
+
+    points = result["points"]
+    metrics = calculate_history_metrics(points)
+    first_movement = None
+
+    for point in points:
+        speed = safe_float(point.get("speed")) or 0
+        activity = str(point.get("activity") or "").lower()
+        if (
+            speed > 2
+            or activity == "driving"
+            or bool(point.get("ignition"))
+        ):
+            first_movement = point
+            break
+
+    return jsonify({
+        "available": bool(points),
+        "date": date_string,
+        "distance_km": round(metrics["distance_km"], 1),
+        "driving_seconds": round(metrics["driving_seconds"]),
+        "parking_seconds": round(metrics["parking_seconds"]),
+        "idling_seconds": round(metrics["idling_seconds"]),
+        "first_movement_at": (
+            first_movement.get("time")
+            if first_movement else None
+        ),
+        "last_point_at": points[-1].get("time") if points else None
+    })
+
+
 def get_vehicle_timeline_totals(vehicle_id, date_string):
     if not NAVIREC_TOKEN:
         return None
@@ -4808,12 +4858,34 @@ def gps():
         return new Date(routeDate + 'T' + clock + ':00');
     }}
 
+    async function loadVehicleDaySummary(vehicleId) {{
+        try {{
+            const today = new Intl.DateTimeFormat('sv-SE', {{
+                timeZone: 'Europe/Warsaw',
+                year: 'numeric',
+                month: '2-digit',
+                day: '2-digit'
+            }}).format(new Date());
+            const response = await fetch(
+                '/api/vehicle-day-summary?vehicle=' +
+                encodeURIComponent(vehicleId) +
+                '&date=' + encodeURIComponent(today),
+                {{headers: {{'Accept': 'application/json'}}}}
+            );
+            const data = await response.json();
+            return response.ok && data.available ? data : null;
+        }} catch (error) {{
+            return null;
+        }}
+    }}
+
     function calculateDeliverySchedule(
         vehicle,
         deliveryRoute,
         routeData,
         serviceMinutes,
-        dailyRestHours
+        dailyRestHours,
+        daySummary
     ) {{
         const now = new Date();
         const standardDailyDriving = 9 * 3600;
@@ -4862,6 +4934,30 @@ def gps():
             : 0;
         const restBeforeStart =
             parkingRestSeconds >= dailyRestSeconds;
+        const shortBreakBeforeStart =
+            parkingRestSeconds >= 45 * 60;
+        const todayDrivingSeconds = daySummary
+            ? Math.max(0, Number(daySummary.driving_seconds) || 0)
+            : 0;
+        const firstMovementAt = daySummary &&
+            daySummary.first_movement_at
+            ? new Date(daySummary.first_movement_at)
+            : null;
+        const validFirstMovement = firstMovementAt &&
+            !Number.isNaN(firstMovementAt.getTime());
+        const elapsedShiftSeconds = validFirstMovement &&
+            routeStart > firstMovementAt
+            ? Math.max(
+                0,
+                Math.round(
+                    (routeStart.getTime() -
+                        firstMovementAt.getTime()) / 1000
+                )
+            )
+            : 0;
+        const pauseType = restBeforeStart
+            ? 'daily_rest'
+            : (shortBreakBeforeStart ? 'break_45' : 'ordinary_stop');
         const tachographAge = numberOrNull(vehicle.age_seconds);
         const tachoFresh = tachographAge === null || tachographAge <= 1800;
         const hasTachograph = Boolean(
@@ -4881,10 +4977,20 @@ def gps():
 
         let dailyRemaining = hasTachograph && dailyCandidates.length
             ? Math.min.apply(null, dailyCandidates)
-            : standardDailyDriving;
+            : (restBeforeStart
+                ? standardDailyDriving
+                : Math.max(
+                    0,
+                    standardDailyDriving - todayDrivingSeconds
+                ));
         let continuousRemaining = hasTachograph
             ? numberOrNull(vehicle.time_until_break_s)
-            : standardContinuousDriving;
+            : (shortBreakBeforeStart
+                ? standardContinuousDriving
+                : Math.max(
+                    0,
+                    standardContinuousDriving - todayDrivingSeconds
+                ));
         if (continuousRemaining === null) {{
             continuousRemaining = hasTachograph
                 ? numberOrNull(vehicle.remaining_current_driving_s)
@@ -4895,7 +5001,9 @@ def gps():
         }}
         let shiftRemaining = hasTachograph
             ? numberOrNull(vehicle.time_until_daily_rest_s)
-            : standardShift;
+            : (restBeforeStart
+                ? standardShift
+                : Math.max(0, standardShift - elapsedShiftSeconds));
         if (shiftRemaining === null) {{
             shiftRemaining = standardShift;
         }}
@@ -5057,6 +5165,16 @@ def gps():
             has_tachograph: hasTachograph,
             rest_before_start: restBeforeStart,
             parking_rest_s: parkingRestSeconds,
+            pause_type: pauseType,
+            previous_distance_km: daySummary
+                ? Number(daySummary.distance_km) || 0
+                : null,
+            previous_driving_s: daySummary
+                ? todayDrivingSeconds
+                : null,
+            first_movement_at: validFirstMovement
+                ? firstMovementAt
+                : null,
             route_start: routeStart,
             free_at: freeAt,
             next_safe_start: nextSafeStart,
@@ -5644,6 +5762,7 @@ def gps():
         const vehicleProfile = selectedVehicleProfile();
 
         try {{
+            const daySummaryPromise = loadVehicleDaySummary(vehicle.id);
             const stops = await geocodeDeliveryStops(parsedStops);
             const deliveryRoute = {{
                 label: 'Розвізка ' + deliveryRouteDate.value,
@@ -5707,6 +5826,10 @@ def gps():
                 throw new Error('Маршрут через усі точки не знайдено.');
             }}
 
+            buildDeliveryRouteButton.textContent =
+                'Аналізую сьогоднішню роботу і паузу...';
+            const daySummary = await daySummaryPromise;
+
             plannedRouteLayer = L.polyline(routeData.points, {{
                 color: '#087f8c',
                 weight: 6,
@@ -5733,7 +5856,8 @@ def gps():
                 deliveryRoute,
                 routeData,
                 serviceMinutes,
-                dailyRestHours
+                dailyRestHours,
+                daySummary
             );
             const distanceKm = routeData.distance_m / 1000;
             const fuelConsumption = Math.max(
@@ -5746,6 +5870,11 @@ def gps():
             );
             const fuelLitres = distanceKm * fuelConsumption / 100;
             const fuelCost = fuelLitres * fuelPrice;
+            const pauseLabel = schedule.pause_type === 'daily_rest'
+                ? 'довгий добовий відпочинок'
+                : (schedule.pause_type === 'break_45'
+                    ? 'перерва щонайменше 45 хвилин'
+                    : 'коротка або звичайна стоянка');
             const feasibilityClass = schedule.late_count
                 ? 'error'
                 : (schedule.has_tachograph || schedule.rest_before_start
@@ -5796,13 +5925,25 @@ def gps():
                 formatDuration(routeData.duration_s) +
                 '<br>Планований виїзд: <strong>' +
                 formatDateTime(schedule.route_start) + '</strong>' +
+                (schedule.first_movement_at
+                    ? '<br>Початок сьогоднішньої роботи: ' +
+                        '<strong>' +
+                        formatDateTime(schedule.first_movement_at) +
+                        '</strong>'
+                    : '') +
+                (schedule.previous_distance_km !== null
+                    ? '<br>Сьогодні вже пройдено: <strong>' +
+                        schedule.previous_distance_km.toFixed(1) +
+                        ' км</strong>; керування: ' +
+                        formatDuration(schedule.previous_driving_s)
+                    : '') +
                 (schedule.parking_rest_s > 0
                     ? '<br>Стоянка до виїзду: <strong>' +
                         formatDuration(schedule.parking_rest_s) +
-                        '</strong>' +
+                        '</strong> — ' + pauseLabel +
                         (schedule.rest_before_start
-                            ? ' — добову паузу набрано'
-                            : ' — повну добову паузу ще не набрано')
+                            ? '; добову паузу набрано'
+                            : '; повну добову паузу ще не набрано')
                     : '') +
                 '<br>Паливо: <strong>' + fuelLitres.toFixed(1) +
                 ' л ≈ ' + fuelCost.toFixed(2) + ' ' +
