@@ -4673,7 +4673,7 @@ def gps():
 
     function updateFuelConsumption() {{
         const selectedVehicle = vehicles.find(function(item) {{
-            return item.id === vehicleSelect.value;
+            return String(item.id) === String(vehicleSelect.value);
         }});
         const profile = vehicleProfiles[vehicleProfileSelect.value]
             || vehicleProfiles.van_35;
@@ -5489,7 +5489,7 @@ def gps():
         }}
 
         const vehicle = vehicles.find(function(item) {{
-            return item.id === vehicleSelect.value;
+            return String(item.id) === String(vehicleSelect.value);
         }});
 
         if (!vehicle) {{
@@ -5737,7 +5737,7 @@ def gps():
         }}
 
         const vehicle = vehicles.find(function(item) {{
-            return item.id === vehicleSelect.value;
+            return String(item.id) === String(vehicleSelect.value);
         }});
         if (!vehicle) {{
             measureResult.textContent =
