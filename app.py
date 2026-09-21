@@ -4633,6 +4633,13 @@ def gps():
             !deliveryStopsInput.value.trim();
     }});
 
+    // Chrome can restore the textarea and checkbox values after a reload
+    // without firing input/change events. Synchronize the button once on load
+    // so a restored delivery form does not remain disabled.
+    buildDeliveryRouteButton.disabled =
+        !deliveryMapConsent.checked ||
+        !deliveryStopsInput.value.trim();
+
     if (!vehicles.length) {{
         const option = document.createElement('option');
         option.textContent = 'Немає актуальних GPS-координат';
@@ -4673,7 +4680,7 @@ def gps():
 
     function updateFuelConsumption() {{
         const selectedVehicle = vehicles.find(function(item) {{
-            return String(item.id) === String(vehicleSelect.value);
+            return item.id === vehicleSelect.value;
         }});
         const profile = vehicleProfiles[vehicleProfileSelect.value]
             || vehicleProfiles.van_35;
@@ -5489,7 +5496,7 @@ def gps():
         }}
 
         const vehicle = vehicles.find(function(item) {{
-            return String(item.id) === String(vehicleSelect.value);
+            return item.id === vehicleSelect.value;
         }});
 
         if (!vehicle) {{
@@ -5737,7 +5744,7 @@ def gps():
         }}
 
         const vehicle = vehicles.find(function(item) {{
-            return String(item.id) === String(vehicleSelect.value);
+            return item.id === vehicleSelect.value;
         }});
         if (!vehicle) {{
             measureResult.textContent =
