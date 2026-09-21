@@ -4343,7 +4343,7 @@ def gps():
                     <button
                         type="button"
                         id="build-delivery-route-button"
-                        disabled
+                        onclick="buildDeliveryRoute()"
                     >
                         Прорахувати всі доставки
                     </button>
@@ -4632,13 +4632,6 @@ def gps():
             !deliveryMapConsent.checked ||
             !deliveryStopsInput.value.trim();
     }});
-
-    // Chrome can restore the textarea and checkbox values after a reload
-    // without firing input/change events. Synchronize the button once on load
-    // so a restored delivery form does not remain disabled.
-    buildDeliveryRouteButton.disabled =
-        !deliveryMapConsent.checked ||
-        !deliveryStopsInput.value.trim();
 
     if (!vehicles.length) {{
         const option = document.createElement('option');
@@ -6067,10 +6060,6 @@ def gps():
         }}, 500);
     }});
     buildRouteButton.addEventListener('click', buildPlannedRoute);
-    buildDeliveryRouteButton.addEventListener(
-        'click',
-        buildDeliveryRoute
-    );
 
     measureButton.addEventListener('click', function() {{
         removePlannedRoute();
