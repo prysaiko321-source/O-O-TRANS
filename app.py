@@ -4898,15 +4898,22 @@ def gps():
             ? Number(legs[0].duration_s) || 0
             : routeData.duration_s /
                 Math.max(1, deliveryRoute.stops.length);
-        const firstWindowStart = deliveryWindow(
-            deliveryRoute.date,
-            deliveryRoute.stops[0].window_start
+        const firstStopHasWindow = Boolean(
+            deliveryRoute.stops[0].window_start &&
+            deliveryRoute.stops[0].window_end
         );
-        let routeStart = new Date(
-            firstWindowStart.getTime() - firstLegSeconds * 1000
-        );
-        if (routeStart < now) {{
-            routeStart = new Date(now.getTime());
+        let routeStart = new Date(now.getTime());
+        if (firstStopHasWindow) {{
+            const firstWindowStart = deliveryWindow(
+                deliveryRoute.date,
+                deliveryRoute.stops[0].window_start
+            );
+            routeStart = new Date(
+                firstWindowStart.getTime() - firstLegSeconds * 1000
+            );
+            if (routeStart < now) {{
+                routeStart = new Date(now.getTime());
+            }}
         }}
         let cursor = new Date(routeStart.getTime());
 
@@ -5068,17 +5075,18 @@ def gps():
             drive(Number(leg.duration_s) || 0);
 
             const arrival = new Date(cursor.getTime());
-            const windowStart = deliveryWindow(
-                deliveryRoute.date,
-                stop.window_start
+            const hasWindow = Boolean(
+                stop.window_start && stop.window_end
             );
-            const windowEnd = deliveryWindow(
-                deliveryRoute.date,
-                stop.window_end
-            );
+            const windowStart = hasWindow
+                ? deliveryWindow(deliveryRoute.date, stop.window_start)
+                : null;
+            const windowEnd = hasWindow
+                ? deliveryWindow(deliveryRoute.date, stop.window_end)
+                : null;
             let waitSeconds = 0;
 
-            if (cursor < windowStart) {{
+            if (hasWindow && cursor < windowStart) {{
                 waitSeconds = Math.round(
                     (windowStart.getTime() - cursor.getTime()) / 1000
                 );
@@ -5096,7 +5104,7 @@ def gps():
             }}
 
             const serviceStart = new Date(cursor.getTime());
-            const late = serviceStart > windowEnd;
+            const late = hasWindow && serviceStart > windowEnd;
             if (late) {{
                 lateCount += 1;
             }}
@@ -5629,18 +5637,33 @@ def gps():
             const windowStart = parts[1] || '';
             const windowEnd = parts[2] || '';
             const validTime = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+            const hasAnyWindow = Boolean(windowStart || windowEnd);
 
-            if (!address || !validTime.test(windowStart) ||
-                    !validTime.test(windowEnd)) {{
+            if (!address) {{
+                throw new Error(
+                    'Рядок ' + (index + 1) + ': адреса порожня.'
+                );
+            }}
+            if (parts.length > 3) {{
                 throw new Error(
                     'Рядок ' + (index + 1) +
-                    ': формат має бути «адреса | 08:00 | 10:00».'
+                    ': використайте «адреса» або ' +
+                    '«адреса | 08:00 | 10:00».'
+                );
+            }}
+            if (hasAnyWindow &&
+                    (!validTime.test(windowStart) ||
+                     !validTime.test(windowEnd))) {{
+                throw new Error(
+                    'Рядок ' + (index + 1) +
+                    ': якщо задаєте час, формат має бути ' +
+                    '«адреса | 08:00 | 10:00».'
                 );
             }}
             return {{
                 address: address,
-                window_start: windowStart,
-                window_end: windowEnd
+                window_start: hasAnyWindow ? windowStart : null,
+                window_end: hasAnyWindow ? windowEnd : null
             }};
         }});
     }}
@@ -5791,7 +5814,9 @@ def gps():
                 marker.bindPopup(
                     '<strong>Доставка ' + (index + 1) + '</strong><br>' +
                     escapeHtml(stop.address) + '<br>' +
-                    stop.window_start + '–' + stop.window_end
+                    (stop.window_start && stop.window_end
+                        ? stop.window_start + '–' + stop.window_end
+                        : 'Без часового вікна')
                 );
                 deliveryMarkers.push(marker);
             }});
@@ -5904,7 +5929,9 @@ def gps():
                 return '<li><strong>' + stop.index + '. ' +
                     formatDateTime(stop.service_start) + '</strong> — ' +
                     escapeHtml(stop.address) +
-                    ' (' + stop.window_start + '–' + stop.window_end + ')' +
+                    (stop.window_start && stop.window_end
+                        ? ' (' + stop.window_start + '–' + stop.window_end + ')'
+                        : ' (без часового вікна)') +
                     '<br><span class="small">виїзд ' +
                     formatDateTime(stop.departure) +
                     ', від попередньої точки ' +
