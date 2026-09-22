@@ -4569,21 +4569,28 @@ def gps():
             className: 'vehicle-number-label'
         }});
 
-        marker.bindPopup(
-            '<strong>' + vehicle.name + '</strong><br>' +
+        const baseVehiclePopupHtml =
+            '<strong>' + escapeHtml(vehicle.name) + '</strong><br>' +
             'Статус: ' + statusLabel + '<br>' +
             'Швидкість: ' + speed + '<br>' +
             'Паливо: ' + fuel + '<br>' +
             vehicle.latitude.toFixed(6) +
             ', ' +
-            vehicle.longitude.toFixed(6)
-        );
+            vehicle.longitude.toFixed(6);
 
-        marker.on('click', function() {{
+        marker.bindPopup(baseVehiclePopupHtml);
+
+        marker.on('click', async function() {{
             if (!vehicleSelect) return;
             vehicleSelect.value = vehicle.id;
             updateFuelConsumption();
-            restoreDeliveryRouteForVehicle(vehicle.id);
+            await restoreDeliveryRouteForVehicle(vehicle.id);
+            marker.openPopup();
+            await updateVehiclePopupRouteDistances(
+                vehicle,
+                marker,
+                baseVehiclePopupHtml
+            );
         }});
 
         if (vehicle.id === selectedId) {{
@@ -5743,6 +5750,146 @@ def gps():
         }}
     }}
 
+    async function requestRouteDistanceKm(
+        vehicle,
+        destination,
+        waypoints,
+        savedRoute
+    ) {{
+        const response = await fetch('/api/route', {{
+            method: 'POST',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{
+                origin: {{
+                    latitude: vehicle.latitude,
+                    longitude: vehicle.longitude
+                }},
+                destination: {{
+                    latitude: destination.latitude,
+                    longitude: destination.longitude
+                }},
+                waypoints: (waypoints || []).map(function(stop) {{
+                    return {{
+                        latitude: stop.latitude,
+                        longitude: stop.longitude
+                    }};
+                }}),
+                avoid_tolls: Boolean(savedRoute.avoid_tolls),
+                vehicle_profile:
+                    savedRoute.vehicle_profile || 'van'
+            }})
+        }});
+        const data = await response.json();
+        if (!response.ok || data.distance_m === undefined) {{
+            throw new Error(data.error || 'Маршрут недоступний.');
+        }}
+        return Number(data.distance_m) / 1000;
+    }}
+
+    async function updateVehiclePopupRouteDistances(
+        vehicle,
+        marker,
+        baseHtml
+    ) {{
+        const saved = readSavedDeliveryRoute(vehicle.id);
+        if (!saved || !saved.delivery_route ||
+                !saved.delivery_route.stops.length) {{
+            marker.setPopupContent(
+                baseHtml +
+                '<br><strong>Активного маршруту немає</strong>'
+            );
+            return;
+        }}
+
+        marker.setPopupContent(
+            baseHtml +
+            '<br><strong>Маршрут:</strong> рахую залишок…'
+        );
+
+        try {{
+            const deliveryRoute = saved.delivery_route;
+            let statuses = [];
+            try {{
+                const statusResponse = await fetch(
+                    '/api/delivery-stop-status',
+                    {{
+                        method: 'POST',
+                        headers: {{'Content-Type': 'application/json'}},
+                        body: JSON.stringify({{
+                            vehicle_id: vehicle.id,
+                            date: deliveryRoute.date,
+                            stops: deliveryRoute.stops.map(function(stop) {{
+                                return {{
+                                    latitude: stop.latitude,
+                                    longitude: stop.longitude
+                                }};
+                            }})
+                        }})
+                    }}
+                );
+                const statusData = await statusResponse.json();
+                if (statusResponse.ok &&
+                        Array.isArray(statusData.statuses)) {{
+                    statuses = statusData.statuses;
+                }}
+            }} catch (error) {{
+                statuses = [];
+            }}
+
+            let firstRemainingIndex = 0;
+            while (
+                firstRemainingIndex < deliveryRoute.stops.length &&
+                statuses[firstRemainingIndex] === 'completed'
+            ) {{
+                firstRemainingIndex += 1;
+            }}
+
+            if (firstRemainingIndex >= deliveryRoute.stops.length) {{
+                marker.setPopupContent(
+                    baseHtml +
+                    '<br><strong>Маршрут завершено</strong>'
+                );
+                return;
+            }}
+
+            const remainingStops = deliveryRoute.stops.slice(
+                firstRemainingIndex
+            );
+            const nextStop = remainingStops[0];
+            const lastStop = remainingStops[remainingStops.length - 1];
+
+            const distances = await Promise.all([
+                requestRouteDistanceKm(
+                    vehicle,
+                    nextStop,
+                    [],
+                    saved
+                ),
+                requestRouteDistanceKm(
+                    vehicle,
+                    lastStop,
+                    remainingStops.slice(0, -1),
+                    saved
+                )
+            ]);
+
+            marker.setPopupContent(
+                baseHtml +
+                '<br><strong>До найближчої вигрузки:</strong> ' +
+                distances[0].toFixed(1) + ' км' +
+                '<br><strong>До останньої вигрузки:</strong> ' +
+                distances[1].toFixed(1) + ' км'
+            );
+        }} catch (error) {{
+            marker.setPopupContent(
+                baseHtml +
+                '<br><strong>Маршрут є</strong>' +
+                '<br><span class="small">Не вдалося оновити ' +
+                'залишок кілометрів.</span>'
+            );
+        }}
+    }}
+
     function deliveryRouteStorageKey(vehicleId) {{
         return 'tranviq_delivery_route_' + vehicleId;
     }}
@@ -6320,6 +6467,7 @@ def gps():
                 service_minutes: serviceMinutes,
                 daily_rest_hours: dailyRestHours,
                 vehicle_profile: vehicleProfile,
+                avoid_tolls: avoidTolls,
                 summary_html: measureResult.innerHTML,
                 saved_at: new Date().toISOString()
             }});
