@@ -4824,7 +4824,10 @@ def gps():
     }}
 
     updateFuelConsumption();
-    vehicleSelect.addEventListener('change', updateFuelConsumption);
+    vehicleSelect.addEventListener('change', function() {{
+        updateFuelConsumption();
+        restoreDeliveryRouteForVehicle(vehicleSelect.value);
+    }});
     vehicleProfileSelect.addEventListener(
         'change',
         updateFuelConsumption
@@ -4872,6 +4875,7 @@ def gps():
     let destinationMarker = null;
     let deliveryMarkers = [];
     let deliveryStatusTimer = null;
+    let activeDeliveryRoute = null;
     let citySearchTimer = null;
     let citySearchRequest = 0;
     let addressSearchTimer = null;
@@ -5732,6 +5736,130 @@ def gps():
         }}
     }}
 
+    function deliveryRouteStorageKey(vehicleId) {{
+        return 'tranviq_delivery_route_' + vehicleId;
+    }}
+
+    function saveDeliveryRouteForVehicle(savedRoute) {{
+        if (!savedRoute || !savedRoute.vehicle_id) return;
+        try {{
+            localStorage.setItem(
+                deliveryRouteStorageKey(savedRoute.vehicle_id),
+                JSON.stringify(savedRoute)
+            );
+        }} catch (error) {{}}
+    }}
+
+    function removeSavedDeliveryRoute(vehicleId) {{
+        if (!vehicleId) return;
+        try {{
+            localStorage.removeItem(deliveryRouteStorageKey(vehicleId));
+        }} catch (error) {{}}
+    }}
+
+    function readSavedDeliveryRoute(vehicleId) {{
+        if (!vehicleId) return null;
+        try {{
+            const raw = localStorage.getItem(
+                deliveryRouteStorageKey(vehicleId)
+            );
+            if (!raw) return null;
+            const saved = JSON.parse(raw);
+            if (!saved || saved.vehicle_id !== vehicleId ||
+                    !saved.delivery_route || !saved.route_data) {{
+                return null;
+            }}
+            return saved;
+        }} catch (error) {{
+            return null;
+        }}
+    }}
+
+    function drawDeliveryStopMarkers(deliveryRoute) {{
+        deliveryRoute.stops.forEach(function(stop, index) {{
+            const marker = L.marker(
+                [stop.latitude, stop.longitude],
+                {{icon: deliveryStopIcon(index + 1, 'pending')}}
+            ).addTo(map);
+            marker.bindPopup(
+                '<strong>Доставка ' + (index + 1) + '</strong><br>' +
+                escapeHtml(stop.address) + '<br>' +
+                (stop.window_start && stop.window_end
+                    ? stop.window_start + '–' + stop.window_end
+                    : 'Без часового вікна') +
+                '<br><strong>Ще не вигружено</strong>'
+            );
+            deliveryMarkers.push(marker);
+        }});
+    }}
+
+    async function restoreDeliveryRouteForVehicle(vehicleId) {{
+        removeMeasurementLayers();
+        removePlannedRoute();
+        activeDeliveryRoute = null;
+
+        const saved = readSavedDeliveryRoute(vehicleId);
+        if (!saved) {{
+            deliveryStopsInput.value = '';
+            measureResult.textContent =
+                'Для цього автомобіля активного розвізного маршруту немає.';
+            buildDeliveryRouteButton.disabled =
+                !deliveryMapConsent.checked;
+            return;
+        }}
+
+        const vehicle = vehicles.find(function(item) {{
+            return item.id === vehicleId;
+        }});
+        if (!vehicle) return;
+
+        activeDeliveryRoute = saved.delivery_route;
+        deliveryStopsInput.value = saved.input_text || '';
+        deliveryRouteDate.value = saved.delivery_route.date ||
+            deliveryRouteDate.value;
+        if (saved.service_minutes) {{
+            deliveryServiceMinutes.value = saved.service_minutes;
+        }}
+        if (saved.daily_rest_hours) {{
+            deliveryDailyRestHours.value = saved.daily_rest_hours;
+        }}
+        if (saved.vehicle_profile) {{
+            vehicleProfileSelect.value = saved.vehicle_profile;
+        }}
+
+        drawDeliveryStopMarkers(saved.delivery_route);
+        if (saved.route_data.points && saved.route_data.points.length) {{
+            plannedRouteLayer = L.polyline(saved.route_data.points, {{
+                color: '#087f8c',
+                weight: 6,
+                opacity: .9
+            }}).addTo(map);
+            map.fitBounds(
+                plannedRouteLayer.getBounds(),
+                {{padding: [45, 45]}}
+            );
+        }}
+        if (saved.summary_html) {{
+            measureResult.innerHTML = saved.summary_html;
+        }} else {{
+            measureResult.innerHTML =
+                '<strong>' + escapeHtml(saved.delivery_route.label) +
+                '</strong><br>Відновлено збережений маршрут для <strong>' +
+                escapeHtml(vehicle.name) + '</strong>.';
+        }}
+
+        await refreshDeliveryStopStatuses(
+            vehicle,
+            saved.delivery_route
+        );
+        deliveryStatusTimer = window.setInterval(function() {{
+            refreshDeliveryStopStatuses(vehicle, saved.delivery_route);
+        }}, 60000);
+        buildDeliveryRouteButton.disabled =
+            !deliveryMapConsent.checked ||
+            !deliveryStopsInput.value.trim();
+    }}
+
     function parseDeliveryStopLines() {{
         const lines = deliveryStopsInput.value
             .split(/\\r?\\n/)
@@ -5921,6 +6049,12 @@ def gps():
                     '</strong>'
                 );
             }});
+            const lastStatus = data.statuses[
+                deliveryRoute.stops.length - 1
+            ];
+            if (lastStatus === 'completed') {{
+                removeSavedDeliveryRoute(vehicle.id);
+            }}
         }} catch (error) {{
             // Статуси не повинні ламати сам маршрут.
         }}
@@ -5979,6 +6113,7 @@ def gps():
                 date: deliveryRouteDate.value,
                 stops: stops
             }};
+            activeDeliveryRoute = deliveryRoute;
             const destination = stops[stops.length - 1];
             const waypoints = stops.slice(0, -1).map(function(stop) {{
                 return {{
@@ -5987,21 +6122,7 @@ def gps():
                 }};
             }});
 
-            stops.forEach(function(stop, index) {{
-                const marker = L.marker(
-                    [stop.latitude, stop.longitude],
-                    {{icon: deliveryStopIcon(index + 1, 'pending')}}
-                ).addTo(map);
-                marker.bindPopup(
-                    '<strong>Доставка ' + (index + 1) + '</strong><br>' +
-                    escapeHtml(stop.address) + '<br>' +
-                    (stop.window_start && stop.window_end
-                        ? stop.window_start + '–' + stop.window_end
-                        : 'Без часового вікна') +
-                    '<br><strong>Ще не вигружено</strong>'
-                );
-                deliveryMarkers.push(marker);
-            }});
+            drawDeliveryStopMarkers(deliveryRoute);
 
             await refreshDeliveryStopStatuses(vehicle, deliveryRoute);
             deliveryStatusTimer = window.setInterval(function() {{
@@ -6183,6 +6304,18 @@ def gps():
                 '<br><span class="small">Розвантаження прийнято по ' +
                 serviceMinutes + ' хв на точку. Після виконання рейсу ' +
                 'порівняємо прогноз із фактом і скоригуємо норматив.</span>';
+
+            saveDeliveryRouteForVehicle({{
+                vehicle_id: vehicle.id,
+                delivery_route: deliveryRoute,
+                route_data: routeData,
+                input_text: deliveryStopsInput.value,
+                service_minutes: serviceMinutes,
+                daily_rest_hours: dailyRestHours,
+                vehicle_profile: vehicleProfile,
+                summary_html: measureResult.innerHTML,
+                saved_at: new Date().toISOString()
+            }});
         }} catch (error) {{
             measureResult.textContent =
                 error.message ||
@@ -6195,6 +6328,12 @@ def gps():
                 'Прорахувати всі доставки';
         }}
     }}
+
+    window.setTimeout(function() {{
+        if (vehicleSelect.value) {{
+            restoreDeliveryRouteForVehicle(vehicleSelect.value);
+        }}
+    }}, 0);
 
     cityInput.addEventListener('keydown', function(event) {{
         if (event.key === 'Enter') {{
