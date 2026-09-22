@@ -1003,18 +1003,18 @@ def vehicle_day_summary():
 
 @app.route("/api/delivery-stop-status", methods=["POST"])
 def delivery_stop_status():
-    payload = request.get_json(silent=True) or {{}}
+    payload = request.get_json(silent=True) or {}
     vehicle_id = normalize_vehicle_id(payload.get("vehicle_id", ""))
     date_string = str(payload.get("date") or "").strip()
     raw_stops = payload.get("stops") or []
 
     if not vehicle_by_id(vehicle_id):
-        return jsonify({{"error": "Автомобіль не знайдено."}}), 404
+        return jsonify({"error": "Автомобіль не знайдено."}), 404
 
     try:
         selected_date = datetime.strptime(date_string, "%Y-%m-%d").date()
     except ValueError:
-        return jsonify({{"error": "Неправильна дата маршруту."}}), 400
+        return jsonify({"error": "Неправильна дата маршруту."}), 400
 
     stops = []
     if isinstance(raw_stops, list):
@@ -1025,20 +1025,20 @@ def delivery_stop_status():
             longitude = safe_float(raw_stop.get("longitude"))
             if latitude is None or longitude is None:
                 continue
-            stops.append({{
+            stops.append({
                 "latitude": latitude,
                 "longitude": longitude
-            }})
+            })
 
     if not stops:
-        return jsonify({{"error": "Немає координат точок."}}), 400
+        return jsonify({"error": "Немає координат точок."}), 400
 
     today = datetime.now(POLAND_TZ).date()
     if selected_date > today:
-        return jsonify({{
+        return jsonify({
             "statuses": ["pending"] * len(stops),
             "radius_m": 180
-        }})
+        })
 
     history = get_vehicle_history(vehicle_id, date_string)
     points = history.get("points", []) if history.get("ok") else []
@@ -1058,10 +1058,10 @@ def delivery_stop_status():
         is_current = False
         if current_latitude is not None and current_longitude is not None:
             current_distance = haversine_km(
-                {{
+                {
                     "latitude": current_latitude,
                     "longitude": current_longitude
-                }},
+                },
                 stop
             )
             is_current = current_distance <= radius_km
@@ -1084,10 +1084,10 @@ def delivery_stop_status():
 
         statuses.append("completed" if visited else "pending")
 
-    return jsonify({{
+    return jsonify({
         "statuses": statuses,
         "radius_m": int(radius_km * 1000)
-    }})
+    })
 
 
 def get_vehicle_timeline_totals(vehicle_id, date_string):
@@ -4434,6 +4434,12 @@ def gps():
                         rows="6"
                         placeholder="Кожна точка з нового рядка: адреса | 08:00 | 10:00"
                     ></textarea>
+                    <button
+                        type="button"
+                        id="clear-delivery-stops-button"
+                        class="secondary-button"
+                        style="margin-top:6px; width:100%;"
+                    >✕ Очистити всі адреси</button>
                     <div class="gps-delivery-settings">
                         <label for="delivery-service-minutes">
                             Розвантаження, хв
@@ -4668,6 +4674,9 @@ def gps():
     const deliveryStopsInput = document.getElementById(
         'delivery-stops-input'
     );
+    const clearDeliveryStopsButton = document.getElementById(
+        'clear-delivery-stops-button'
+    );
     const deliveryServiceMinutes = document.getElementById(
         'delivery-service-minutes'
     );
@@ -4759,6 +4768,11 @@ def gps():
         buildDeliveryRouteButton.disabled =
             !deliveryMapConsent.checked ||
             !deliveryStopsInput.value.trim();
+    }});
+    clearDeliveryStopsButton.addEventListener('click', function() {{
+        deliveryStopsInput.value = '';
+        deliveryStopsInput.dispatchEvent(new Event('input'));
+        deliveryStopsInput.focus();
     }});
 
     if (!vehicles.length) {{
