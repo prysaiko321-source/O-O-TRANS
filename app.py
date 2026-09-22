@@ -108,6 +108,7 @@ ROLE_ENDPOINTS = {
         "gps",
         "geocode_search",
         "route_calculate",
+        "delivery_stop_status",
         "history",
         "fuel",
         "tachograph",
@@ -1000,6 +1001,95 @@ def vehicle_day_summary():
     })
 
 
+@app.route("/api/delivery-stop-status", methods=["POST"])
+def delivery_stop_status():
+    payload = request.get_json(silent=True) or {{}}
+    vehicle_id = normalize_vehicle_id(payload.get("vehicle_id", ""))
+    date_string = str(payload.get("date") or "").strip()
+    raw_stops = payload.get("stops") or []
+
+    if not vehicle_by_id(vehicle_id):
+        return jsonify({{"error": "Автомобіль не знайдено."}}), 404
+
+    try:
+        selected_date = datetime.strptime(date_string, "%Y-%m-%d").date()
+    except ValueError:
+        return jsonify({{"error": "Неправильна дата маршруту."}}), 400
+
+    stops = []
+    if isinstance(raw_stops, list):
+        for raw_stop in raw_stops[:24]:
+            if not isinstance(raw_stop, dict):
+                continue
+            latitude = safe_float(raw_stop.get("latitude"))
+            longitude = safe_float(raw_stop.get("longitude"))
+            if latitude is None or longitude is None:
+                continue
+            stops.append({{
+                "latitude": latitude,
+                "longitude": longitude
+            }})
+
+    if not stops:
+        return jsonify({{"error": "Немає координат точок."}}), 400
+
+    today = datetime.now(POLAND_TZ).date()
+    if selected_date > today:
+        return jsonify({{
+            "statuses": ["pending"] * len(stops),
+            "radius_m": 180
+        }})
+
+    history = get_vehicle_history(vehicle_id, date_string)
+    points = history.get("points", []) if history.get("ok") else []
+    current_state = state_for_vehicle(vehicle_id)
+    current_latitude = None
+    current_longitude = None
+
+    if current_state:
+        current_latitude, current_longitude = extract_coordinates(
+            current_state.get("location")
+        )
+
+    radius_km = 0.18
+    statuses = []
+
+    for stop in stops:
+        is_current = False
+        if current_latitude is not None and current_longitude is not None:
+            current_distance = haversine_km(
+                {{
+                    "latitude": current_latitude,
+                    "longitude": current_longitude
+                }},
+                stop
+            )
+            is_current = current_distance <= radius_km
+
+        if is_current and selected_date == today:
+            statuses.append("current")
+            continue
+
+        visited = False
+        for point in points:
+            distance = haversine_km(point, stop)
+            if distance > radius_km:
+                continue
+
+            speed = safe_float(point.get("speed")) or 0.0
+            activity = str(point.get("activity") or "").strip().lower()
+            if speed <= 8 or activity not in ("driving", "moving"):
+                visited = True
+                break
+
+        statuses.append("completed" if visited else "pending")
+
+    return jsonify({{
+        "statuses": statuses,
+        "radius_m": int(radius_km * 1000)
+    }})
+
+
 def get_vehicle_timeline_totals(vehicle_id, date_string):
     if not NAVIREC_TOKEN:
         return None
@@ -1810,6 +1900,29 @@ body.page-gps .powered-by {{
 .vehicle-number-label::before {{
     border-top-color: rgba(255, 255, 255, .96) !important;
 }}
+
+.delivery-stop-icon {{
+    background: transparent;
+    border: 0;
+}}
+
+.delivery-stop-pin {{
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+    border: 3px solid #ffffff;
+    border-radius: 50%;
+    box-shadow: 0 3px 9px rgba(0, 0, 0, .34);
+    color: #ffffff;
+    font-size: 13px;
+    font-weight: 900;
+}}
+
+.delivery-stop-pending {{ background: #d63b32; }}
+.delivery-stop-current {{ background: #f2ad16; color: #17202a; }}
+.delivery-stop-completed {{ background: #149447; }}
 
 .gps-status-legend {{
     position: absolute;
@@ -4758,6 +4871,7 @@ def gps():
     let plannedRouteLayer = null;
     let destinationMarker = null;
     let deliveryMarkers = [];
+    let deliveryStatusTimer = null;
     let citySearchTimer = null;
     let citySearchRequest = 0;
     let addressSearchTimer = null;
@@ -4786,6 +4900,10 @@ def gps():
     }}
 
     function removePlannedRoute() {{
+        if (deliveryStatusTimer) {{
+            window.clearInterval(deliveryStatusTimer);
+            deliveryStatusTimer = null;
+        }}
         if (plannedRouteLayer) {{
             map.removeLayer(plannedRouteLayer);
             plannedRouteLayer = null;
@@ -5740,6 +5858,74 @@ def gps():
         return geocoded;
     }}
 
+    function deliveryStopIcon(index, status) {{
+        const normalizedStatus = [
+            'pending',
+            'current',
+            'completed'
+        ].includes(status) ? status : 'pending';
+        return L.divIcon({{
+            className: 'delivery-stop-icon',
+            html: '<div class="delivery-stop-pin delivery-stop-' +
+                normalizedStatus + '">' + index + '</div>',
+            iconSize: [32, 32],
+            iconAnchor: [16, 16],
+            popupAnchor: [0, -18]
+        }});
+    }}
+
+    function deliveryStatusLabel(status) {{
+        if (status === 'completed') return 'Вигружено';
+        if (status === 'current') return 'Машина на вигрузці';
+        return 'Ще не вигружено';
+    }}
+
+    async function refreshDeliveryStopStatuses(vehicle, deliveryRoute) {{
+        if (!deliveryMarkers.length || !deliveryRoute.stops.length) {{
+            return;
+        }}
+        try {{
+            const response = await fetch('/api/delivery-stop-status', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{
+                    vehicle_id: vehicle.id,
+                    date: deliveryRoute.date,
+                    stops: deliveryRoute.stops.map(function(stop) {{
+                        return {{
+                            latitude: stop.latitude,
+                            longitude: stop.longitude
+                        }};
+                    }})
+                }})
+            }});
+            const data = await response.json();
+            if (!response.ok || !Array.isArray(data.statuses)) {{
+                return;
+            }}
+
+            data.statuses.forEach(function(status, index) {{
+                const marker = deliveryMarkers[index];
+                const stop = deliveryRoute.stops[index];
+                if (!marker || !stop) return;
+
+                marker.setIcon(deliveryStopIcon(index + 1, status));
+                marker.setPopupContent(
+                    '<strong>Доставка ' + (index + 1) + '</strong><br>' +
+                    escapeHtml(stop.address) + '<br>' +
+                    (stop.window_start && stop.window_end
+                        ? stop.window_start + '–' + stop.window_end
+                        : 'Без часового вікна') +
+                    '<br><strong>' +
+                    escapeHtml(deliveryStatusLabel(status)) +
+                    '</strong>'
+                );
+            }});
+        }} catch (error) {{
+            // Статуси не повинні ламати сам маршрут.
+        }}
+    }}
+
     async function buildDeliveryRoute() {{
         if (!deliveryMapConsent.checked) {{
             measureResult.textContent =
@@ -5802,24 +5988,25 @@ def gps():
             }});
 
             stops.forEach(function(stop, index) {{
-                const marker = L.marker([
-                    stop.latitude,
-                    stop.longitude
-                ]).addTo(map);
-                marker.bindTooltip(String(index + 1), {{
-                    permanent: true,
-                    direction: 'top',
-                    className: 'vehicle-number-label'
-                }});
+                const marker = L.marker(
+                    [stop.latitude, stop.longitude],
+                    {{icon: deliveryStopIcon(index + 1, 'pending')}}
+                ).addTo(map);
                 marker.bindPopup(
                     '<strong>Доставка ' + (index + 1) + '</strong><br>' +
                     escapeHtml(stop.address) + '<br>' +
                     (stop.window_start && stop.window_end
                         ? stop.window_start + '–' + stop.window_end
-                        : 'Без часового вікна')
+                        : 'Без часового вікна') +
+                    '<br><strong>Ще не вигружено</strong>'
                 );
                 deliveryMarkers.push(marker);
             }});
+
+            await refreshDeliveryStopStatuses(vehicle, deliveryRoute);
+            deliveryStatusTimer = window.setInterval(function() {{
+                refreshDeliveryStopStatuses(vehicle, deliveryRoute);
+            }}, 60000);
 
             buildDeliveryRouteButton.textContent =
                 'Будую маршрут через усі точки...';
