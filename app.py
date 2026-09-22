@@ -4579,6 +4579,13 @@ def gps():
             vehicle.longitude.toFixed(6)
         );
 
+        marker.on('click', function() {{
+            if (!vehicleSelect) return;
+            vehicleSelect.value = vehicle.id;
+            updateFuelConsumption();
+            restoreDeliveryRouteForVehicle(vehicle.id);
+        }});
+
         if (vehicle.id === selectedId) {{
             marker.openPopup();
         }}
@@ -5861,202 +5868,57 @@ def gps():
     }}
 
     function parseDeliveryStopLines() {{
-        const rawText = deliveryStopsInput.value.trim();
-        if (!rawText) {{
-            throw new Error('Вставте адреси або текст транспортного завдання.');
-        }}
-
-        const validTime = /^([01]\\d|2[0-3]):[0-5]\\d$/;
-        const datePattern = /^\\d{{4}}[-./]\\d{{2}}[-./]\\d{{2}}$/;
-        const countryNames = {{
-            DE: 'Germany', PL: 'Poland', CZ: 'Czechia', AT: 'Austria',
-            NL: 'Netherlands', BE: 'Belgium', FR: 'France', IT: 'Italy',
-            ES: 'Spain', PT: 'Portugal', DK: 'Denmark', SE: 'Sweden',
-            NO: 'Norway', FI: 'Finland', LT: 'Lithuania', LV: 'Latvia',
-            EE: 'Estonia', SK: 'Slovakia', HU: 'Hungary', RO: 'Romania',
-            BG: 'Bulgaria', HR: 'Croatia', SI: 'Slovenia', CH: 'Switzerland',
-            LU: 'Luxembourg'
-        }};
-
-        function stopTypeFromText(text) {{
-            const value = String(text || '').toLowerCase();
-            if (/za[łl]adunek|loading|laden|beladung|завантаж|загрузка/.test(value)) {{
-                return 'loading';
-            }}
-            if (/roz[łl]adunek|unloading|entladen|entladung|розвантаж|выгруз/.test(value)) {{
-                return 'unloading';
-            }}
-            return null;
-        }}
-
-        function cleanLabel(line) {{
-            return line.replace(
-                /^(?:\\d+[.)]?\\s*)?(?:za[łl]adunek|roz[łl]adunek|loading|unloading|laden|beladung|entladen|entladung|завантаження|розвантаження|загрузка|выгрузка)\\s*:?\\s*/i,
-                ''
-            ).trim();
-        }}
-
-        function addressFromBlock(blockLines) {{
-            const useful = blockLines.map(function(line) {{
-                return line.trim();
-            }}).filter(function(line) {{
-                if (!line) return false;
-                if (datePattern.test(line)) return false;
-                if (stopTypeFromText(line) && !cleanLabel(line)) return false;
-                if (/^\\d+\\s+\\d+$/.test(line)) return false;
-                return true;
-            }});
-
-            let postalIndex = -1;
-            let countryCode = '';
-            for (let index = 0; index < useful.length; index += 1) {{
-                const match = useful[index].match(
-                    /^(?:([A-Z]{{2}})[-\\s]*)?(\\d{{4,6}})\\s+(.+)$/i
-                );
-                if (match) {{
-                    postalIndex = index;
-                    countryCode = (match[1] || '').toUpperCase();
-                    break;
-                }}
-            }}
-
-            if (postalIndex >= 0) {{
-                const postalLine = useful[postalIndex];
-                const before = useful.slice(0, postalIndex);
-                // Останній рядок перед індексом зазвичай є вулицею; назву фірми
-                // навмисно не передаємо геокодеру.
-                const street = before.length ? before[before.length - 1] : '';
-                let address = (street ? street + ', ' : '') + postalLine;
-                if (countryCode && countryNames[countryCode]) {{
-                    address += ', ' + countryNames[countryCode];
-                }}
-                return address;
-            }}
-
-            // Для вже готових адрес «один рядок = одна точка» лишаємо
-            // стару поведінку.
-            return useful.length ? cleanLabel(useful[useful.length - 1]) : '';
-        }}
-
-        // Старий/ручний формат: одна готова адреса на рядок, за бажанням
-        // з часовим вікном через |.
-        const simpleLines = rawText.split(/\\r?\\n/)
+        const lines = deliveryStopsInput.value
+            .split(/\\r?\\n/)
             .map(function(line) {{ return line.trim(); }})
             .filter(Boolean);
-        const looksLikeOrder = simpleLines.some(function(line) {{
-            return datePattern.test(line) || stopTypeFromText(line);
-        }});
 
-        if (!looksLikeOrder) {{
-            if (simpleLines.length < 2) {{
-                throw new Error('Для розвізки потрібно щонайменше дві адреси.');
-            }}
-            if (simpleLines.length > 24) {{
-                throw new Error('За один раз можна додати до 24 точок.');
-            }}
-            return simpleLines.map(function(line, index) {{
-                const parts = line.split('|').map(function(part) {{
-                    return part.trim();
-                }});
-                const address = parts[0] || '';
-                const windowStart = parts[1] || '';
-                const windowEnd = parts[2] || '';
-                const hasAnyWindow = Boolean(windowStart || windowEnd);
-                if (!address) {{
-                    throw new Error('Рядок ' + (index + 1) + ': адреса порожня.');
-                }}
-                if (parts.length > 3 || (hasAnyWindow &&
-                        (!validTime.test(windowStart) || !validTime.test(windowEnd)))) {{
-                    throw new Error(
-                        'Рядок ' + (index + 1) +
-                        ': використайте «адреса» або «адреса | 08:00 | 10:00».'
-                    );
-                }}
-                return {{
-                    address: address,
-                    window_start: hasAnyWindow ? windowStart : null,
-                    window_end: hasAnyWindow ? windowEnd : null,
-                    stop_type: null
-                }};
-            }});
-        }}
-
-        // Транспортне завдання: кожна дата відкриває новий блок точки.
-        // Це не дозволяє назві фірми, вулиці та індексу стати окремими точками.
-        const blocks = [];
-        let current = null;
-        let pendingType = null;
-        let sawLoading = false;
-        let sawUnloading = false;
-
-        simpleLines.forEach(function(originalLine) {{
-            const lineType = stopTypeFromText(originalLine);
-            if (lineType === 'loading') sawLoading = true;
-            if (lineType === 'unloading') sawUnloading = true;
-
-            // Якщо в одному заголовку одночасно написано Załadunek і Rozładunek
-            // (типовий експорт замовлення), це заголовок, а не адреса.
-            const lower = originalLine.toLowerCase();
-            const hasBothTypes =
-                /za[łl]adunek|loading|laden|beladung|завантаж|загрузка/.test(lower) &&
-                /roz[łl]adunek|unloading|entladen|entladung|розвантаж|выгруз/.test(lower);
-            if (hasBothTypes) {{
-                return;
-            }}
-
-            let line = cleanLabel(originalLine);
-            if (lineType && !line) {{
-                pendingType = lineType;
-                return;
-            }}
-
-            if (datePattern.test(line)) {{
-                if (current && current.lines.length) blocks.push(current);
-                current = {{lines: [line], stop_type: pendingType}};
-                pendingType = null;
-                return;
-            }}
-
-            if (!current) {{
-                // Службові рядки до першої дати не є точками маршруту.
-                if (lineType) pendingType = lineType;
-                return;
-            }}
-            if (lineType && !current.stop_type) current.stop_type = lineType;
-            if (line) current.lines.push(line);
-        }});
-        if (current && current.lines.length) blocks.push(current);
-
-        let stops = blocks.map(function(block) {{
-            return {{
-                address: addressFromBlock(block.lines),
-                window_start: null,
-                window_end: null,
-                stop_type: block.stop_type
-            }};
-        }}).filter(function(stop) {{ return Boolean(stop.address); }});
-
-        // У багатьох заявках заголовок лише повідомляє, що є завантаження
-        // і розвантаження, а тип не повторюється перед кожною адресою.
-        // Тоді перша точка = завантаження, наступні = розвантаження.
-        if (stops.length >= 2 && sawLoading && sawUnloading &&
-                !stops.some(function(stop) {{ return Boolean(stop.stop_type); }})) {{
-            stops = stops.map(function(stop, index) {{
-                stop.stop_type = index === 0 ? 'loading' : 'unloading';
-                return stop;
-            }});
-        }}
-
-        if (stops.length < 2) {{
+        if (lines.length < 2) {{
             throw new Error(
-                'Не вдалося розпізнати щонайменше дві транспортні точки. ' +
-                'Перевірте, чи в заявці є дати та адреси.'
+                'Для розвізки потрібно щонайменше дві адреси.'
             );
         }}
-        if (stops.length > 24) {{
+        if (lines.length > 24) {{
             throw new Error('За один раз можна додати до 24 точок.');
         }}
-        return stops;
+
+        return lines.map(function(line, index) {{
+            const parts = line.split('|').map(function(part) {{
+                return part.trim();
+            }});
+            const address = parts[0] || '';
+            const windowStart = parts[1] || '';
+            const windowEnd = parts[2] || '';
+            const validTime = /^([01]\\d|2[0-3]):[0-5]\\d$/;
+            const hasAnyWindow = Boolean(windowStart || windowEnd);
+
+            if (!address) {{
+                throw new Error(
+                    'Рядок ' + (index + 1) + ': адреса порожня.'
+                );
+            }}
+            if (parts.length > 3) {{
+                throw new Error(
+                    'Рядок ' + (index + 1) +
+                    ': використайте «адреса» або ' +
+                    '«адреса | 08:00 | 10:00».'
+                );
+            }}
+            if (hasAnyWindow &&
+                    (!validTime.test(windowStart) ||
+                     !validTime.test(windowEnd))) {{
+                throw new Error(
+                    'Рядок ' + (index + 1) +
+                    ': якщо задаєте час, формат має бути ' +
+                    '«адреса | 08:00 | 10:00».'
+                );
+            }}
+            return {{
+                address: address,
+                window_start: hasAnyWindow ? windowStart : null,
+                window_end: hasAnyWindow ? windowEnd : null
+            }};
+        }});
     }}
 
     function waitForGeocode(milliseconds) {{
