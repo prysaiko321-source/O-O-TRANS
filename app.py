@@ -5880,10 +5880,12 @@ def gps():
                         '45 хв. Остаточно звірити з тахографом.');
         }} else if (canDriveAfter >= 60 * 60) {{
             nextRecommendation = restBeforeStart && !hasTachograph
-                ? 'До ранкового виїзду за стоянкою набирається ' +
-                    'добовий відпочинок. Після завершення залишається ' +
-                    'орієнтовно ' + formatDuration(canDriveAfter) +
-                    ' керування; після запуску звірити з тахографом.'
+                ? (document.documentElement.lang === 'pl'
+                    ? 'Przed porannym wyjazdem podczas postoju zostanie osiągnięty odpoczynek dobowy. Po zakończeniu pozostanie około ' + formatDuration(canDriveAfter) + ' czasu jazdy; po uruchomieniu należy zweryfikować dane z tachografem.'
+                    : 'До ранкового виїзду за стоянкою набирається ' +
+                        'добовий відпочинок. Після завершення залишається ' +
+                        'орієнтовно ' + formatDuration(canDriveAfter) +
+                        ' керування; після запуску звірити з тахографом.')
                 : (document.documentElement.lang === 'pl'
                     ? 'Po zakończeniu pozostaje co najmniej ' + formatDuration(canDriveAfter) + ' czasu jazdy.'
                     : 'Після завершення залишається щонайменше ' + formatDuration(canDriveAfter) + ' керування.');
@@ -5992,14 +5994,14 @@ def gps():
         if (routeData.toll_estimate) {{
             const estimate = routeData.toll_estimate;
             const segmentText = estimate.segment
-                ? '; ділянка ' + estimate.segment
+                ? (document.documentElement.lang === 'pl' ? '; odcinek ' : '; ділянка ') + estimate.segment
                 : '';
             return (document.documentElement.lang === 'pl' ? 'Szacunkowa opłata ' : 'Орієнтовна оплата ') + estimate.road + ': ≈ ' +
                 Number(estimate.amount).toFixed(0) + ' ' +
                 estimate.currency + ' (' +
                 Number(estimate.distance_km).toFixed(1) +
                 (document.documentElement.lang === 'pl' ? ' km drogą płatną' : ' км платною дорогою') + segmentText +
-                '; тариф від 11.09.2026).';
+                (document.documentElement.lang === 'pl' ? '; taryfa z 11.09.2026).' : '; тариф від 11.09.2026).');
         }}
 
         if (routeData.has_tolls) {{
@@ -6709,7 +6711,12 @@ def gps():
                     ['виїзд', 'wyjazd'],
                     ['від попередньої точки', 'od poprzedniego punktu'],
                     ['Орієнтовна оплата', 'Szacunkowa opłata'],
+                    ['км платною дорогою', 'km drogą płatną'],
                     ['км платною', 'km płatne'],
+                    ['ділянка', 'odcinek'],
+                    ['тариф від', 'taryfa z'],
+                    ['орієнтовно', 'około'],
+                    ['часу керування', 'czasu jazdy'],
                     ['Розвантаження прийнято по', 'Przyjęto czas rozładunku:'],
                     ['хв на точку.', 'min na punkt.'],
                     ['Після виконання рейсу', 'Po wykonaniu trasy'],
@@ -7342,7 +7349,7 @@ def gps():
             }}).join('');
 
             measureResult.innerHTML =
-                '<strong>' + escapeHtml(deliveryRoute.label) + '</strong>' +
+                '<strong>' + escapeHtml(polishUi && deliveryRoute.label.indexOf('Розвізка') === 0 ? deliveryRoute.label.replace('Розвізка', 'Trasa dostaw') : deliveryRoute.label) + '</strong>' +
                 (polishUi ? '<br>Pojazd: <strong>' : '<br>Автомобіль: <strong>') +
                 escapeHtml(vehicle.name) + '</strong>' +
                 (polishUi ? '<br>Kierowca: <strong>' : '<br>Водій: <strong>') +
