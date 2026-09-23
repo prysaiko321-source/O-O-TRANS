@@ -6102,21 +6102,24 @@ def gps():
         deliveryStopOrderList.innerHTML = stops.map(function(stop, index) {{
             const upDisabled = index === 0 ? ' disabled' : '';
             const downDisabled = index === stops.length - 1 ? ' disabled' : '';
-            return '<div style="display:flex;align-items:center;gap:5px;' +
-                'padding:6px;margin:4px 0;border:1px solid #cbd8df;' +
-                'border-radius:7px;background:#fff;">' +
-                '<span style="flex:1;font-size:12px;font-weight:700;">' +
-                (index + 1) + '. ' + escapeHtml(stop.address) + '</span>' +
+            return '<details style="margin:4px 0;border:1px solid #cbd8df;' +
+                'border-radius:8px;background:#fff;overflow:hidden;">' +
+                '<summary style="cursor:pointer;padding:8px 10px;' +
+                'font-size:12px;font-weight:700;white-space:nowrap;' +
+                'overflow:hidden;text-overflow:ellipsis;">' +
+                (index + 1) + '. ' + escapeHtml(stop.address) + '</summary>' +
+                '<div style="display:flex;align-items:center;gap:6px;' +
+                'padding:0 10px 9px 10px;">' +
                 '<button type="button" title="Підняти вище"' + upDisabled +
                 ' onclick="reorderActiveDeliveryStops(' + index + ', -1)"' +
-                ' style="width:32px;height:30px;">↑</button>' +
+                ' style="height:30px;flex:1;">↑ Вище</button>' +
                 '<button type="button" title="Опустити нижче"' + downDisabled +
                 ' onclick="reorderActiveDeliveryStops(' + index + ', 1)"' +
-                ' style="width:32px;height:30px;">↓</button>' +
+                ' style="height:30px;flex:1;">↓ Нижче</button>' +
                 '<button type="button" title="Видалити точку"' +
                 ' onclick="removeActiveDeliveryStop(' + index + ')"' +
-                ' style="width:32px;height:30px;">✕</button>' +
-                '</div>';
+                ' style="height:30px;flex:1;">✕ Видалити</button>' +
+                '</div></details>';
         }}).join('');
     }}
 
@@ -6585,7 +6588,10 @@ def gps():
             const lastStatus = data.statuses[
                 deliveryRoute.stops.length - 1
             ];
-            if (lastStatus === 'completed') {{
+            // Активний маршрут очищаємо тільки коли автомобіль ЗАРАЗ
+            // знаходиться на останній точці. Історичний заїзд на цю адресу
+            // раніше того самого дня не повинен видаляти новий маршрут.
+            if (lastStatus === 'current') {{
                 removeSavedDeliveryRoute(vehicle.id);
             }}
         }} catch (error) {{
