@@ -6684,11 +6684,58 @@ def gps():
             );
         }}
         if (saved.summary_html) {{
-            measureResult.innerHTML = saved.summary_html;
+            let restoredSummary = saved.summary_html;
+            if (document.documentElement.lang === 'pl') {{
+                const plSummaryReplacements = [
+                    ['Розвізка', 'Trasa dostaw'],
+                    ['Автомобіль:', 'Pojazd:'],
+                    ['Водій:', 'Kierowca:'],
+                    ['Відстань:', 'Odległość:'],
+                    ['Чистий час керування:', 'Czysty czas jazdy:'],
+                    ['Планований виїзд:', 'Planowany wyjazd:'],
+                    ['Початок сьогоднішньої роботи:', 'Początek dzisiejszej pracy:'],
+                    ['Сьогодні вже пройдено:', 'Dzisiaj już przejechano:'],
+                    ['керування:', 'jazda:'],
+                    ['Паливо:', 'Paliwo:'],
+                    ['Перерв 45 хв:', 'Przerwy 45 min:'],
+                    ['добових відпочинків:', 'odpoczynki dobowe:'],
+                    ['Фізично вільний:', 'Fizycznie wolny:'],
+                    ['Наступне завантаження можна планувати:', 'Następny załadunek można planować:'],
+                    ['Рекомендований наступний виїзд:', 'Zalecany następny wyjazd:'],
+                    ['Після завершення залишається щонайменше', 'Po zakończeniu pozostaje co najmniej'],
+                    ['Для наступного рейсу потрібен добовий відпочинок.', 'Przed następną trasą wymagany jest odpoczynek dobowy.'],
+                    ['Маршрут узгоджено з актуальним тахографом.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
+                    ['без часового вікна', 'bez okna czasowego'],
+                    ['виїзд', 'wyjazd'],
+                    ['від попередньої точки', 'od poprzedniego punktu'],
+                    ['Орієнтовна оплата', 'Szacunkowa opłata'],
+                    ['км платною', 'km płatne'],
+                    ['Розвантаження прийнято по', 'Przyjęto czas rozładunku:'],
+                    ['хв на точку.', 'min na punkt.'],
+                    ['Після виконання рейсу', 'Po wykonaniu trasy'],
+                    ['порівняємо прогноз із фактом і скоригуємо норматив.', 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.'],
+                    [' год ', ' godz. '],
+                    [' хв', ' min'],
+                    [' км', ' km'],
+                    [' л ≈', ' l ≈'],
+                    [' керування.', ' jazdy.']
+                ];
+                plSummaryReplacements.forEach(function(pair) {{
+                    restoredSummary = restoredSummary.split(pair[0]).join(pair[1]);
+                }});
+                restoredSummary = restoredSummary.replace(
+                    /<li><strong>\d+\.\s*/g,
+                    '<li><strong>'
+                );
+            }}
+            measureResult.innerHTML = restoredSummary;
         }} else {{
             measureResult.innerHTML =
                 '<strong>' + escapeHtml(saved.delivery_route.label) +
-                '</strong><br>Відновлено збережений маршрут для <strong>' +
+                '</strong><br>' +
+                (document.documentElement.lang === 'pl'
+                    ? 'Przywrócono zapisaną trasę dla <strong>'
+                    : 'Відновлено збережений маршрут для <strong>') +
                 escapeHtml(vehicle.name) + '</strong>.';
         }}
 
