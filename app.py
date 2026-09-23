@@ -1351,13 +1351,19 @@ def page(title, body, active=""):
         branding["company_name"]
     )
 
+    road_payments_label = (
+        "🛣️ Opłaty drogowe"
+        if language == "pl"
+        else "🛣️ Оплата доріг"
+    )
+
     if role == "driver":
         nav_items = [
             ("driver", "/driver", t("my_trips")),
             (
                 "road_payments",
                 "/road-payments",
-                "🛣️ Оплата доріг"
+                road_payments_label
             )
         ]
     elif role == "dispatcher":
@@ -1371,7 +1377,7 @@ def page(title, body, active=""):
             (
                 "road_payments",
                 "/road-payments",
-                "🛣️ Оплата доріг"
+                road_payments_label
             )
         ]
     elif role == "director":
@@ -1386,7 +1392,7 @@ def page(title, body, active=""):
             (
                 "road_payments",
                 "/road-payments",
-                "🛣️ Оплата доріг"
+                road_payments_label
             ),
             ("branding", "/settings/branding", t("branding")),
             ("health", "/health", t("health"))
@@ -4726,6 +4732,14 @@ def gps():
         vehicleMarkersById[vehicle.id] = marker;
         vehiclePopupBaseById[vehicle.id] = basePopup;
         marker.bindPopup(basePopup);
+        marker.on('click', function() {{
+            if (vehicleSelect && vehicleSelect.value !== vehicle.id) {{
+                vehicleSelect.value = vehicle.id;
+                vehicleSelect.dispatchEvent(new Event('change'));
+            }} else {{
+                restoreDeliveryRouteForVehicle(vehicle.id);
+            }}
+        }});
 
         if (vehicle.id === selectedId) {{
             marker.openPopup();
@@ -7174,6 +7188,84 @@ def gps():
         lat=center_lat,
         lon=center_lon
     )
+
+    if current_language() == "pl":
+        gps_pl_replacements = {
+            "Планування маршруту": "Planowanie trasy",
+            "Початок маршруту — автомобіль": "Początek trasy — pojazd",
+            "Тип транспорту": "Typ pojazdu",
+            "Бус до 3,5 т": "Bus do 3,5 t",
+            "Вантажний до 7,5 т": "Ciężarowy do 7,5 t",
+            "Вантажний до 12 т": "Ciężarowy do 12 t",
+            "Вантажний до 18 т": "Ciężarowy do 18 t",
+            "Вантажний до 26 т": "Ciężarowy do 26 t",
+            "Фура до 40 т": "Zestaw do 40 t",
+            "Понад 40 т": "Powyżej 40 t",
+            "Витрата, л/100 км": "Spalanie, l/100 km",
+            "Ціна за літр": "Cena za litr",
+            "Місто": "Miasto",
+            "Вулиця / адреса": "Ulica / adres",
+            "Знайти адресу": "Znajdź adres",
+            "Побудувати маршрут": "Wyznacz trasę",
+            "Адреси й часові вікна": "Adresy i okna czasowe",
+            "Змінити порядок адрес": "Zmień kolejność adresów",
+            "Очистити всі адреси": "Wyczyść wszystkie adresy",
+            "Видалити маршрут автомобіля": "Usuń trasę pojazdu",
+            "Дата доставок": "Data dostaw",
+            "Хв на точку": "Min na punkt",
+            "Добовий відпочинок": "Odpoczynek dobowy",
+            "Прорахувати всі доставки": "Oblicz wszystkie dostawy",
+            "Передавати адреси карті": "Przekazuj adresy do mapy",
+            "Виміряти маршрут": "Zmierz trasę",
+            "Очистити маршрут": "Wyczyść trasę",
+            "Їде": "Jedzie",
+            "Заведена": "Silnik włączony",
+            "Стоїть": "Stoi",
+            "Статус:": "Status:",
+            "Швидкість:": "Prędkość:",
+            "Паливо:": "Paliwo:",
+            "До наступної вигрузки:": "Do następnego rozładunku:",
+            "До останньої вигрузки:": "Do ostatniego rozładunku:",
+            "Доставка ": "Dostawa ",
+            "Без часового вікна": "Bez okna czasowego",
+            "Ще не вигружено": "Jeszcze nierozładowane",
+            "Для цього автомобіля активного розвізного маршруту немає.": "Dla tego pojazdu nie ma aktywnej trasy dostaw.",
+            "Вставте адреси або текст транспортного завдання.": "Wklej adresy lub tekst zlecenia transportowego.",
+            "Виберіть дату доставок.": "Wybierz datę dostaw.",
+            "Для автомобіля немає актуальної GPS-позиції.": "Brak aktualnej pozycji GPS pojazdu.",
+            "Потрібне підтвердження передачі адрес карті.": "Wymagana jest zgoda na przekazanie adresów do mapy.",
+            "Будую розвізний маршрут від поточної позиції ": "Wyznaczam trasę dostaw od aktualnej pozycji ",
+            "Готую ": "Przygotowuję ",
+            " точок...": " punktów...",
+            "Будую маршрут через усі точки...": "Wyznaczam trasę przez wszystkie punkty...",
+            "Зберігаю активний маршрут...": "Zapisuję aktywną trasę...",
+            "Відстань:": "Odległość:",
+            "Чистий час керування:": "Czysty czas jazdy:",
+            "Планований виїзд:": "Planowany wyjazd:",
+            "Сьогодні вже пройдено:": "Dzisiaj już przejechano:",
+            "керування:": "jazda:",
+            "Паливо: даних немає": "Paliwo: brak danych",
+            "Перерв 45 хв:": "Przerw 45 min:",
+            "добових відпочинків:": "odpoczynków dobowych:",
+            "Фізично вільний:": "Fizycznie wolny:",
+            "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
+            "Рекомендований наступний виїзд:": "Zalecany następny wyjazd:",
+            "Оплата доріг: даних про платні ділянки немає.": "Opłaty drogowe: brak danych o płatnych odcinkach.",
+            "Орієнтовна оплата доріг:": "Szacunkowe opłaty drogowe:",
+            "Спочатку виберіть місто": "Najpierw wybierz miasto",
+            "Шукаю міста...": "Szukam miast...",
+            "Клікніть першу точку на карті.": "Kliknij pierwszy punkt na mapie.",
+            "Тепер клікніть другу точку.": "Teraz kliknij drugi punkt.",
+            "Будую автомобільний маршрут...": "Wyznaczam trasę samochodową...",
+            "Дорогами:": "Drogami:",
+            "Приблизний час:": "Przybliżony czas:",
+            "По прямій:": "W linii prostej:",
+            "Автомобільний маршрут зараз недоступний.": "Trasa samochodowa jest teraz niedostępna.",
+            " год ": " godz. ",
+            " хв": " min"
+        }
+        for source_text, target_text in gps_pl_replacements.items():
+            body = body.replace(source_text, target_text)
 
     return page(
         "GPS",
