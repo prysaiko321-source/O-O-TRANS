@@ -4490,6 +4490,10 @@ def gps():
                         rows="6"
                         placeholder="Кожна точка з нового рядка: адреса | 08:00 | 10:00"
                     ></textarea>
+                    <div
+                        id="delivery-stop-order-list"
+                        style="margin-top:6px; display:none;"
+                    ></div>
                     <button
                         type="button"
                         id="clear-delivery-stops-button"
@@ -4732,6 +4736,9 @@ def gps():
     );
     const deliveryStopsInput = document.getElementById(
         'delivery-stops-input'
+    );
+    const deliveryStopOrderList = document.getElementById(
+        'delivery-stop-order-list'
     );
     const clearDeliveryStopsButton = document.getElementById(
         'clear-delivery-stops-button'
@@ -5937,6 +5944,47 @@ def gps():
         }}
     }}
 
+    function deliveryStopLine(stop) {{
+        let line = stop.address;
+        if (stop.window_start && stop.window_end) {{
+            line += ' | ' + stop.window_start + ' | ' + stop.window_end;
+        }}
+        return line;
+    }}
+
+    function renderDeliveryStopOrder() {{
+        if (!deliveryStopOrderList) return;
+        const stops = activeDeliveryRoute &&
+            Array.isArray(activeDeliveryRoute.stops)
+            ? activeDeliveryRoute.stops
+            : [];
+        if (!stops.length) {{
+            deliveryStopOrderList.innerHTML = '';
+            deliveryStopOrderList.style.display = 'none';
+            return;
+        }}
+        deliveryStopOrderList.style.display = 'block';
+        deliveryStopOrderList.innerHTML = stops.map(function(stop, index) {{
+            const upDisabled = index === 0 ? ' disabled' : '';
+            const downDisabled = index === stops.length - 1 ? ' disabled' : '';
+            return '<div style="display:flex;align-items:center;gap:5px;' +
+                'padding:6px;margin:4px 0;border:1px solid #cbd8df;' +
+                'border-radius:7px;background:#fff;">' +
+                '<span style="flex:1;font-size:12px;font-weight:700;">' +
+                (index + 1) + '. ' + escapeHtml(stop.address) + '</span>' +
+                '<button type="button" title="Підняти вище"' + upDisabled +
+                ' onclick="reorderActiveDeliveryStops(' + index + ', -1)"' +
+                ' style="width:32px;height:30px;">↑</button>' +
+                '<button type="button" title="Опустити нижче"' + downDisabled +
+                ' onclick="reorderActiveDeliveryStops(' + index + ', 1)"' +
+                ' style="width:32px;height:30px;">↓</button>' +
+                '<button type="button" title="Видалити точку"' +
+                ' onclick="removeActiveDeliveryStop(' + index + ')"' +
+                ' style="width:32px;height:30px;">✕</button>' +
+                '</div>';
+        }}).join('');
+    }}
+
     function reorderActiveDeliveryStops(index, direction) {{
         if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) {{
             return;
@@ -5947,17 +5995,31 @@ def gps():
         const stops = activeDeliveryRoute.stops.slice();
         const moved = stops.splice(index, 1)[0];
         stops.splice(target, 0, moved);
-        deliveryStopsInput.value = stops.map(function(stop) {{
-            let line = stop.address;
-            if (stop.window_start && stop.window_end) {{
-                line += ' | ' + stop.window_start + ' | ' + stop.window_end;
-            }}
-            return line;
-        }}).join('\\n');
+        deliveryStopsInput.value = stops.map(deliveryStopLine).join('\\n');
+        activeDeliveryRoute.stops = stops;
+        renderDeliveryStopOrder();
         buildDeliveryRoute();
     }}
 
+    function removeActiveDeliveryStop(index) {{
+        if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) {{
+            return;
+        }}
+        const stops = activeDeliveryRoute.stops.slice();
+        if (index < 0 || index >= stops.length) return;
+        stops.splice(index, 1);
+        activeDeliveryRoute.stops = stops;
+        deliveryStopsInput.value = stops.map(deliveryStopLine).join('\\n');
+        renderDeliveryStopOrder();
+        if (stops.length) {{
+            buildDeliveryRoute();
+        }} else {{
+            deliveryStopsInput.dispatchEvent(new Event('input'));
+        }}
+    }}
+
     window.reorderActiveDeliveryStops = reorderActiveDeliveryStops;
+    window.removeActiveDeliveryStop = removeActiveDeliveryStop;
 
     function drawDeliveryStopMarkers(deliveryRoute) {{
         deliveryRoute.stops.forEach(function(stop, index) {{
@@ -5981,6 +6043,7 @@ def gps():
         removeMeasurementLayers();
         removePlannedRoute();
         activeDeliveryRoute = null;
+        renderDeliveryStopOrder();
 
         const saved = readSavedDeliveryRoute(vehicleId);
         if (!saved) {{
@@ -5999,6 +6062,7 @@ def gps():
 
         activeDeliveryRoute = saved.delivery_route;
         deliveryStopsInput.value = saved.input_text || '';
+        renderDeliveryStopOrder();
         deliveryRouteDate.value = saved.delivery_route.date ||
             deliveryRouteDate.value;
         if (saved.service_minutes) {{
@@ -6448,6 +6512,7 @@ def gps():
                 stops: stops
             }};
             activeDeliveryRoute = deliveryRoute;
+            renderDeliveryStopOrder();
             const destination = stops[stops.length - 1];
             const waypoints = stops.slice(0, -1).map(function(stop) {{
                 return {{
