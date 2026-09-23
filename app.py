@@ -59,18 +59,12 @@ COMPANY_NAME = os.environ.get("COMPANY_NAME", "O&O TRANS")
 COMPANY_ID = os.environ.get("COMPANY_ID", "O&O-TRANS")
 PLATFORM_NAME = "TRANVIQ"
 PLATFORM_TAGLINE = "Transport Intelligence Platform"
-ACTIVE_LANGUAGES = {
-    "uk": "Українська",
-    "pl": "Polski",
-    "en": "English",
-    "de": "Deutsch",
-}
 DEFAULT_LANGUAGE = os.environ.get(
     "DEFAULT_LANGUAGE",
     "uk"
 ).strip().lower()
 
-if DEFAULT_LANGUAGE not in ACTIVE_LANGUAGES:
+if DEFAULT_LANGUAGE not in LANGUAGES:
     DEFAULT_LANGUAGE = "uk"
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
@@ -92,7 +86,7 @@ def current_language():
         "language",
         DEFAULT_LANGUAGE
     )
-    if language not in ACTIVE_LANGUAGES:
+    if language not in LANGUAGES:
         return DEFAULT_LANGUAGE
     return language
 
@@ -1814,7 +1808,7 @@ def page(title, body, active=""):
         )
 
     language_options = []
-    for language_code, language_name in ACTIVE_LANGUAGES.items():
+    for language_code, language_name in LANGUAGES.items():
         selected = " selected" if language_code == language else ""
         language_options.append(
             '<option value="{}"{}>{}</option>'.format(
@@ -3013,7 +3007,7 @@ def company_logo_asset():
 @app.route("/language", methods=["POST"])
 def change_language():
     language = request.form.get("language", "")
-    if language in ACTIVE_LANGUAGES:
+    if language in LANGUAGES:
         session["language"] = language
 
     next_url = request.form.get("next", "/login")
@@ -7262,7 +7256,7 @@ def gps():
                 if (stop.late) {{
                     note += ' · <strong>ЗАПІЗНЕННЯ</strong>';
                 }}
-                return '<li><strong>' +
+                return '<li><strong>' + stop.index + '. ' +
                     formatDateTime(stop.service_start) + '</strong> — ' +
                     escapeHtml(stop.address) +
                     (stop.window_start && stop.window_end
@@ -7639,28 +7633,6 @@ def gps():
             "Приблизний час:": "Przybliżony czas:",
             "По прямій:": "W linii prostej:",
             "Автомобільний маршрут зараз недоступний.": "Trasa samochodowa jest teraz niedostępna.",
-            "Добовий відпочинок, год": "Odpoczynek dobowy, godz.",
-            "км/год": "km/h",
-            "Автомобіль:": "Pojazd:",
-            "Водій:": "Kierowca:",
-            "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
-            "Для наступного рейсу потрібен добовий відпочинок.": "Przed następną trasą wymagany jest odpoczynek dobowy.",
-            "Маршрут узгоджено з актуальним тахографом.": "Trasa jest zgodna z aktualnymi danymi tachografu.",
-            "без часового вікна": "bez okna czasowego",
-            "виїзд": "wyjazd",
-            "від попередньої точки": "od poprzedniego punktu",
-            "Для карти використовуються лише адреси й часові вікна.": "Do mapy używane są wyłącznie adresy i okna czasowe.",
-            "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
-            "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
-            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
-            "довгий добовий відпочинок": "długi odpoczynek dobowy",
-            "перерва щонайменше 45 хвилин": "przerwa co najmniej 45 min",
-            "коротка або звичайна стоянка": "krótki lub zwykły postój",
-            "очікування": "oczekiwanie",
-            "ЗАПІЗНЕННЯ": "OPÓŹNIENIE",
-            "не визначено": "nie określono",
-            "Розвантаження прийнято по ": "Przyjęto ",
-            " хв на точку. Після виконання рейсу порівняємо прогноз із фактом і скоригуємо норматив.": " min rozładunku na punkt. Po zakończeniu trasy porównamy prognozę z wynikiem rzeczywistym i skorygujemy normę.",
             " год ": " godz. ",
             " хв": " min"
         }
@@ -7758,8 +7730,71 @@ def gps():
         for source_text, target_text in sorted(gps_extra_translations[lang].items(), key=lambda item: len(item[0]), reverse=True):
             body = body.replace(source_text, target_text)
 
-    # Dynamic GPS text is translated in the JavaScript source above.
-    # No MutationObserver is used: it previously caused a browser render loop.
+    # Polish GPS: translate the actual JavaScript templates before they reach
+    # the browser.  This avoids DOM observers and keeps map logic untouched.
+    if current_language() == "pl":
+        gps_pl_js = {
+            "Розвізка": "Trasa dostaw",
+            "Автомобіль:": "Pojazd:",
+            "Водій:": "Kierowca:",
+            "не визначено": "nie określono",
+            "Відстань:": "Odległość:",
+            "Чистий час керування:": "Czysty czas jazdy:",
+            "Планований виїзд:": "Planowany wyjazd:",
+            "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
+            "Сьогодні вже пройдено:": "Dzisiaj już przejechano:",
+            "керування:": "jazda:",
+            "Стоянка до виїзду:": "Postój przed wyjazdem:",
+            "довгий добовий відпочинок": "długi odpoczynek dobowy",
+            "перерва щонайменше 45 хвилин": "przerwa co najmniej 45 min",
+            "коротка або звичайна стоянка": "krótki lub zwykły postój",
+            "добову паузу набрано": "odpoczynek dobowy został zaliczony",
+            "повну добову паузу ще не набрано": "pełny odpoczynek dobowy nie został jeszcze zaliczony",
+            "Паливо:": "Paliwo:",
+            "Перерв 45 хв:": "Przerw 45 min:",
+            "добових відпочинків:": "odpoczynków dobowych:",
+            "Фізично вільний:": "Fizycznie wolny:",
+            "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
+            "Рекомендований наступний виїзд:": "Zalecany następny wyjazd:",
+            "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
+            "Для наступного рейсу потрібен добовий відпочинок.": "Przed następną trasą wymagany jest odpoczynek dobowy.",
+            "Маршрут узгоджено з актуальним тахографом.": "Trasa jest zgodna z aktualnymi danymi tachografu.",
+            "Є ризик запізнення:": "Istnieje ryzyko opóźnienia:",
+            "точок поза вікном.": "punktów poza oknem czasowym.",
+            "без часового вікна": "bez okna czasowego",
+            "виїзд": "wyjazd",
+            "від попередньої точки": "od poprzedniego punktu",
+            "очікування": "oczekiwanie",
+            "ЗАПІЗНЕННЯ": "OPÓŹNIENIE",
+            "Підняти точку": "Przesuń punkt w górę",
+            "Опустити точку": "Przesuń punkt w dół",
+            "Орієнтовна оплата": "Szacunkowa opłata",
+            "Орієнтовна оплата доріг:": "Szacunkowe opłaty drogowe:",
+            "платною": "odcinka płatnego",
+            "платних ділянок": "płatnych odcinków",
+            "Розвантаження прийнято по": "Przyjęto czas rozładunku",
+            "хв на точку. Після виконання рейсу порівняємо прогноз із фактом і скоригуємо норматив.": "min na punkt. Po zakończeniu trasy porównamy prognozę z wynikiem rzeczywistym i skorygujemy normę.",
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie usługom mapowym wyłącznie adresów tej trasy",
+            "Для карти використовуються лише адреси й часові вікна.": "Do mapy używane są wyłącznie adresy i okna czasowe.",
+            "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
+            "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
+            "Добовий відпочинок, год": "Odpoczynek dobowy, godz.",
+            " год ": " godz. ",
+            " хв": " min",
+            " км": " km",
+            " л ": " l ",
+        }
+        for source_text, target_text in sorted(
+            gps_pl_js.items(), key=lambda item: len(item[0]), reverse=True
+        ):
+            body = body.replace(source_text, target_text)
+
+        # <ol> already numbers route stops; do not print the same number again.
+        body = body.replace(
+            "return '<li><strong>' + stop.index + '. ' +",
+            "return '<li><strong>' +"
+        )
 
     return page(
         "GPS",
