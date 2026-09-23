@@ -642,6 +642,48 @@ def get_duration_value(data, names):
     return safe_float(get_first_value(data, names))
 
 
+def build_driver_iq_balance(data):
+    """Build a conservative IQ rest-balance snapshot from Navirec fields.
+
+    This does not invent missing tachograph history. Values that Navirec does
+    not expose are left unknown until TRANVIQ has durable driver memory.
+    """
+    min_daily_rest = get_duration_value(
+        data, ["driver_min_daily_rest", "driver_1_min_daily_rest"]
+    )
+    min_weekly_rest = get_duration_value(
+        data, ["driver_min_weekly_rest", "driver_1_min_weekly_rest"]
+    )
+    compensation_fields = (
+        "driver_open_compensation_2nd_week_before_last",
+        "driver_open_compensation_week_before_last",
+        "driver_open_compensation_last_week",
+    )
+    compensation_parts = []
+    for field in compensation_fields:
+        value = safe_float(data.get(field))
+        if value is not None and value > 0:
+            compensation_parts.append(value)
+    open_compensation = sum(compensation_parts)
+    return {
+        "min_daily_rest_s": min_daily_rest,
+        "min_weekly_rest_s": min_weekly_rest,
+        "open_weekly_compensation_s": open_compensation,
+        "weekly_rest_plus_all_compensation_s": (
+            45 * 3600 + open_compensation
+        ),
+        "last_daily_rest_end": get_first_value(
+            data, ["driver_end_last_daily_rest"]
+        ),
+        "last_weekly_rest_end": get_first_value(
+            data, ["driver_end_last_weekly_rest"]
+        ),
+        "second_last_weekly_rest_end": get_first_value(
+            data, ["driver_end_second_last_weekly_rest"]
+        ),
+    }
+
+
 def merge_tachograph_state(vehicle_state, driver_state):
     merged = {}
 
@@ -780,6 +822,8 @@ def build_tachograph_snapshots(vehicle_states):
             ]
         )
 
+        iq_balance = build_driver_iq_balance(combined)
+
         remaining_values = [
             current_drive_remaining,
             daily_drive_remaining,
@@ -807,6 +851,10 @@ def build_tachograph_snapshots(vehicle_states):
             "remaining_weekly_driving_s": weekly_drive_remaining,
             "time_until_break_s": time_until_break,
             "time_until_daily_rest_s": time_until_daily_rest,
+            "min_daily_rest_s": iq_balance["min_daily_rest_s"],
+            "min_weekly_rest_s": iq_balance["min_weekly_rest_s"],
+            "open_weekly_compensation_s": iq_balance["open_weekly_compensation_s"],
+            "weekly_rest_plus_all_compensation_s": iq_balance["weekly_rest_plus_all_compensation_s"],
             "has_remaining_time": any(
                 value is not None for value in remaining_values
             ),
@@ -6351,13 +6399,20 @@ def gps():
                 5,
                 Number(deliveryServiceMinutes.value) || 25
             );
-            const dailyRestHours = Math.max(
-                9,
-                Math.min(
-                    11,
-                    Number(deliveryDailyRestHours.value) || 11
-                )
+            const navirecMinDailyRest = numberOrNull(
+                vehicle.min_daily_rest_s
             );
+            const dailyRestHours = navirecMinDailyRest !== null &&
+                navirecMinDailyRest >= 9 * 3600 &&
+                navirecMinDailyRest <= 11 * 3600
+                ? navirecMinDailyRest / 3600
+                : Math.max(
+                    9,
+                    Math.min(
+                        11,
+                        Number(deliveryDailyRestHours.value) || 11
+                    )
+                );
             const schedule = calculateDeliverySchedule(
                 vehicle,
                 deliveryRoute,
@@ -7627,6 +7682,13 @@ def tachograph():
                 "driver_1_cumulative_break_time"
             ]
         )
+        iq_balance = build_driver_iq_balance(combined)
+        min_daily_rest = iq_balance["min_daily_rest_s"]
+        min_weekly_rest = iq_balance["min_weekly_rest_s"]
+        open_weekly_compensation = iq_balance["open_weekly_compensation_s"]
+        weekly_rest_with_compensation = iq_balance[
+            "weekly_rest_plus_all_compensation_s"
+        ]
 
         warnings = []
 
@@ -7869,6 +7931,42 @@ def tachograph():
 
                 </div>
 
+                <div class="alert alert-ok" style="margin-top:16px">
+                    <strong>TRANVIQ IQ — баланс відпочинку</strong>
+                    <div class="detail-grid" style="margin-top:10px">
+                        <div class="detail">
+                            <div class="label">Мінімальний добовий відпочинок зараз</div>
+                            <div class="value">{iq_min_daily}</div>
+                        </div>
+                        <div class="detail">
+                            <div class="label">Мінімальний тижневий відпочинок Navirec</div>
+                            <div class="value">{iq_min_weekly}</div>
+                        </div>
+                        <div class="detail">
+                            <div class="label">Відкрита компенсація тижневого відпочинку</div>
+                            <div class="value">{iq_compensation}</div>
+                        </div>
+                        <div class="detail">
+                            <div class="label">45 год + весь відкритий борг</div>
+                            <div class="value">{iq_long_rest}</div>
+                        </div>
+                        <div class="detail">
+                            <div class="label">Кінець останнього добового відпочинку</div>
+                            <div class="value">{iq_last_daily}</div>
+                        </div>
+                        <div class="detail">
+                            <div class="label">Кінець останнього тижневого відпочинку</div>
+                            <div class="value">{iq_last_weekly}</div>
+                        </div>
+                    </div>
+                    <div class="small" style="margin-top:9px">
+                        IQ використовує тільки підтверджені поля Navirec.
+                        Лічильник використаних 9-годинних добових відпочинків
+                        додамо до постійної пам’яті TRANVIQ, щоб він не губився
+                        після перезапуску сервера.
+                    </div>
+                </div>
+
                 {second_driver}
                 {warnings}
 
@@ -7930,6 +8028,12 @@ def tachograph():
                 valid_until=html_text(
                     format_date(valid_until)
                 ),
+                iq_min_daily=format_duration_short(min_daily_rest),
+                iq_min_weekly=format_duration_short(min_weekly_rest),
+                iq_compensation=format_duration_short(open_weekly_compensation),
+                iq_long_rest=format_duration_short(weekly_rest_with_compensation),
+                iq_last_daily=html_text(format_time(iq_balance["last_daily_rest_end"])),
+                iq_last_weekly=html_text(format_time(iq_balance["last_weekly_rest_end"])),
                 second_driver=second_driver_block,
                 warnings=warning_html
             )
