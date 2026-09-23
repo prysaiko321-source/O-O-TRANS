@@ -4125,16 +4125,85 @@ def geocode_search():
             if len(results) >= 7:
                 break
 
+        # Якщо Photon не знайшов точну адресу, пробуємо Nominatim (OSM).
+        # Це важливо для приватних адрес/номерів будинків, які є на карті,
+        # але інколи відсутні в індексі Photon.
+        if search_mode == "address" and not results:
+            try:
+                with GEOCODE_LOCK:
+                    now = time.monotonic()
+                    wait_seconds = 1.05 - (now - GEOCODE_LAST_REQUEST_AT)
+                    if wait_seconds > 0:
+                        time.sleep(wait_seconds)
+
+                    nominatim_response = requests.get(
+                        "https://nominatim.openstreetmap.org/search",
+                        params={
+                            "q": query,
+                            "format": "jsonv2",
+                            "addressdetails": 1,
+                            "limit": 5
+                        },
+                        headers={
+                            "User-Agent": (
+                                "TRANVIQ/1.0 (O&O TRANS route planner; "
+                                "contact via application owner)"
+                            ),
+                            "Accept-Language": current_language()
+                        },
+                        timeout=20
+                    )
+                    nominatim_response.raise_for_status()
+                    nominatim_raw = nominatim_response.json() or []
+                    GEOCODE_LAST_REQUEST_AT = time.monotonic()
+
+                for item in nominatim_raw:
+                    try:
+                        latitude = float(item.get("lat"))
+                        longitude = float(item.get("lon"))
+                    except (TypeError, ValueError):
+                        continue
+
+                    address = item.get("address") or {}
+                    city_name = str(
+                        address.get("city")
+                        or address.get("town")
+                        or address.get("village")
+                        or address.get("municipality")
+                        or ""
+                    ).strip()
+                    display_name = str(item.get("display_name") or query).strip()
+                    results.append({
+                        "name": display_name,
+                        "short_name": str(item.get("name") or query).strip(),
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "type": str(item.get("type") or "address"),
+                        "city": city_name,
+                        "country_code": str(address.get("country_code") or "").lower(),
+                        "source": "nominatim"
+                    })
+                    if len(results) >= 5:
+                        break
+            except (requests.RequestException, ValueError):
+                # Nominatim jest tylko rezerwą. Jeśli też nie odpowie,
+                # zwracamy normalny brak wyników zamiast psuć trasę.
+                pass
+
         if photon_failed and not results:
             return jsonify({
                 "results": [],
                 "error": "Пошук адреси тимчасово недоступний."
             }), 503
 
-        GEOCODE_CACHE[cache_key] = (
-            time.monotonic(),
-            results
-        )
+        # Nie zapisujemy pustego wyniku do cache. Dzięki temu ponowna próba
+        # naprawdę ponawia geokodowanie zamiast trzy razy zwracać ten sam
+        # pusty wynik z pamięci.
+        if results:
+            GEOCODE_CACHE[cache_key] = (
+                time.monotonic(),
+                results
+            )
         return jsonify({"results": results})
     except (requests.RequestException, ValueError):
         return jsonify({
