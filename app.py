@@ -468,32 +468,40 @@ def state_map_by_vehicle(states):
 
 
 def get_vehicle_states():
+    """Return the latest Navirec vehicle states with a short retry.
+
+    Navirec can occasionally return a transient error/empty response.  The
+    GPS planner must not lose every vehicle because of one failed request,
+    so we retry before treating the state list as unavailable.
+    """
     if not NAVIREC_TOKEN:
         return []
 
-    try:
-        url = f"{NAVIREC_API}/last_vehicle_states/"
-        params = {"account": NAVIREC_ACCOUNT_ID}
+    url = f"{NAVIREC_API}/last_vehicle_states/"
+    params = {"account": NAVIREC_ACCOUNT_ID}
 
-        response = requests.get(
-            url,
-            headers=navirec_headers(),
-            params=params,
-            timeout=20
-        )
+    for attempt in range(3):
+        try:
+            response = requests.get(
+                url,
+                headers=navirec_headers(),
+                params=params,
+                timeout=20
+            )
 
-        if response.status_code != 200:
-            return []
+            if response.status_code == 200:
+                data = response.json()
+                if isinstance(data, list) and data:
+                    return data
+                if isinstance(data, list) and attempt == 2:
+                    return data
+        except Exception:
+            pass
 
-        data = response.json()
+        if attempt < 2:
+            time.sleep(0.6)
 
-        if isinstance(data, list):
-            return data
-
-        return []
-
-    except Exception:
-        return []
+    return []
 
 
 def navirec_list(endpoint, params=None, timeout=25):
