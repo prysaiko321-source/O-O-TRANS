@@ -1057,6 +1057,64 @@ def vehicle_day_summary():
     })
 
 
+DELIVERY_ROUTES_FILE = os.environ.get(
+    "DELIVERY_ROUTES_FILE",
+    "/tmp/tranviq_delivery_routes.json"
+)
+DELIVERY_ROUTES_LOCK = threading.Lock()
+
+
+def _load_delivery_routes():
+    try:
+        with open(DELIVERY_ROUTES_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _write_delivery_routes(data):
+    folder = os.path.dirname(DELIVERY_ROUTES_FILE)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    temporary = DELIVERY_ROUTES_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False)
+    os.replace(temporary, DELIVERY_ROUTES_FILE)
+
+
+@app.route("/api/delivery-route/<vehicle_id>", methods=["GET", "PUT", "DELETE"])
+def delivery_route_storage(vehicle_id):
+    vehicle_id = normalize_vehicle_id(vehicle_id)
+    if not vehicle_by_id(vehicle_id):
+        return jsonify({"error": "Автомобіль не знайдено."}), 404
+
+    with DELIVERY_ROUTES_LOCK:
+        routes = _load_delivery_routes()
+
+        if request.method == "GET":
+            saved = routes.get(vehicle_id)
+            return jsonify({"route": saved})
+
+        if request.method == "DELETE":
+            routes.pop(vehicle_id, None)
+            _write_delivery_routes(routes)
+            return jsonify({"ok": True})
+
+        payload = request.get_json(silent=True) or {}
+        saved = payload.get("route")
+        if not isinstance(saved, dict):
+            return jsonify({"error": "Неправильні дані маршруту."}), 400
+        if normalize_vehicle_id(saved.get("vehicle_id", "")) != vehicle_id:
+            return jsonify({"error": "Маршрут належить іншому автомобілю."}), 400
+        if not isinstance(saved.get("delivery_route"), dict):
+            return jsonify({"error": "Немає даних маршруту."}), 400
+
+        routes[vehicle_id] = saved
+        _write_delivery_routes(routes)
+        return jsonify({"ok": True})
+
+
 @app.route("/api/delivery-stop-status", methods=["POST"])
 def delivery_stop_status():
     payload = request.get_json(silent=True) or {}
@@ -5843,6 +5901,14 @@ def gps():
                 JSON.stringify(savedRoute)
             );
         }} catch (error) {{}}
+
+        fetch('/api/delivery-route/' + encodeURIComponent(savedRoute.vehicle_id), {{
+            method: 'PUT',
+            headers: {{'Content-Type': 'application/json'}},
+            body: JSON.stringify({{route: savedRoute}})
+        }}).catch(function() {{
+            // Локальна копія лишається резервною, якщо сервер недоступний.
+        }});
     }}
 
     function removeSavedDeliveryRoute(vehicleId) {{
@@ -5850,14 +5916,38 @@ def gps():
         try {{
             localStorage.removeItem(deliveryRouteStorageKey(vehicleId));
         }} catch (error) {{}}
+
+        fetch('/api/delivery-route/' + encodeURIComponent(vehicleId), {{
+            method: 'DELETE'
+        }}).catch(function() {{}});
     }}
 
-    function readSavedDeliveryRoute(vehicleId) {{
+    async function readSavedDeliveryRoute(vehicleId) {{
         if (!vehicleId) return null;
+
         try {{
-            const raw = localStorage.getItem(
-                deliveryRouteStorageKey(vehicleId)
+            const response = await fetch(
+                '/api/delivery-route/' + encodeURIComponent(vehicleId),
+                {{cache: 'no-store'}}
             );
+            if (response.ok) {{
+                const data = await response.json();
+                const saved = data.route;
+                if (saved && saved.vehicle_id === vehicleId &&
+                        saved.delivery_route && saved.route_data) {{
+                    try {{
+                        localStorage.setItem(
+                            deliveryRouteStorageKey(vehicleId),
+                            JSON.stringify(saved)
+                        );
+                    }} catch (error) {{}}
+                    return saved;
+                }}
+            }}
+        }} catch (error) {{}}
+
+        try {{
+            const raw = localStorage.getItem(deliveryRouteStorageKey(vehicleId));
             if (!raw) return null;
             const saved = JSON.parse(raw);
             if (!saved || saved.vehicle_id !== vehicleId ||
@@ -6045,7 +6135,7 @@ def gps():
         activeDeliveryRoute = null;
         renderDeliveryStopOrder();
 
-        const saved = readSavedDeliveryRoute(vehicleId);
+        const saved = await readSavedDeliveryRoute(vehicleId);
         if (!saved) {{
             deliveryStopsInput.value = '';
             measureResult.textContent =
