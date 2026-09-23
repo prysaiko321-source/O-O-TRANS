@@ -6736,6 +6736,55 @@ def gps():
                 );
             }}
             measureResult.innerHTML = restoredSummary;
+
+            // Polish GPS: translate the restored route summary once, directly in this block.
+            // No observer and no changes to routing/calculation logic.
+            if (document.documentElement.lang === 'pl') {{
+                const walker = document.createTreeWalker(
+                    measureResult,
+                    NodeFilter.SHOW_TEXT
+                );
+                const textNodes = [];
+                while (walker.nextNode()) textNodes.push(walker.currentNode);
+                const replacements = [
+                    ['Розвізка', 'Trasa dostaw'],
+                    ['Автомобіль:', 'Pojazd:'],
+                    ['Водій:', 'Kierowca:'],
+                    ['Відстань:', 'Odległość:'],
+                    ['Чистий час керування:', 'Czysty czas jazdy:'],
+                    ['Планований виїзд:', 'Planowany wyjazd:'],
+                    ['Початок сьогоднішньої роботи:', 'Początek dzisiejszej pracy:'],
+                    ['Сьогодні вже пройдено:', 'Dzisiaj już przejechano:'],
+                    ['керування:', 'czas jazdy:'],
+                    ['Паливо:', 'Paliwo:'],
+                    ['Перерв 45 хв:', 'Przerwy 45 min:'],
+                    ['добових відпочинків:', 'odpoczynki dobowe:'],
+                    ['Фізично вільний:', 'Fizycznie wolny:'],
+                    ['Наступне завантаження можна планувати:', 'Następny załadunek można planować:'],
+                    ['Рекомендований наступний виїзд:', 'Zalecany następny wyjazd:'],
+                    ['Після завершення залишається щонайменше', 'Po zakończeniu pozostaje co najmniej'],
+                    ['часу керування.', 'czasu jazdy.'],
+                    ['Маршрут узгоджено з актуальним тахографом.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
+                    ['без часового вікна', 'bez okna czasowego'],
+                    ['виїзд', 'wyjazd'],
+                    ['від попередньої точки', 'od poprzedniego punktu'],
+                    ['Орієнтовна оплата', 'Szacunkowa opłata'],
+                    ['км платною дорогою', 'km drogą płatną'],
+                    ['ділянка', 'odcinek'],
+                    ['тариф від', 'taryfa z'],
+                    [' год ', ' godz. '],
+                    [' хв', ' min'],
+                    [' км', ' km'],
+                    [' л ≈', ' l ≈']
+                ];
+                textNodes.forEach(function(node) {{
+                    let value = node.nodeValue || '';
+                    replacements.forEach(function(pair) {{
+                        value = value.split(pair[0]).join(pair[1]);
+                    }});
+                    node.nodeValue = value;
+                }});
+            }}
         }} else {{
             measureResult.innerHTML =
                 '<strong>' + escapeHtml(saved.delivery_route.label) +
