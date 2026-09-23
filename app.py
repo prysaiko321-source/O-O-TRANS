@@ -1808,7 +1808,11 @@ def page(title, body, active=""):
         )
 
     language_options = []
-    for language_code, language_name in LANGUAGES.items():
+    visible_languages = ("uk", "pl", "en", "de")
+    for language_code in visible_languages:
+        if language_code not in LANGUAGES:
+            continue
+        language_name = LANGUAGES[language_code]
         selected = " selected" if language_code == language else ""
         language_options.append(
             '<option value="{}"{}>{}</option>'.format(
@@ -5527,10 +5531,13 @@ def gps():
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
 
+        const polishUi = document.documentElement.lang === 'pl';
         if (hours > 0) {{
-            return hours + ' год ' + minutes + ' хв';
+            return polishUi
+                ? hours + ' godz. ' + minutes + ' min'
+                : hours + ' год ' + minutes + ' хв';
         }}
-        return minutes + ' хв';
+        return polishUi ? minutes + ' min' : minutes + ' хв';
     }}
 
     function formatArrival(seconds) {{
@@ -5853,8 +5860,10 @@ def gps():
                 freeAt.getTime() + dailyRestSeconds * 1000
             );
             nextRecommendation =
-                'Без повних даних тахографа безпечно планувати новий ' +
-                'виїзд лише після добового відпочинку.';
+                (document.documentElement.lang === 'pl'
+                    ? 'Bez pełnych danych z tachografu kolejny wyjazd można bezpiecznie planować dopiero po odpoczynku dobowym.'
+                    : 'Без повних даних тахографа безпечно планувати новий ' +
+                        'виїзд лише після добового відпочинку.');
         }} else if (
             dailyRemaining >= 60 * 60 &&
             shiftRemaining >= 60 * 60 &&
@@ -5864,23 +5873,28 @@ def gps():
                 freeAt.getTime() + 45 * 60 * 1000
             );
             nextRecommendation =
-                'Наступне завантаження можна виконувати після ' +
-                'розвізки, а подальший рух планувати після перерви ' +
-                '45 хв. Остаточно звірити з тахографом.';
+                (document.documentElement.lang === 'pl'
+                    ? 'Następny załadunek można wykonać po zakończeniu dostaw, a dalszą jazdę planować po 45-minutowej przerwie. Ostatecznie zweryfikować z tachografem.'
+                    : 'Наступне завантаження можна виконувати після ' +
+                        'розвізки, а подальший рух планувати після перерви ' +
+                        '45 хв. Остаточно звірити з тахографом.');
         }} else if (canDriveAfter >= 60 * 60) {{
             nextRecommendation = restBeforeStart && !hasTachograph
                 ? 'До ранкового виїзду за стоянкою набирається ' +
                     'добовий відпочинок. Після завершення залишається ' +
                     'орієнтовно ' + formatDuration(canDriveAfter) +
                     ' керування; після запуску звірити з тахографом.'
-                : 'Після завершення залишається щонайменше ' +
-                    formatDuration(canDriveAfter) + ' керування.';
+                : (document.documentElement.lang === 'pl'
+                    ? 'Po zakończeniu pozostaje co najmniej ' + formatDuration(canDriveAfter) + ' czasu jazdy.'
+                    : 'Після завершення залишається щонайменше ' + formatDuration(canDriveAfter) + ' керування.');
         }} else {{
             nextSafeStart = new Date(
                 freeAt.getTime() + dailyRestSeconds * 1000
             );
             nextRecommendation =
-                'Для наступного рейсу потрібен добовий відпочинок.';
+                (document.documentElement.lang === 'pl'
+                    ? 'Przed następną trasą wymagany jest odpoczynek dobowy.'
+                    : 'Для наступного рейсу потрібен добовий відпочинок.');
         }}
 
         return {{
@@ -5957,8 +5971,9 @@ def gps():
 
     function formatTollInformation(routeData) {{
         if (routeData.avoid_tolls) {{
-            return 'Платні дороги: маршрут намагається їх уникати. ' +
-                'Перевірте результат, бо повне уникнення не гарантується.';
+            return document.documentElement.lang === 'pl'
+                ? 'Drogi płatne: trasa próbuje ich unikać. Sprawdź wynik, ponieważ całkowite uniknięcie opłat nie jest gwarantowane.'
+                : 'Платні дороги: маршрут намагається їх уникати. ' + 'Перевірте результат, бо повне уникнення не гарантується.';
         }}
 
         if (routeData.provider !== 'google') {{
@@ -5971,7 +5986,7 @@ def gps():
                 return Number(price.amount).toFixed(2) +
                     ' ' + price.currency;
             }});
-            return 'Орієнтовна оплата доріг: ' + prices.join(' + ');
+            return (document.documentElement.lang === 'pl' ? 'Szacunkowe opłaty drogowe: ' : 'Орієнтовна оплата доріг: ') + prices.join(' + ');
         }}
 
         if (routeData.toll_estimate) {{
@@ -5979,11 +5994,11 @@ def gps():
             const segmentText = estimate.segment
                 ? '; ділянка ' + estimate.segment
                 : '';
-            return 'Орієнтовна оплата ' + estimate.road + ': ≈ ' +
+            return (document.documentElement.lang === 'pl' ? 'Szacunkowa opłata ' : 'Орієнтовна оплата ') + estimate.road + ': ≈ ' +
                 Number(estimate.amount).toFixed(0) + ' ' +
                 estimate.currency + ' (' +
                 Number(estimate.distance_km).toFixed(1) +
-                ' км платною дорогою' + segmentText +
+                (document.documentElement.lang === 'pl' ? ' km drogą płatną' : ' км платною дорогою') + segmentText +
                 '; тариф від 11.09.2026).';
         }}
 
@@ -6305,7 +6320,7 @@ def gps():
                 formatDuration(routeData.duration_s) +
                 '<br>Орієнтовне прибуття: ' +
                 formatArrival(routeData.duration_s) +
-                '<br>Паливо: <strong>' +
+                (polishUi ? '<br>Paliwo: <strong>' : '<br>Паливо: <strong>') +
                 fuelLitres.toFixed(1) + ' л</strong> × ' +
                 fuelPrice.toFixed(2) + ' ' +
                 fuelCurrencySelect.value +
@@ -7092,7 +7107,7 @@ def gps():
             const daySummaryPromise = loadVehicleDaySummary(vehicle.id);
             const stops = await geocodeDeliveryStops(parsedStops);
             const deliveryRoute = {{
-                label: 'Розвізка ' + deliveryRouteDate.value,
+                label: (document.documentElement.lang === 'pl' ? 'Trasa dostaw ' : 'Розвізка ') + deliveryRouteDate.value,
                 vehicle_id: vehicle.id,
                 date: deliveryRouteDate.value,
                 stops: stops
@@ -7225,21 +7240,23 @@ def gps():
             );
             const fuelLitres = distanceKm * fuelConsumption / 100;
             const fuelCost = fuelLitres * fuelPrice;
+            const polishUi = document.documentElement.lang === 'pl';
             const pauseLabel = schedule.pause_type === 'daily_rest'
-                ? 'довгий добовий відпочинок'
+                ? (polishUi ? 'długi odpoczynek dobowy' : 'довгий добовий відпочинок')
                 : (schedule.pause_type === 'break_45'
-                    ? 'перерва щонайменше 45 хвилин'
-                    : 'коротка або звичайна стоянка');
+                    ? (polishUi ? 'przerwa co najmniej 45 min' : 'перерва щонайменше 45 хвилин')
+                    : (polishUi ? 'krótki lub zwykły postój' : 'коротка або звичайна стоянка'));
             const feasibilityClass = schedule.late_count
                 ? 'error'
                 : (schedule.has_tachograph || schedule.rest_before_start
                     ? 'ok'
                     : 'warning');
             const feasibilityTitle = schedule.late_count
-                ? 'Є ризик запізнення: ' +
-                    schedule.late_count + ' точок поза вікном.'
+                ? (polishUi
+                    ? 'Ryzyko opóźnienia: ' + schedule.late_count + ' punktów poza oknem czasowym.'
+                    : 'Є ризик запізнення: ' + schedule.late_count + ' точок поза вікном.')
                 : (schedule.has_tachograph
-                    ? 'Маршрут узгоджено з актуальним тахографом.'
+                    ? (polishUi ? 'Trasa jest zgodna z aktualnymi danymi tachografu.' : 'Маршрут узгоджено з актуальним тахографом.')
                     : (schedule.rest_before_start
                         ? 'До виїзду враховано стоянку з вимкненим ' +
                             'запалюванням як розрахункову паузу. ' +
@@ -7250,23 +7267,23 @@ def gps():
             const stopRows = schedule.stops.map(function(stop, index) {{
                 let note = '';
                 if (stop.wait_seconds >= 60) {{
-                    note += ' · очікування ' +
+                    note += (polishUi ? ' · oczekiwanie ' : ' · очікування ') +
                         formatDuration(stop.wait_seconds);
                 }}
                 if (stop.late) {{
-                    note += ' · <strong>ЗАПІЗНЕННЯ</strong>';
+                    note += (polishUi ? ' · <strong>OPÓŹNIENIE</strong>' : ' · <strong>ЗАПІЗНЕННЯ</strong>');
                 }}
-                return '<li><strong>' + stop.index + '. ' +
+                return '<li><strong>' +
                     formatDateTime(stop.service_start) + '</strong> — ' +
                     escapeHtml(stop.address) +
                     (stop.window_start && stop.window_end
                         ? ' (' + stop.window_start + '–' + stop.window_end + ')'
-                        : ' (без часового вікна)') +
-                    '<br><span class="small">виїзд ' +
+                        : (polishUi ? ' (bez okna czasowego)' : ' (без часового вікна)')) +
+                    '<br><span class="small">' + (polishUi ? 'wyjazd ' : 'виїзд ') +
                     formatDateTime(stop.departure) +
-                    ', від попередньої точки ' +
+                    (polishUi ? ', od poprzedniego punktu ' : ', від попередньої точки ') +
                     (stop.distance_m / 1000).toFixed(1) +
-                    ' км' + note + '</span>' +
+                    ' km' + note + '</span>' +
                     '<br><span style="display:inline-flex;gap:6px;margin-top:5px">' +
                     '<button type="button" title="Підняти точку" ' +
                     'onclick="reorderActiveDeliveryStops(' + index + ', -1)" ' +
@@ -7279,48 +7296,48 @@ def gps():
 
             measureResult.innerHTML =
                 '<strong>' + escapeHtml(deliveryRoute.label) + '</strong>' +
-                '<br>Автомобіль: <strong>' +
+                (polishUi ? '<br>Pojazd: <strong>' : '<br>Автомобіль: <strong>') +
                 escapeHtml(vehicle.name) + '</strong>' +
-                '<br>Водій: <strong>' +
-                escapeHtml(vehicle.driver_name || 'не визначено') +
+                (polishUi ? '<br>Kierowca: <strong>' : '<br>Водій: <strong>') +
+                escapeHtml(vehicle.driver_name || (polishUi ? 'nie określono' : 'не визначено')) +
                 '</strong>' +
-                '<br>Відстань: <strong>' +
-                distanceKm.toFixed(1) + ' км</strong>' +
-                '<br>Чистий час керування: ' +
+                (polishUi ? '<br>Odległość: <strong>' : '<br>Відстань: <strong>') +
+                distanceKm.toFixed(1) + ' km</strong>' +
+                (polishUi ? '<br>Czysty czas jazdy: ' : '<br>Чистий час керування: ') +
                 formatDuration(routeData.duration_s) +
-                '<br>Планований виїзд: <strong>' +
+                (polishUi ? '<br>Planowany wyjazd: <strong>' : '<br>Планований виїзд: <strong>') +
                 formatDateTime(schedule.route_start) + '</strong>' +
                 (schedule.first_movement_at
-                    ? '<br>Початок сьогоднішньої роботи: ' +
+                    ? (polishUi ? '<br>Początek dzisiejszej pracy: ' : '<br>Початок сьогоднішньої роботи: ') +
                         '<strong>' +
                         formatDateTime(schedule.first_movement_at) +
                         '</strong>'
                     : '') +
                 (schedule.previous_distance_km !== null
-                    ? '<br>Сьогодні вже пройдено: <strong>' +
+                    ? (polishUi ? '<br>Dzisiaj już przejechano: <strong>' : '<br>Сьогодні вже пройдено: <strong>') +
                         schedule.previous_distance_km.toFixed(1) +
-                        ' км</strong>; керування: ' +
+                        (polishUi ? ' km</strong>; jazda: ' : ' км</strong>; керування: ') +
                         formatDuration(schedule.previous_driving_s)
                     : '') +
                 (schedule.parking_rest_s > 0
-                    ? '<br>Стоянка до виїзду: <strong>' +
+                    ? (polishUi ? '<br>Postój przed wyjazdem: <strong>' : '<br>Стоянка до виїзду: <strong>') +
                         formatDuration(schedule.parking_rest_s) +
                         '</strong> — ' + pauseLabel +
                         (schedule.rest_before_start
-                            ? '; добову паузу набрано'
-                            : '; повну добову паузу ще не набрано')
+                            ? (polishUi ? '; odpoczynek dobowy zaliczony' : '; добову паузу набрано')
+                            : (polishUi ? '; pełny odpoczynek dobowy nie został jeszcze osiągnięty' : '; повну добову паузу ще не набрано'))
                     : '') +
-                '<br>Паливо: <strong>' + fuelLitres.toFixed(1) +
-                ' л ≈ ' + fuelCost.toFixed(2) + ' ' +
+                (polishUi ? '<br>Paliwo: <strong>' : '<br>Паливо: <strong>') + fuelLitres.toFixed(1) +
+                (polishUi ? ' l ≈ ' : ' л ≈ ') + fuelCost.toFixed(2) + ' ' +
                 fuelCurrencySelect.value + '</strong>' +
-                '<br>Перерв 45 хв: ' + schedule.break_count +
-                '; добових відпочинків: ' +
+                (polishUi ? '<br>Przerwy 45 min: ' : '<br>Перерв 45 хв: ') + schedule.break_count +
+                (polishUi ? '; odpoczynki dobowe: ' : '; добових відпочинків: ') +
                 schedule.daily_rest_count +
-                '<br><strong>Фізично вільний: ' +
+                (polishUi ? '<br><strong>Fizycznie wolny: ' : '<br><strong>Фізично вільний: ') +
                 formatDateTime(schedule.free_at) + '</strong>' +
-                '<br><strong>Наступне завантаження можна планувати: ' +
+                (polishUi ? '<br><strong>Następny załadunek można planować: ' : '<br><strong>Наступне завантаження можна планувати: ') +
                 formatDateTime(schedule.free_at) + '</strong>' +
-                '<br><strong>Рекомендований наступний виїзд: ' +
+                (polishUi ? '<br><strong>Zalecany następny wyjazd: ' : '<br><strong>Рекомендований наступний виїзд: ') +
                 formatDateTime(schedule.next_safe_start) + '</strong>' +
                 '<br><span class="small">' +
                 escapeHtml(schedule.next_recommendation) + '</span>' +
@@ -7331,9 +7348,9 @@ def gps():
                 '<br><strong>' +
                 escapeHtml(formatTollInformation(routeData)) +
                 '</strong>' +
-                '<br><span class="small">Розвантаження прийнято по ' +
-                serviceMinutes + ' хв на точку. Після виконання рейсу ' +
-                'порівняємо прогноз із фактом і скоригуємо норматив.</span>';
+                (polishUi ? '<br><span class="small">Przyjęto czas rozładunku: ' : '<br><span class="small">Розвантаження прийнято по ') +
+                serviceMinutes + (polishUi ? ' min na punkt. Po wykonaniu trasy ' : ' хв на точку. Після виконання рейсу ') +
+                (polishUi ? 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.</span>' : 'порівняємо прогноз із фактом і скоригуємо норматив.</span>');
 
             buildDeliveryRouteButton.textContent =
                 'Зберігаю активний маршрут...';
@@ -7586,6 +7603,7 @@ def gps():
             "Дата доставок": "Data dostaw",
             "Хв на точку": "Min na punkt",
             "Добовий відпочинок": "Odpoczynek dobowy",
+            "Odpoczynek dobowy, год": "Odpoczynek dobowy, godz.",
             "Прорахувати всі доставки": "Oblicz wszystkie dostawy",
             "Передавати адреси карті": "Przekazuj adresy do mapy",
             "Виміряти маршрут": "Zmierz trasę",
@@ -7730,71 +7748,87 @@ def gps():
         for source_text, target_text in sorted(gps_extra_translations[lang].items(), key=lambda item: len(item[0]), reverse=True):
             body = body.replace(source_text, target_text)
 
-    # Polish GPS: translate the actual JavaScript templates before they reach
-    # the browser.  This avoids DOM observers and keeps map logic untouched.
-    if current_language() == "pl":
-        gps_pl_js = {
-            "Розвізка": "Trasa dostaw",
-            "Автомобіль:": "Pojazd:",
-            "Водій:": "Kierowca:",
-            "не визначено": "nie określono",
-            "Відстань:": "Odległość:",
-            "Чистий час керування:": "Czysty czas jazdy:",
-            "Планований виїзд:": "Planowany wyjazd:",
-            "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
-            "Сьогодні вже пройдено:": "Dzisiaj już przejechano:",
-            "керування:": "jazda:",
-            "Стоянка до виїзду:": "Postój przed wyjazdem:",
-            "довгий добовий відпочинок": "długi odpoczynek dobowy",
-            "перерва щонайменше 45 хвилин": "przerwa co najmniej 45 min",
-            "коротка або звичайна стоянка": "krótki lub zwykły postój",
-            "добову паузу набрано": "odpoczynek dobowy został zaliczony",
-            "повну добову паузу ще не набрано": "pełny odpoczynek dobowy nie został jeszcze zaliczony",
-            "Паливо:": "Paliwo:",
-            "Перерв 45 хв:": "Przerw 45 min:",
-            "добових відпочинків:": "odpoczynków dobowych:",
-            "Фізично вільний:": "Fizycznie wolny:",
-            "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
+    # Translate text that is created later by JavaScript (route results,
+    # toll explanations, tachograph summaries, popups). Static replacements
+    # above cannot see those DOM nodes because they do not exist yet.
+    gps_dynamic_i18n = {
+        "pl": {
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie usługom mapowym wyłącznie adresów tej trasy",
+            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Do mapy używane są wyłącznie adresy i okna czasowe. Imiona i numery telefonów nie są przekazywane.",
+            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Koszt jest orientacyjny. Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
+            "Розвізка": "Trasa dostaw", "Автомобіль:": "Pojazd:", "Водій:": "Kierowca:",
+            "Відстань:": "Odległość:", "Чистий час керування:": "Czysty czas jazdy:",
+            "Планований виїзд:": "Planowany wyjazd:", "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
+            "Сьогодні вже пройдено:": "Dzisiaj już przejechano:", "керування:": "jazda:",
+            "Паливо:": "Paliwo:", "Перерв 45 хв:": "Przerw 45 min:", "добових відпочинків:": "odpoczynków dobowych:",
+            "Фізично вільний:": "Fizycznie wolny:", "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
             "Рекомендований наступний виїзд:": "Zalecany następny wyjazd:",
             "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
-            "Для наступного рейсу потрібен добовий відпочинок.": "Przed następną trasą wymagany jest odpoczynek dobowy.",
             "Маршрут узгоджено з актуальним тахографом.": "Trasa jest zgodna z aktualnymi danymi tachografu.",
-            "Є ризик запізнення:": "Istnieje ryzyko opóźnienia:",
-            "точок поза вікном.": "punktów poza oknem czasowym.",
-            "без часового вікна": "bez okna czasowego",
-            "виїзд": "wyjazd",
-            "від попередньої точки": "od poprzedniego punktu",
-            "очікування": "oczekiwanie",
-            "ЗАПІЗНЕННЯ": "OPÓŹNIENIE",
-            "Підняти точку": "Przesuń punkt w górę",
-            "Опустити точку": "Przesuń punkt w dół",
-            "Орієнтовна оплата": "Szacunkowa opłata",
-            "Орієнтовна оплата доріг:": "Szacunkowe opłaty drogowe:",
-            "платною": "odcinka płatnego",
-            "платних ділянок": "płatnych odcinków",
-            "Розвантаження прийнято по": "Przyjęto czas rozładunku",
-            "хв на точку. Після виконання рейсу порівняємо прогноз із фактом і скоригуємо норматив.": "min na punkt. Po zakończeniu trasy porównamy prognozę z wynikiem rzeczywistym i skorygujemy normę.",
-            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie usługom mapowym wyłącznie adresów tej trasy",
+            "без часового вікна": "bez okna czasowego", "виїзд": "wyjazd", "від попередньої точки": "od poprzedniego punktu",
+            "Орієнтовна оплата доріг:": "Szacunkowe opłaty drogowe:", "Орієнтовна оплата": "Szacunkowa opłata",
+            "Оплата доріг:": "Opłaty drogowe:", "платних ділянок": "płatnych odcinków",
+            "Дорогами:": "Drogami:", "Приблизний час:": "Przybliżony czas:", "По прямій:": "W linii prostej:",
+            "До наступної вигрузки:": "Do następnego rozładunku:", "До останньої вигрузки:": "Do ostatniego rozładunku:",
+            "Дозволяю передати картографічним сервісам": "Zezwalam na przekazanie usługom mapowym",
+            "лише адреси цього маршруту": "wyłącznie adresów tej trasy",
             "Для карти використовуються лише адреси й часові вікна.": "Do mapy używane są wyłącznie adresy i okna czasowe.",
             "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
             "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
             "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
-            "Добовий відпочинок, год": "Odpoczynek dobowy, godz.",
-            " год ": " godz. ",
-            " хв": " min",
-            " км": " km",
-            " л ": " l ",
+            "керування.": "jazdy.", " год ": " godz. ", " км": " km", " л ": " l ", "хв": "min",
+            "Перерв 45 min:": "Przerw 45 min:", "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
+            "Szacunkowa opłata A2: ≈ 10 PLN (67.9 км платною": "Szacunkowa opłata A2: ≈ 10 PLN (67.9 km odcinka płatnego"
+        },
+        "en": {
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "I allow only the addresses of this route to be sent to map services",
+            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Only addresses and time windows are used for the map. Names and phone numbers are not sent.",
+            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "The cost is an estimate. It depends on weight, axles, emission class, vignettes and payment method.",
+            "Розвізка": "Delivery route", "Автомобіль:": "Vehicle:", "Водій:": "Driver:", "Відстань:": "Distance:",
+            "Чистий час керування:": "Pure driving time:", "Планований виїзд:": "Planned departure:",
+            "Початок сьогоднішньої роботи:": "Start of today's work:", "Сьогодні вже пройдено:": "Distance today:",
+            "керування:": "driving:", "Паливо:": "Fuel:", "Перерв 45 хв:": "45 min breaks:", "добових відпочинків:": "daily rests:",
+            "Фізично вільний:": "Physically available:", "Наступне завантаження можна планувати:": "Next loading can be planned:",
+            "Рекомендований наступний виїзд:": "Recommended next departure:",
+            "Після завершення залишається щонайменше": "After completion at least",
+            "Маршрут узгоджено з актуальним тахографом.": "Route is consistent with current tachograph data.",
+            "без часового вікна": "no time window", "виїзд": "departure", "від попередньої точки": "from previous stop",
+            "Орієнтовна оплата доріг:": "Estimated road tolls:", "Орієнтовна оплата": "Estimated toll",
+            "Оплата доріг:": "Road tolls:", "Дорогами:": "By road:", "Приблизний час:": "Approximate time:", "По прямій:": "Straight line:",
+            "До наступної вигрузки:": "To next unloading:", "До останньої вигрузки:": "To final unloading:",
+            "Дозволяю передати картографічним сервісам": "I allow addresses to be sent to map services",
+            "лише адреси цього маршруту": "for this route only",
+            "Для карти використовуються лише адреси й часові вікна.": "Only addresses and time windows are used for the map.",
+            "Імена та телефони не передаються.": "Names and phone numbers are not sent.",
+            "Вартість є орієнтовною.": "The cost is an estimate.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "It depends on weight, axles, emission class, vignettes and payment method.",
+            "керування.": "driving.",  " л ": " l ",  "хв": "min"
+        },
+        "de": {
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Ich erlaube, nur die Adressen dieser Route an Kartendienste zu übermitteln",
+            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Für die Karte werden nur Adressen und Zeitfenster verwendet. Namen und Telefonnummern werden nicht übermittelt.",
+            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Die Kosten sind geschätzt. Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
+            "Розвізка": "Ausliefertour", "Автомобіль:": "Fahrzeug:", "Водій:": "Fahrer:", "Відстань:": "Entfernung:",
+            "Чистий час керування:": "Reine Fahrzeit:", "Планований виїзд:": "Geplante Abfahrt:",
+            "Початок сьогоднішньої роботи:": "Beginn der heutigen Arbeit:", "Сьогодні вже пройдено:": "Heute bereits gefahren:",
+            "керування:": "Fahrzeit:", "Паливо:": "Kraftstoff:", "Перерв 45 хв:": "45-Min.-Pausen:", "добових відпочинків:": "tägliche Ruhezeiten:",
+            "Фізично вільний:": "Physisch verfügbar:", "Наступне завантаження можна планувати:": "Nächste Beladung planbar:",
+            "Рекомендований наступний виїзд:": "Empfohlene nächste Abfahrt:",
+            "Після завершення залишається щонайменше": "Nach Abschluss verbleiben mindestens",
+            "Маршрут узгоджено з актуальним тахографом.": "Route stimmt mit den aktuellen Tachographendaten überein.",
+            "без часового вікна": "ohne Zeitfenster", "виїзд": "Abfahrt", "від попередньої точки": "vom vorherigen Stopp",
+            "Орієнтовна оплата доріг:": "Geschätzte Mautkosten:", "Орієнтовна оплата": "Geschätzte Maut",
+            "Оплата доріг:": "Mautkosten:", "Дорогами:": "Auf der Straße:", "Приблизний час:": "Ungefähre Zeit:", "По прямій:": "Luftlinie:",
+            "До наступної вигрузки:": "Bis zur nächsten Entladung:", "До останньої вигрузки:": "Bis zur letzten Entladung:",
+            "Дозволяю передати картографічним сервісам": "Ich erlaube die Übermittlung von Adressen an Kartendienste",
+            "лише адреси цього маршруту": "nur für diese Route",
+            "Для карти використовуються лише адреси й часові вікна.": "Für die Karte werden nur Adressen und Zeitfenster verwendet.",
+            "Імена та телефони не передаються.": "Namen und Telefonnummern werden nicht übermittelt.",
+            "Вартість є орієнтовною.": "Die Kosten sind geschätzt.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
+            "керування.": "Fahrzeit.",  " л ": " l ",  "хв": "Min."
         }
-        for source_text, target_text in sorted(
-            gps_pl_js.items(), key=lambda item: len(item[0]), reverse=True
-        ):
-            body = body.replace(source_text, target_text)
-
-        # <ol> already numbers route stops; do not print the same number again.
-        body = body.replace(
-            "return '<li><strong>' + stop.index + '. ' +",
-            "return '<li><strong>' +"
-        )
+    }
 
     return page(
         "GPS",
