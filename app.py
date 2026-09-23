@@ -1641,6 +1641,56 @@ FULL_PAGE_TRANSLATIONS = {
 for _lang, _items in FULL_PAGE_TRANSLATIONS.items():
     GLOBAL_UI_TRANSLATIONS.setdefault(_lang, {}).update(_items)
 
+# Complete Polish localization for Finance and Branding.  These modules
+# render through page(), so translating complete labels/phrases here keeps
+# their business logic untouched.
+GLOBAL_UI_TRANSLATIONS.setdefault("pl", {}).update({
+    "Результат у EUR": "Wynik w EUR",
+    "Результат у PLN": "Wynik w PLN",
+    "Доходи:": "Przychody:",
+    "Витрати:": "Koszty:",
+    "Підключені Gmail:": "Podłączone konta Gmail:",
+    "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "Wszystkie podłączone skrzynki są automatycznie sprawdzane co 15 minut.",
+    "Підключена пошта": "Podłączona skrzynka",
+    "Остання перевірка:": "Ostatnie sprawdzenie:",
+    "Перевірено файлів:": "Sprawdzono plików:",
+    "Нових документів:": "Nowych dokumentów:",
+    "Відключити цю пошту": "Odłącz tę skrzynkę",
+    "Перевірити всі пошти": "Sprawdź wszystkie skrzynki",
+    "Додати ще один Gmail": "Dodaj kolejne konto Gmail",
+    "Бухгалтерія": "Księgowość",
+    "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Podaj nazwę biura księgowego oraz adres lub domenę, z której wysyła dokumenty. Można podłączyć kilka biur księgowych.",
+    "Назва бухгалтерії": "Nazwa biura księgowego",
+    "Адреса або домен відправника": "Adres lub domena nadawcy",
+    "Зберегти": "Zapisz", "Відключити": "Odłącz", "Додати бухгалтерію": "Dodaj biuro księgowe", "Додати": "Dodaj",
+    "Документи бухгалтерії": "Dokumenty księgowe",
+    "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Podatki, ZUS, wynagrodzenia, rozliczenia kierowców i dokumenty kadrowe są przechowywane oddzielnie od faktur i zleceń transportowych.",
+    "Тип": "Typ", "Податки": "Podatki", "Зарплати": "Wynagrodzenia", "Розрахунки водіїв": "Rozliczenia kierowców",
+    "Кадрові документи": "Dokumenty kadrowe", "ZUS і страхові внески": "ZUS i składki ubezpieczeniowe",
+    "Період": "Okres", "Сума": "Kwota", "Суму ще не визначено": "Kwota nie została jeszcze określona",
+    "Статус": "Status", "На перевірку": "Do weryfikacji", "Отримано на Gmail": "Odebrano na Gmail", "Документ": "Dokument",
+    "Otwórz документ": "Otwórz dokument", "Перевірити дані": "Sprawdź dane", "Зберегти в архіві": "Zapisz w archiwum",
+    "Додати у витрати": "Dodaj do kosztów", "Додати в доходи": "Dodaj do przychodów",
+    "Додати операцію": "Dodaj operację", "Дохід": "Przychód", "Витрата": "Koszt",
+    "Категорія": "Kategoria", "Дохід за перевезення": "Przychód z transportu", "Ремонт і сервіс": "Naprawy i serwis",
+    "Дороги й паркінги": "Drogi i parkingi", "Лізинг або кредит": "Leasing lub kredyt", "Страхування": "Ubezpieczenie",
+    "Зарплата": "Wynagrodzenie", "Податки та збори": "Podatki i opłaty", "Офісні витрати": "Koszty biurowe", "Інше": "Inne",
+    "Вся компанія": "Cała firma", "Опис": "Opis", "Контрагент": "Kontrahent", "Номер фактури": "Numer faktury",
+    "Термін оплати": "Termin płatności", "Оплата": "Płatność", "Не оплачено": "Nieopłacone", "Оплачено": "Opłacone",
+    "Останні операції": "Ostatnie operacje", "Редагувати": "Edytuj", "Оригінальний файл не прикріплений": "Nie dołączono oryginalnego pliku",
+    "Фактури та транспортні замовлення з пошти": "Faktury i zlecenia transportowe z poczty",
+    "Транспортне замовлення записується як дохід, а вхідна фактура — як витрата. Перед підтвердженням тип документа можна змінити через кнопку «Перевірити».": "Zlecenie transportowe jest zapisywane jako przychód, a faktura kosztowa jako koszt. Przed zatwierdzeniem typ dokumentu można zmienić przyciskiem „Sprawdź”.",
+    "Програма перевірятиме дублікати за контрагентом, номером фактури, сумою та валютою.": "Program sprawdza duplikaty według kontrahenta, numeru faktury, kwoty i waluty.",
+    "Нове": "Nowe", "Дані перевезення": "Dane transportu", "Номер замовника:": "Numer klienta:", "Маршрут:": "Trasa:",
+    "Дати:": "Daty:", "Умови оплати:": "Warunki płatności:", "Перевірити": "Sprawdź", "Відхилити": "Odrzuć",
+    "Спочатку перевірте суму.": "Najpierw sprawdź kwotę.", "Транспортне замовлення з Gmail": "Zlecenie transportowe z Gmail",
+    "Фактура з Gmail": "Faktura z Gmail",
+    "Логотип показується у шапці та великим прозорим фоном на вході.": "Logo jest wyświetlane w nagłówku oraz jako duże przezroczyste tło na ekranie logowania.",
+    "Використовується початковий логотип.": "Używany jest domyślny logotyp.",
+    "Логотип / Logo": "Logo", "PNG, JPG або WebP, максимум 2 МБ.": "PNG, JPG lub WebP, maksymalnie 2 MB.",
+    "Зберегти / Save": "Zapisz"
+})
+
 # Never replace bare word fragments inside other words.  Units are handled
 # with whitespace-aware forms, preventing strings such as "сьоgodz.ні".
 for _lang in ("pl", "en", "de"):
@@ -7708,7 +7758,9 @@ def gps():
             "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
             "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
             "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
-            "керування.": "jazdy.",  " л ": " l ",  "хв": "min"
+            "керування.": "jazdy.", " год ": " godz. ", " км": " km", " л ": " l ", "хв": "min",
+            "Перерв 45 min:": "Przerw 45 min:", "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
+            "Szacunkowa opłata A2: ≈ 10 PLN (67.9 км платною": "Szacunkowa opłata A2: ≈ 10 PLN (67.9 km odcinka płatnego"
         },
         "en": {
             "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "I allow only the addresses of this route to be sent to map services",
@@ -7798,12 +7850,19 @@ def gps():
             }
         }
     }
-    function run() { translateNode(document.body); }
+    function fixDuplicateStopNumbers(root) {
+        const scope = root && root.querySelectorAll ? root : document;
+        for (const el of scope.querySelectorAll('strong')) {
+            const txt = el.textContent || '';
+            el.textContent = txt.replace(/^(\\d+)\\.\\s+\\1\\.\\s+/, '$1. ');
+        }
+    }
+    function run() { translateNode(document.body); fixDuplicateStopNumbers(document); }
     if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
     else run();
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
-            for (const node of mutation.addedNodes) translateNode(node);
+            for (const node of mutation.addedNodes) { translateNode(node); fixDuplicateStopNumbers(node); }
             if (mutation.type === 'characterData') translateNode(mutation.target);
         }
     });
