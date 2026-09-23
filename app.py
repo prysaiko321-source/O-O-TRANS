@@ -7579,6 +7579,10 @@ def gps():
     )
 
     if current_language() == "pl":
+        # GPS JavaScript is rendered server-side. Force every Polish branch
+        # before sending the page to the browser, so dynamic route results
+        # cannot fall back to Ukrainian.
+        body = body.replace("document.documentElement.lang === 'pl'", "true")
         gps_pl_replacements = {
             "Планування маршруту": "Planowanie trasy",
             "Початок маршруту — автомобіль": "Początek trasy — pojazd",
@@ -7593,10 +7597,15 @@ def gps():
             "Витрата, л/100 км": "Spalanie, l/100 km",
             "Ціна за літр": "Cena za litr",
             "Місто": "Miasto",
+            "Почніть вводити назву міста": "Zacznij wpisywać nazwę miasta",
+            "Спочатку виберіть місто": "Najpierw wybierz miasto",
             "Вулиця / адреса": "Ulica / adres",
             "Знайти адресу": "Znajdź adres",
             "Побудувати маршрут": "Wyznacz trasę",
             "Адреси й часові вікна": "Adresy i okna czasowe",
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie serwisom mapowym wyłącznie adresów tej trasy",
+            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Do mapy używane są wyłącznie adresy i okna czasowe. Imiona i numery telefonów nie są przekazywane.",
+            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Koszt jest orientacyjny. Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
             "Змінити порядок адрес": "Zmień kolejność adresów",
             "Очистити всі адреси": "Wyczyść wszystkie adresy",
             "Видалити маршрут автомобіля": "Usuń trasę pojazdu",
