@@ -4558,6 +4558,12 @@ def gps():
                         class="secondary-button"
                         style="margin-top:6px; width:100%;"
                     >✕ Очистити всі адреси</button>
+                    <button
+                        type="button"
+                        id="delete-vehicle-route-button"
+                        class="secondary-button"
+                        style="margin-top:6px; width:100%;"
+                    >🗑 Видалити маршрут автомобіля</button>
                     <div class="gps-delivery-settings">
                         <label for="delivery-service-minutes">
                             Розвантаження, хв
@@ -4801,6 +4807,9 @@ def gps():
     const clearDeliveryStopsButton = document.getElementById(
         'clear-delivery-stops-button'
     );
+    const deleteVehicleRouteButton = document.getElementById(
+        'delete-vehicle-route-button'
+    );
     const deliveryServiceMinutes = document.getElementById(
         'delivery-service-minutes'
     );
@@ -4897,6 +4906,50 @@ def gps():
         deliveryStopsInput.value = '';
         deliveryStopsInput.dispatchEvent(new Event('input'));
         deliveryStopsInput.focus();
+    }});
+    deleteVehicleRouteButton.addEventListener('click', async function() {{
+        const vehicleId = vehicleSelect.value;
+        if (!vehicleId) return;
+        const vehicle = vehicles.find(function(item) {{
+            return item.id === vehicleId;
+        }});
+        const vehicleName = vehicle ? vehicle.name : vehicleId;
+        if (!window.confirm(
+            'Видалити активний маршрут для ' + vehicleName + '?\n' +
+            'Він буде стертий і з карти, і з пам\'яті TRANVIQ.'
+        )) return;
+
+        deleteVehicleRouteButton.disabled = true;
+        deleteVehicleRouteButton.textContent = 'Видаляю маршрут...';
+        try {{
+            // Спершу прибираємо локальну копію, щоб старий маршрут не воскрес після Reload.
+            try {{
+                localStorage.removeItem(deliveryRouteStorageKey(vehicleId));
+            }} catch (error) {{}}
+
+            const response = await fetch(
+                '/api/delivery-route/' + encodeURIComponent(vehicleId),
+                {{method: 'DELETE', cache: 'no-store'}}
+            );
+            if (!response.ok) {{
+                throw new Error('Сервер не підтвердив видалення маршруту.');
+            }}
+
+            removePlannedRoute();
+            activeDeliveryRoute = null;
+            deliveryStopsInput.value = '';
+            renderDeliveryStopOrder();
+            deliveryStopsInput.dispatchEvent(new Event('input'));
+            measureResult.textContent =
+                'Активний маршрут для ' + vehicleName + ' видалено.';
+        }} catch (error) {{
+            measureResult.textContent = error.message ||
+                'Не вдалося видалити маршрут автомобіля.';
+        }} finally {{
+            deleteVehicleRouteButton.disabled = false;
+            deleteVehicleRouteButton.textContent =
+                '🗑 Видалити маршрут автомобіля';
+        }}
     }});
 
     if (!vehicles.length) {{
