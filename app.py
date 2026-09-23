@@ -59,12 +59,18 @@ COMPANY_NAME = os.environ.get("COMPANY_NAME", "O&O TRANS")
 COMPANY_ID = os.environ.get("COMPANY_ID", "O&O-TRANS")
 PLATFORM_NAME = "TRANVIQ"
 PLATFORM_TAGLINE = "Transport Intelligence Platform"
+ACTIVE_LANGUAGES = {
+    "uk": "Українська",
+    "pl": "Polski",
+    "en": "English",
+    "de": "Deutsch",
+}
 DEFAULT_LANGUAGE = os.environ.get(
     "DEFAULT_LANGUAGE",
     "uk"
 ).strip().lower()
 
-if DEFAULT_LANGUAGE not in LANGUAGES:
+if DEFAULT_LANGUAGE not in ACTIVE_LANGUAGES:
     DEFAULT_LANGUAGE = "uk"
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
@@ -86,7 +92,7 @@ def current_language():
         "language",
         DEFAULT_LANGUAGE
     )
-    if language not in LANGUAGES:
+    if language not in ACTIVE_LANGUAGES:
         return DEFAULT_LANGUAGE
     return language
 
@@ -1808,7 +1814,7 @@ def page(title, body, active=""):
         )
 
     language_options = []
-    for language_code, language_name in LANGUAGES.items():
+    for language_code, language_name in ACTIVE_LANGUAGES.items():
         selected = " selected" if language_code == language else ""
         language_options.append(
             '<option value="{}"{}>{}</option>'.format(
@@ -3007,7 +3013,7 @@ def company_logo_asset():
 @app.route("/language", methods=["POST"])
 def change_language():
     language = request.form.get("language", "")
-    if language in LANGUAGES:
+    if language in ACTIVE_LANGUAGES:
         session["language"] = language
 
     next_url = request.form.get("next", "/login")
@@ -7256,7 +7262,7 @@ def gps():
                 if (stop.late) {{
                     note += ' · <strong>ЗАПІЗНЕННЯ</strong>';
                 }}
-                return '<li><strong>' + stop.index + '. ' +
+                return '<li><strong>' +
                     formatDateTime(stop.service_start) + '</strong> — ' +
                     escapeHtml(stop.address) +
                     (stop.window_start && stop.window_end
@@ -7633,6 +7639,28 @@ def gps():
             "Приблизний час:": "Przybliżony czas:",
             "По прямій:": "W linii prostej:",
             "Автомобільний маршрут зараз недоступний.": "Trasa samochodowa jest teraz niedostępna.",
+            "Добовий відпочинок, год": "Odpoczynek dobowy, godz.",
+            "км/год": "km/h",
+            "Автомобіль:": "Pojazd:",
+            "Водій:": "Kierowca:",
+            "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
+            "Для наступного рейсу потрібен добовий відпочинок.": "Przed następną trasą wymagany jest odpoczynek dobowy.",
+            "Маршрут узгоджено з актуальним тахографом.": "Trasa jest zgodna z aktualnymi danymi tachografu.",
+            "без часового вікна": "bez okna czasowego",
+            "виїзд": "wyjazd",
+            "від попередньої точки": "od poprzedniego punktu",
+            "Для карти використовуються лише адреси й часові вікна.": "Do mapy używane są wyłącznie adresy i okna czasowe.",
+            "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
+            "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
+            "довгий добовий відпочинок": "długi odpoczynek dobowy",
+            "перерва щонайменше 45 хвилин": "przerwa co najmniej 45 min",
+            "коротка або звичайна стоянка": "krótki lub zwykły postój",
+            "очікування": "oczekiwanie",
+            "ЗАПІЗНЕННЯ": "OPÓŹNIENIE",
+            "не визначено": "nie określono",
+            "Розвантаження прийнято по ": "Przyjęto ",
+            " хв на точку. Після виконання рейсу порівняємо прогноз із фактом і скоригуємо норматив.": " min rozładunku na punkt. Po zakończeniu trasy porównamy prognozę z wynikiem rzeczywistym i skorygujemy normę.",
             " год ": " godz. ",
             " хв": " min"
         }
@@ -7730,146 +7758,8 @@ def gps():
         for source_text, target_text in sorted(gps_extra_translations[lang].items(), key=lambda item: len(item[0]), reverse=True):
             body = body.replace(source_text, target_text)
 
-    # Translate text that is created later by JavaScript (route results,
-    # toll explanations, tachograph summaries, popups). Static replacements
-    # above cannot see those DOM nodes because they do not exist yet.
-    gps_dynamic_i18n = {
-        "pl": {
-            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie usługom mapowym wyłącznie adresów tej trasy",
-            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Do mapy używane są wyłącznie adresy i okna czasowe. Imiona i numery telefonów nie są przekazywane.",
-            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Koszt jest orientacyjny. Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
-            "Розвізка": "Trasa dostaw", "Автомобіль:": "Pojazd:", "Водій:": "Kierowca:",
-            "Відстань:": "Odległość:", "Чистий час керування:": "Czysty czas jazdy:",
-            "Планований виїзд:": "Planowany wyjazd:", "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
-            "Сьогодні вже пройдено:": "Dzisiaj już przejechano:", "керування:": "jazda:",
-            "Паливо:": "Paliwo:", "Перерв 45 хв:": "Przerw 45 min:", "добових відпочинків:": "odpoczynków dobowych:",
-            "Фізично вільний:": "Fizycznie wolny:", "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
-            "Рекомендований наступний виїзд:": "Zalecany następny wyjazd:",
-            "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
-            "Маршрут узгоджено з актуальним тахографом.": "Trasa jest zgodna z aktualnymi danymi tachografu.",
-            "без часового вікна": "bez okna czasowego", "виїзд": "wyjazd", "від попередньої точки": "od poprzedniego punktu",
-            "Орієнтовна оплата доріг:": "Szacunkowe opłaty drogowe:", "Орієнтовна оплата": "Szacunkowa opłata",
-            "Оплата доріг:": "Opłaty drogowe:", "платних ділянок": "płatnych odcinków",
-            "Дорогами:": "Drogami:", "Приблизний час:": "Przybliżony czas:", "По прямій:": "W linii prostej:",
-            "До наступної вигрузки:": "Do następnego rozładunku:", "До останньої вигрузки:": "Do ostatniego rozładunku:",
-            "Дозволяю передати картографічним сервісам": "Zezwalam na przekazanie usługom mapowym",
-            "лише адреси цього маршруту": "wyłącznie adresów tej trasy",
-            "Для карти використовуються лише адреси й часові вікна.": "Do mapy używane są wyłącznie adresy i okna czasowe.",
-            "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
-            "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
-            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
-            "керування.": "jazdy.", " год ": " godz. ", " км": " km", " л ": " l ", "хв": "min",
-            "Перерв 45 min:": "Przerw 45 min:", "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
-            "Szacunkowa opłata A2: ≈ 10 PLN (67.9 км платною": "Szacunkowa opłata A2: ≈ 10 PLN (67.9 km odcinka płatnego"
-        },
-        "en": {
-            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "I allow only the addresses of this route to be sent to map services",
-            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Only addresses and time windows are used for the map. Names and phone numbers are not sent.",
-            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "The cost is an estimate. It depends on weight, axles, emission class, vignettes and payment method.",
-            "Розвізка": "Delivery route", "Автомобіль:": "Vehicle:", "Водій:": "Driver:", "Відстань:": "Distance:",
-            "Чистий час керування:": "Pure driving time:", "Планований виїзд:": "Planned departure:",
-            "Початок сьогоднішньої роботи:": "Start of today's work:", "Сьогодні вже пройдено:": "Distance today:",
-            "керування:": "driving:", "Паливо:": "Fuel:", "Перерв 45 хв:": "45 min breaks:", "добових відпочинків:": "daily rests:",
-            "Фізично вільний:": "Physically available:", "Наступне завантаження можна планувати:": "Next loading can be planned:",
-            "Рекомендований наступний виїзд:": "Recommended next departure:",
-            "Після завершення залишається щонайменше": "After completion at least",
-            "Маршрут узгоджено з актуальним тахографом.": "Route is consistent with current tachograph data.",
-            "без часового вікна": "no time window", "виїзд": "departure", "від попередньої точки": "from previous stop",
-            "Орієнтовна оплата доріг:": "Estimated road tolls:", "Орієнтовна оплата": "Estimated toll",
-            "Оплата доріг:": "Road tolls:", "Дорогами:": "By road:", "Приблизний час:": "Approximate time:", "По прямій:": "Straight line:",
-            "До наступної вигрузки:": "To next unloading:", "До останньої вигрузки:": "To final unloading:",
-            "Дозволяю передати картографічним сервісам": "I allow addresses to be sent to map services",
-            "лише адреси цього маршруту": "for this route only",
-            "Для карти використовуються лише адреси й часові вікна.": "Only addresses and time windows are used for the map.",
-            "Імена та телефони не передаються.": "Names and phone numbers are not sent.",
-            "Вартість є орієнтовною.": "The cost is an estimate.",
-            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "It depends on weight, axles, emission class, vignettes and payment method.",
-            "керування.": "driving.",  " л ": " l ",  "хв": "min"
-        },
-        "de": {
-            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Ich erlaube, nur die Adressen dieser Route an Kartendienste zu übermitteln",
-            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Für die Karte werden nur Adressen und Zeitfenster verwendet. Namen und Telefonnummern werden nicht übermittelt.",
-            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Die Kosten sind geschätzt. Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
-            "Розвізка": "Ausliefertour", "Автомобіль:": "Fahrzeug:", "Водій:": "Fahrer:", "Відстань:": "Entfernung:",
-            "Чистий час керування:": "Reine Fahrzeit:", "Планований виїзд:": "Geplante Abfahrt:",
-            "Початок сьогоднішньої роботи:": "Beginn der heutigen Arbeit:", "Сьогодні вже пройдено:": "Heute bereits gefahren:",
-            "керування:": "Fahrzeit:", "Паливо:": "Kraftstoff:", "Перерв 45 хв:": "45-Min.-Pausen:", "добових відпочинків:": "tägliche Ruhezeiten:",
-            "Фізично вільний:": "Physisch verfügbar:", "Наступне завантаження можна планувати:": "Nächste Beladung planbar:",
-            "Рекомендований наступний виїзд:": "Empfohlene nächste Abfahrt:",
-            "Після завершення залишається щонайменше": "Nach Abschluss verbleiben mindestens",
-            "Маршрут узгоджено з актуальним тахографом.": "Route stimmt mit den aktuellen Tachographendaten überein.",
-            "без часового вікна": "ohne Zeitfenster", "виїзд": "Abfahrt", "від попередньої точки": "vom vorherigen Stopp",
-            "Орієнтовна оплата доріг:": "Geschätzte Mautkosten:", "Орієнтовна оплата": "Geschätzte Maut",
-            "Оплата доріг:": "Mautkosten:", "Дорогами:": "Auf der Straße:", "Приблизний час:": "Ungefähre Zeit:", "По прямій:": "Luftlinie:",
-            "До наступної вигрузки:": "Bis zur nächsten Entladung:", "До останньої вигрузки:": "Bis zur letzten Entladung:",
-            "Дозволяю передати картографічним сервісам": "Ich erlaube die Übermittlung von Adressen an Kartendienste",
-            "лише адреси цього маршруту": "nur für diese Route",
-            "Для карти використовуються лише адреси й часові вікна.": "Für die Karte werden nur Adressen und Zeitfenster verwendet.",
-            "Імена та телефони не передаються.": "Namen und Telefonnummern werden nicht übermittelt.",
-            "Вартість є орієнтовною.": "Die Kosten sind geschätzt.",
-            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
-            "керування.": "Fahrzeit.",  " л ": " l ",  "хв": "Min."
-        }
-    }
-    if lang in gps_dynamic_i18n:
-        dynamic_map_json = json.dumps(gps_dynamic_i18n[lang], ensure_ascii=False)
-        body += """
-<script>
-(function () {
-    const TRANVIQ_DYNAMIC_I18N = %s;
-    const pairs = Object.entries(TRANVIQ_DYNAMIC_I18N).sort((a, b) => b[0].length - a[0].length);
-    function translateText(value) {
-        let out = value;
-        for (const [from, to] of pairs) {
-            if (out.includes(from)) out = out.split(from).join(to);
-        }
-        return out;
-    }
-    function translateNode(root) {
-        if (!root) return;
-        if (root.nodeType === Node.TEXT_NODE) {
-            const parent = root.parentElement;
-            if (!parent || ['SCRIPT','STYLE','TEXTAREA'].includes(parent.tagName)) return;
-            const next = translateText(root.nodeValue || '');
-            if (next !== root.nodeValue) root.nodeValue = next;
-            return;
-        }
-        if (root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_FRAGMENT_NODE) return;
-        if (root.nodeType === Node.ELEMENT_NODE && ['SCRIPT','STYLE','TEXTAREA'].includes(root.tagName)) return;
-        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
-        const nodes = [];
-        while (walker.nextNode()) nodes.push(walker.currentNode);
-        for (const node of nodes) translateNode(node);
-        if (root.nodeType === Node.ELEMENT_NODE) {
-            for (const attr of ['placeholder','title','aria-label']) {
-                if (root.hasAttribute && root.hasAttribute(attr)) {
-                    const oldValue = root.getAttribute(attr) || '';
-                    const newValue = translateText(oldValue);
-                    if (newValue !== oldValue) root.setAttribute(attr, newValue);
-                }
-            }
-        }
-    }
-    function fixDuplicateStopNumbers(root) {
-        const scope = root && root.querySelectorAll ? root : document;
-        for (const el of scope.querySelectorAll('strong')) {
-            const txt = el.textContent || '';
-            const fixed = txt.replace(/^(\\d+)\\.\\s+\\1\\.\\s+/, '$1. ');
-            if (fixed !== txt) el.textContent = fixed;
-        }
-    }
-    function run() { translateNode(document.body); fixDuplicateStopNumbers(document); }
-    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', run);
-    else run();
-    const observer = new MutationObserver((mutations) => {
-        for (const mutation of mutations) {
-            for (const node of mutation.addedNodes) { translateNode(node); fixDuplicateStopNumbers(node); }
-        }
-    });
-    observer.observe(document.documentElement, {subtree:true, childList:true});
-})();
-</script>
-""" % dynamic_map_json
+    # Dynamic GPS text is translated in the JavaScript source above.
+    # No MutationObserver is used: it previously caused a browser render loop.
 
     return page(
         "GPS",
