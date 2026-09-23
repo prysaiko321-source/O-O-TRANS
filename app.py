@@ -1338,10 +1338,129 @@ def get_total_number(data, names):
     return safe_float(value)
 
 
+
+# Global UI fallback translation.  All route bodies pass through this layer, so the
+# selected language is consistent across GPS, tachograph, fuel, history, vehicles,
+# finance and role dashboards.  Longer phrases are replaced first.
+GLOBAL_UI_TRANSLATIONS = {
+    "pl": {
+        "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie serwisom mapowym wyłącznie adresów tej trasy",
+        "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Do mapy używane są wyłącznie adresy i okna czasowe. Imiona, nazwiska i numery telefonów nie są przekazywane.",
+        "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Koszt jest orientacyjny. Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
+        "Маршрут узгоджено з актуальним тахографом.": "Trasa jest zgodna z aktualnymi danymi tachografu.",
+        "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
+        "Рекомендований наступний виїзд:": "Zalecany następny wyjazd:",
+        "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
+        "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
+        "Орієнтовна оплата доріг:": "Szacunkowa opłata drogowa:",
+        "Для цього автомобіля активного розвізного маршруту немає.": "Dla tego pojazdu nie ma aktywnej trasy dostaw.",
+        "Потрібне підтвердження передачі адрес карті.": "Wymagane jest potwierdzenie przekazania adresów do mapy.",
+        "Вставте адреси або текст транспортного завдання.": "Wklej adresy lub tekst zlecenia transportowego.",
+        "Для автомобіля немає актуальної GPS-позиції.": "Brak aktualnej pozycji GPS pojazdu.",
+        "Будую маршрут через усі точки...": "Wyznaczam trasę przez wszystkie punkty...",
+        "Зберігаю активний маршрут...": "Zapisuję aktywną trasę...",
+        "До наступної вигрузки:": "Do następnego rozładunku:", "До останньої вигрузки:": "Do ostatniego rozładunku:",
+        "Тахограф і час водіїв": "Tachograf i czas kierowców", "Тахограф — технічні дані": "Tachograf — dane techniczne",
+        "Планування маршруту": "Planowanie trasy", "Початок маршруту — автомобіль": "Początek trasy — pojazd",
+        "Розвізний маршрут": "Trasa dostaw", "Адреси й часові вікна": "Adresy i okna czasowe",
+        "Видалити маршрут автомобіля": "Usuń trasę pojazdu", "Змінити порядок адрес": "Zmień kolejność adresów",
+        "Очистити всі адреси": "Wyczyść wszystkie adresy", "Прорахувати всі доставки": "Oblicz wszystkie dostawy",
+        "Розвантаження, min": "Rozładunek, min", "Добовий відпочинок": "Odpoczynek dobowy",
+        "Вулиця або точна адреса": "Ulica lub dokładny adres", "Прокласти маршрут": "Wyznacz trasę",
+        "Варіант маршруту": "Wariant trasy", "Платні дороги дозволені": "Drogi płatne dozwolone",
+        "Уникати платних доріг": "Unikaj dróg płatnych", "Безплатний": "Bezpłatny", "Швидкий": "Szybki",
+        "Витрата, л/100 км": "Spalanie, l/100 km", "Ціна за літр": "Cena za litr", "Валюта": "Waluta",
+        "Тип автомобіля": "Typ pojazdu", "Тип транспорту": "Typ transportu", "Місто": "Miasto",
+        "Вулиця / адреса": "Ulica / adres", "Шукати": "Szukaj", "Знайти адресу": "Znajdź adres",
+        "Виміряти маршрут": "Zmierz trasę", "Очистити карту": "Wyczyść mapę", "Очистити маршрут": "Wyczyść trasę",
+        "Автомобіль:": "Pojazd:", "Водій:": "Kierowca:", "Відстань:": "Odległość:", "Паливо:": "Paliwo:",
+        "Чистий час керування:": "Czysty czas jazdy:", "Планований виїзд:": "Planowany wyjazd:",
+        "Сьогодні вже пройдено:": "Dzisiaj już przejechano:", "Фізично вільний:": "Fizycznie wolny:",
+        "Перерв 45 хв:": "Przerw 45 min:", "без часового вікна": "bez okna czasowego",
+        "від попередньої точки": "od poprzedniego punktu", "виїзд": "wyjazd", "керування:": "jazda:", "керування.": "jazdy.",
+        "Панель керування": "Panel sterowania", "Автомобілі": "Pojazdy", "Паливо": "Paliwo", "Оплата доріг": "Opłaty drogowe",
+        "Кабінет водія": "Panel kierowcy", "Кабінет логіста": "Panel spedytora", "Директор": "Dyrektor", "Логіст": "Spedytor", "Водій": "Kierowca",
+        "Інформація про дороги": "Informacje o drogach", "Історія": "Historia", "Швидкість:": "Prędkość:", "Статус:": "Status:",
+        "Їде": "Jedzie", "Стоїть": "Stoi", "Інша робота": "Inna praca", "Відпочинок": "Odpoczynek",
+        "Немає даних": "Brak danych", "Немає координат": "Brak współrzędnych", "Водія не визначено": "Nie określono kierowcy",
+        "Картка водія не вставлена в тахограф.": "Karta kierowcy nie jest włożona do tachografu.",
+        "Термін дії картки водія закінчився.": "Karta kierowcy straciła ważność.", "Без попереджень": "Brak ostrzeżeń",
+        "Готовність": "Gotowość", "Керування": "Jazda", "Доставка": "Dostawa", "Ще не вигружено": "Jeszcze nierozładowane",
+        "Бус до 3,5 т": "Bus do 3,5 t", "Вантажний до 7,5 т": "Ciężarowy do 7,5 t", "Вантажний до 12 т": "Ciężarowy do 12 t",
+        "Вантажний до 18 т": "Ciężarowy do 18 t", "Вантажний до 26 т": "Ciężarowy do 26 t", "Фура до 40 т": "Zestaw do 40 t", "Понад 40 т": "Powyżej 40 t",
+        " км/год": " km/h", " км": " km", " л/100 км": " l/100 km", " л ": " l ", " год ": " godz. ", " хв": " min",
+        "год": "godz.", "км": "km", "керування": "jazdy"
+    },
+    "en": {
+        "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "I allow only the addresses of this route to be sent to map services",
+        "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Only addresses and time windows are used for the map. Names and phone numbers are not shared.",
+        "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "The cost is an estimate. It depends on weight, axles, emission class, vignettes and payment method.",
+        "Маршрут узгоджено з актуальним тахографом.": "The route is consistent with current tachograph data.",
+        "Наступне завантаження можна планувати:": "Next loading can be planned:", "Рекомендований наступний виїзд:": "Recommended next departure:",
+        "Початок сьогоднішньої роботи:": "Start of today's work:", "Після завершення залишається щонайменше": "After completion, at least",
+        "Орієнтовна оплата доріг:": "Estimated road toll:", "До наступної вигрузки:": "To next unloading:", "До останньої вигрузки:": "To final unloading:",
+        "Тахограф і час водіїв": "Tachograph and driver time", "Тахограф — технічні дані": "Tachograph — technical data",
+        "Планування маршруту": "Route planning", "Початок маршруту — автомобіль": "Route start — vehicle", "Розвізний маршрут": "Delivery route",
+        "Адреси й часові вікна": "Addresses and time windows", "Видалити маршрут автомобіля": "Delete vehicle route", "Змінити порядок адрес": "Change address order",
+        "Очистити всі адреси": "Clear all addresses", "Прорахувати всі доставки": "Calculate all deliveries", "Розвантаження, min": "Unloading, min",
+        "Добовий відпочинок": "Daily rest", "Вулиця або точна адреса": "Street or exact address", "Прокласти маршрут": "Calculate route",
+        "Варіант маршруту": "Route option", "Платні дороги дозволені": "Toll roads allowed", "Уникати платних доріг": "Avoid toll roads", "Безплатний": "Toll-free", "Швидкий": "Fast",
+        "Витрата, л/100 км": "Consumption, l/100 km", "Ціна за літр": "Price per litre", "Валюта": "Currency", "Тип автомобіля": "Vehicle type", "Тип транспорту": "Transport type",
+        "Місто": "City", "Вулиця / адреса": "Street / address", "Шукати": "Search", "Знайти адресу": "Find address", "Виміряти маршрут": "Measure route", "Очистити карту": "Clear map",
+        "Автомобіль:": "Vehicle:", "Водій:": "Driver:", "Відстань:": "Distance:", "Паливо:": "Fuel:", "Чистий час керування:": "Pure driving time:", "Планований виїзд:": "Planned departure:",
+        "Сьогодні вже пройдено:": "Distance today:", "Фізично вільний:": "Physically available:", "Перерв 45 хв:": "45-min breaks:", "без часового вікна": "no time window",
+        "від попередньої точки": "from previous point", "виїзд": "departure", "керування:": "driving:", "керування.": "driving.",
+        "Панель керування": "Control panel", "Автомобілі": "Vehicles", "Паливо": "Fuel", "Оплата доріг": "Road tolls", "Кабінет водія": "Driver panel", "Кабінет логіста": "Dispatcher panel",
+        "Директор": "Director", "Логіст": "Dispatcher", "Водій": "Driver", "Інформація про дороги": "Road information", "Історія": "History", "Швидкість:": "Speed:", "Статус:": "Status:",
+        "Їде": "Driving", "Стоїть": "Stopped", "Інша робота": "Other work", "Відпочинок": "Rest", "Немає даних": "No data", "Немає координат": "No coordinates", "Водія не визначено": "Driver not identified",
+        "Картка водія не вставлена в тахограф.": "Driver card is not inserted in the tachograph.", "Без попереджень": "No warnings", "Готовність": "Availability", "Керування": "Driving",
+        "Бус до 3,5 т": "Van up to 3.5 t", "Вантажний до 7,5 т": "Truck up to 7.5 t", "Вантажний до 12 т": "Truck up to 12 t", "Вантажний до 18 т": "Truck up to 18 t", "Вантажний до 26 т": "Truck up to 26 t", "Фура до 40 т": "Combination up to 40 t", "Понад 40 т": "Over 40 t",
+        " км/год": " km/h", " км": " km", " л/100 км": " l/100 km", " л ": " l ", " год ": " h ", " хв": " min", "год": "h", "км": "km", "керування": "driving"
+    },
+    "de": {
+        "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Ich erlaube, ausschließlich die Adressen dieser Route an Kartendienste zu übermitteln",
+        "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Für die Karte werden nur Adressen und Zeitfenster verwendet. Namen und Telefonnummern werden nicht übermittelt.",
+        "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Die Kosten sind Richtwerte. Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
+        "Маршрут узгоджено з актуальним тахографом.": "Die Route stimmt mit den aktuellen Tachographendaten überein.",
+        "Наступне завантаження можна планувати:": "Nächste Beladung kann geplant werden:", "Рекомендований наступний виїзд:": "Empfohlene nächste Abfahrt:",
+        "Початок сьогоднішньої роботи:": "Beginn der heutigen Arbeit:", "Після завершення залишається щонайменше": "Nach Abschluss verbleiben mindestens",
+        "Орієнтовна оплата доріг:": "Geschätzte Maut:", "До наступної вигрузки:": "Bis zur nächsten Entladung:", "До останньої вигрузки:": "Bis zur letzten Entladung:",
+        "Тахограф і час водіїв": "Tachograph und Fahrerzeiten", "Тахограф — технічні дані": "Tachograph — technische Daten",
+        "Планування маршруту": "Routenplanung", "Початок маршруту — автомобіль": "Routenstart — Fahrzeug", "Розвізний маршрут": "Auslieferungsroute",
+        "Адреси й часові вікна": "Adressen und Zeitfenster", "Видалити маршрут автомобіля": "Fahrzeugroute löschen", "Змінити порядок адрес": "Adressreihenfolge ändern",
+        "Очистити всі адреси": "Alle Adressen löschen", "Прорахувати всі доставки": "Alle Lieferungen berechnen", "Розвантаження, min": "Entladung, Min.",
+        "Добовий відпочинок": "Tägliche Ruhezeit", "Вулиця або точна адреса": "Straße oder genaue Adresse", "Прокласти маршрут": "Route berechnen",
+        "Варіант маршруту": "Routenoption", "Платні дороги дозволені": "Mautstraßen erlaubt", "Уникати платних доріг": "Mautstraßen vermeiden", "Безплатний": "Mautfrei", "Швидкий": "Schnell",
+        "Витрата, л/100 км": "Verbrauch, l/100 km", "Ціна за літр": "Preis pro Liter", "Валюта": "Währung", "Тип автомобіля": "Fahrzeugtyp", "Тип транспорту": "Transportart",
+        "Місто": "Stadt", "Вулиця / адреса": "Straße / Adresse", "Шукати": "Suchen", "Знайти адресу": "Adresse suchen", "Виміряти маршрут": "Route messen", "Очистити карту": "Karte löschen",
+        "Автомобіль:": "Fahrzeug:", "Водій:": "Fahrer:", "Відстань:": "Entfernung:", "Паливо:": "Kraftstoff:", "Чистий час керування:": "Reine Fahrzeit:", "Планований виїзд:": "Geplante Abfahrt:",
+        "Сьогодні вже пройдено:": "Heute bereits gefahren:", "Фізично вільний:": "Physisch verfügbar:", "Перерв 45 хв:": "45-Min.-Pausen:", "без часового вікна": "ohne Zeitfenster",
+        "від попередньої точки": "vom vorherigen Punkt", "виїзд": "Abfahrt", "керування:": "Fahrt:", "керування.": "Fahrt.",
+        "Панель керування": "Steuerung", "Автомобілі": "Fahrzeuge", "Паливо": "Kraftstoff", "Оплата доріг": "Maut", "Кабінет водія": "Fahrerbereich", "Кабінет логіста": "Disponentenbereich",
+        "Директор": "Direktor", "Логіст": "Disponent", "Водій": "Fahrer", "Інформація про дороги": "Straßeninformationen", "Історія": "Historie", "Швидкість:": "Geschwindigkeit:", "Статус:": "Status:",
+        "Їде": "Fährt", "Стоїть": "Steht", "Інша робота": "Andere Arbeit", "Відпочинок": "Ruhezeit", "Немає даних": "Keine Daten", "Немає координат": "Keine Koordinaten", "Водія не визначено": "Fahrer nicht erkannt",
+        "Картка водія не вставлена в тахограф.": "Fahrerkarte ist nicht im Tachographen eingelegt.", "Без попереджень": "Keine Warnungen", "Готовність": "Verfügbarkeit", "Керування": "Fahren",
+        "Бус до 3,5 т": "Transporter bis 3,5 t", "Вантажний до 7,5 т": "Lkw bis 7,5 t", "Вантажний до 12 т": "Lkw bis 12 t", "Вантажний до 18 т": "Lkw bis 18 t", "Вантажний до 26 т": "Lkw bis 26 t", "Фура до 40 т": "Zug bis 40 t", "Понад 40 т": "Über 40 t",
+        " км/год": " km/h", " км": " km", " л/100 км": " l/100 km", " л ": " l ", " год ": " Std. ", " хв": " Min.", "год": "Std.", "км": "km", "керування": "Fahrt"
+    }
+}
+
+
+def translate_full_app_body(language, body):
+    if language == "uk":
+        return body
+    mapping = GLOBAL_UI_TRANSLATIONS.get(language)
+    if not mapping:
+        return body
+    for source, target in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
+        body = body.replace(source, target)
+    return body
+
 def page(title, body, active=""):
     role = current_role()
     language = current_language()
     visible_title = translate_title(language, title)
+    body = translate_full_app_body(language, body)
     page_class = "page-gps" if active == "gps" else ""
     branding = get_company_branding(
         COMPANY_ID,
