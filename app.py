@@ -7854,7 +7854,8 @@ def gps():
         const scope = root && root.querySelectorAll ? root : document;
         for (const el of scope.querySelectorAll('strong')) {
             const txt = el.textContent || '';
-            el.textContent = txt.replace(/^(\\d+)\\.\\s+\\1\\.\\s+/, '$1. ');
+            const fixed = txt.replace(/^(\\d+)\\.\\s+\\1\\.\\s+/, '$1. ');
+            if (fixed !== txt) el.textContent = fixed;
         }
     }
     function run() { translateNode(document.body); fixDuplicateStopNumbers(document); }
@@ -7863,10 +7864,9 @@ def gps():
     const observer = new MutationObserver((mutations) => {
         for (const mutation of mutations) {
             for (const node of mutation.addedNodes) { translateNode(node); fixDuplicateStopNumbers(node); }
-            if (mutation.type === 'characterData') translateNode(mutation.target);
         }
     });
-    observer.observe(document.documentElement, {subtree:true, childList:true, characterData:true});
+    observer.observe(document.documentElement, {subtree:true, childList:true});
 })();
 </script>
 """ % dynamic_map_json
