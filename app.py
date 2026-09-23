@@ -4598,6 +4598,8 @@ def gps():
     ).addTo(map);
 
     const bounds = [];
+    const vehicleMarkersById = {{}};
+    const vehiclePopupBaseById = {{}};
 
     vehicles.forEach(function(vehicle) {{
 
@@ -4646,15 +4648,16 @@ def gps():
             className: 'vehicle-number-label'
         }});
 
-        marker.bindPopup(
+        const basePopup =
             '<strong>' + vehicle.name + '</strong><br>' +
             'Статус: ' + statusLabel + '<br>' +
             'Швидкість: ' + speed + '<br>' +
             'Паливо: ' + fuel + '<br>' +
-            vehicle.latitude.toFixed(6) +
-            ', ' +
-            vehicle.longitude.toFixed(6)
-        );
+            vehicle.latitude.toFixed(6) + ', ' +
+            vehicle.longitude.toFixed(6);
+        vehicleMarkersById[vehicle.id] = marker;
+        vehiclePopupBaseById[vehicle.id] = basePopup;
+        marker.bindPopup(basePopup);
 
         if (vehicle.id === selectedId) {{
             marker.openPopup();
@@ -5860,6 +5863,102 @@ def gps():
         }}
     }}
 
+    async function refreshVehicleDeliveryPopup(
+        vehicle,
+        deliveryRoute,
+        statuses
+    ) {{
+        const marker = vehicleMarkersById[vehicle.id];
+        if (!marker || !deliveryRoute || !deliveryRoute.stops ||
+                !deliveryRoute.stops.length) return;
+
+        const safeStatuses = Array.isArray(statuses) ? statuses : [];
+        let nextIndex = safeStatuses.findIndex(function(status) {{
+            return status !== 'completed';
+        }});
+        if (nextIndex < 0) nextIndex = deliveryRoute.stops.length - 1;
+
+        const remainingStops = deliveryRoute.stops.slice(nextIndex);
+        const nextStop = remainingStops[0];
+        const finalStop = remainingStops[remainingStops.length - 1];
+        if (!nextStop || !finalStop) return;
+
+        try {{
+            const response = await fetch('/api/route', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{
+                    origin: {{
+                        latitude: vehicle.latitude,
+                        longitude: vehicle.longitude
+                    }},
+                    destination: {{
+                        latitude: finalStop.latitude,
+                        longitude: finalStop.longitude
+                    }},
+                    waypoints: remainingStops.slice(0, -1).map(function(stop) {{
+                        return {{
+                            latitude: stop.latitude,
+                            longitude: stop.longitude
+                        }};
+                    }}),
+                    avoid_tolls: false,
+                    vehicle_profile: 'van'
+                }})
+            }});
+            const data = await response.json();
+            if (!response.ok) return;
+
+            const legs = Array.isArray(data.legs) ? data.legs : [];
+            const firstLeg = legs.length ? legs[0] : null;
+            const nextDistance = firstLeg
+                ? Number(firstLeg.distance_m || 0)
+                : Number(data.distance_m || 0);
+            const nextDuration = firstLeg
+                ? Number(firstLeg.duration_s || 0)
+                : Number(data.duration_s || 0);
+            const finalDistance = Number(data.distance_m || 0);
+            const finalDuration = Number(data.duration_s || 0);
+
+            let extra = '<hr style="margin:7px 0">' +
+                '<strong>До наступної вигрузки:</strong> ' +
+                (nextDistance / 1000).toFixed(1) + ' км · ' +
+                formatDuration(nextDuration);
+            if (remainingStops.length > 1) {{
+                extra += '<br><strong>До останньої вигрузки:</strong> ' +
+                    (finalDistance / 1000).toFixed(1) + ' км · ' +
+                    formatDuration(finalDuration);
+            }}
+            marker.setPopupContent(
+                vehiclePopupBaseById[vehicle.id] + extra
+            );
+        }} catch (error) {{
+            // Відстані в popup не повинні ламати карту.
+        }}
+    }}
+
+    function reorderActiveDeliveryStops(index, direction) {{
+        if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) {{
+            return;
+        }}
+        const target = index + direction;
+        if (target < 0 || target >= activeDeliveryRoute.stops.length) return;
+
+        const stops = activeDeliveryRoute.stops.slice();
+        const moved = stops.splice(index, 1)[0];
+        stops.splice(target, 0, moved);
+        deliveryStopsInput.value = stops.map(function(stop) {{
+            let line = stop.address;
+            if (stop.window_start && stop.window_end) {{
+                line += ' | ' + stop.window_start + ' | ' + stop.window_end;
+            }}
+            return line;
+        }}).join('\n');
+        buildDeliveryRoute();
+    }}
+
+    window.reorderActiveDeliveryStops = reorderActiveDeliveryStops;
+
     function drawDeliveryStopMarkers(deliveryRoute) {{
         deliveryRoute.stops.forEach(function(stop, index) {{
             const marker = L.marker(
@@ -6279,6 +6378,11 @@ def gps():
                     '</strong>'
                 );
             }});
+            await refreshVehicleDeliveryPopup(
+                vehicle,
+                deliveryRoute,
+                data.statuses
+            );
             const lastStatus = data.statuses[
                 deliveryRoute.stops.length - 1
             ];
@@ -6481,7 +6585,15 @@ def gps():
                     formatDateTime(stop.departure) +
                     ', від попередньої точки ' +
                     (stop.distance_m / 1000).toFixed(1) +
-                    ' км' + note + '</span></li>';
+                    ' км' + note + '</span>' +
+                    '<br><span style="display:inline-flex;gap:6px;margin-top:5px">' +
+                    '<button type="button" title="Підняти точку" ' +
+                    'onclick="reorderActiveDeliveryStops(' + index + ', -1)" ' +
+                    (index === 0 ? 'disabled ' : '') + '>↑</button>' +
+                    '<button type="button" title="Опустити точку" ' +
+                    'onclick="reorderActiveDeliveryStops(' + index + ', 1)" ' +
+                    (index === schedule.stops.length - 1 ? 'disabled ' : '') +
+                    '>↓</button></span></li>';
             }}).join('');
 
             measureResult.innerHTML =
