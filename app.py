@@ -3890,6 +3890,36 @@ def geocode_search():
         search_mode = "address"
 
     query = query[:180]
+
+    # Dla adresów budujemy kilka bezpiecznych wariantów wyszukiwania.
+    # Oryginał zawsze jest pierwszy; kolejne warianty pomagają geokoderom
+    # z niemieckimi znakami i skrótami spotykanymi na listach dostaw.
+    address_queries = [query]
+    if search_mode == "address":
+        replacements = (
+            ("ß", "ss"), ("ẞ", "SS"),
+            ("ä", "ae"), ("ö", "oe"), ("ü", "ue"),
+            ("Ä", "Ae"), ("Ö", "Oe"), ("Ü", "Ue"),
+        )
+        ascii_query = query
+        for old, new in replacements:
+            ascii_query = ascii_query.replace(old, new)
+        if ascii_query.casefold() != query.casefold():
+            address_queries.append(ascii_query)
+
+        street_query = query
+        street_query = re.sub(r"\bstr\.(?=\s|$)", "straße", street_query, flags=re.I)
+        street_query = re.sub(r"\bstrasse\b", "straße", street_query, flags=re.I)
+        if street_query.casefold() not in {q.casefold() for q in address_queries}:
+            address_queries.append(street_query)
+
+        # Geokodery czasem lepiej rozpoznają kod pocztowy + miasto bez
+        # dopisku dzielnicy w nawiasie, np. Verden (Aller) -> Verden.
+        simple_query = re.sub(r"\s*\([^)]{2,40}\)", "", query)
+        simple_query = re.sub(r"\s+", " ", simple_query).strip()
+        if simple_query.casefold() not in {q.casefold() for q in address_queries}:
+            address_queries.append(simple_query)
+
     try:
         bias_latitude = float(request.args.get("lat", ""))
         bias_longitude = float(request.args.get("lon", ""))
@@ -3998,33 +4028,41 @@ def geocode_search():
             if wait_seconds > 0:
                 time.sleep(wait_seconds)
 
-            photon_params = {
-                "q": query,
-                "limit": 15
-            }
-            if bias_latitude is not None and bias_longitude is not None:
-                photon_params["lat"] = bias_latitude
-                photon_params["lon"] = bias_longitude
+            raw_results = []
+            photon_failed = False
+            for search_query in address_queries:
+                photon_params = {
+                    "q": search_query,
+                    "limit": 15
+                }
+                if bias_latitude is not None and bias_longitude is not None:
+                    photon_params["lat"] = bias_latitude
+                    photon_params["lon"] = bias_longitude
 
-            try:
-                response = requests.get(
-                    "https://photon.komoot.io/api/",
-                    params=photon_params,
-                    headers={
-                        "User-Agent": (
-                            "TRANVIQ/1.0 "
-                            "(transport route planner)"
-                        )
-                    },
-                    timeout=20
-                )
-                response.raise_for_status()
-                raw_results = response.json().get("features") or []
-            except (requests.RequestException, ValueError):
-                photon_failed = True
-                raw_results = []
-            finally:
-                GEOCODE_LAST_REQUEST_AT = time.monotonic()
+                try:
+                    response = requests.get(
+                        "https://photon.komoot.io/api/",
+                        params=photon_params,
+                        headers={
+                            "User-Agent": (
+                                "TRANVIQ/1.0 "
+                                "(transport route planner)"
+                            )
+                        },
+                        timeout=20
+                    )
+                    response.raise_for_status()
+                    raw_results = response.json().get("features") or []
+                    if raw_results:
+                        break
+                except (requests.RequestException, ValueError):
+                    photon_failed = True
+                finally:
+                    GEOCODE_LAST_REQUEST_AT = time.monotonic()
+
+                # Szanujemy limit publicznego geokodera także między
+                # wariantami tego samego adresu.
+                time.sleep(1.05)
 
         results = []
         seen = set()
@@ -4136,26 +4174,32 @@ def geocode_search():
                     if wait_seconds > 0:
                         time.sleep(wait_seconds)
 
-                    nominatim_response = requests.get(
-                        "https://nominatim.openstreetmap.org/search",
-                        params={
-                            "q": query,
-                            "format": "jsonv2",
-                            "addressdetails": 1,
-                            "limit": 5
-                        },
-                        headers={
-                            "User-Agent": (
-                                "TRANVIQ/1.0 (O&O TRANS route planner; "
-                                "contact via application owner)"
-                            ),
-                            "Accept-Language": current_language()
-                        },
-                        timeout=20
-                    )
-                    nominatim_response.raise_for_status()
-                    nominatim_raw = nominatim_response.json() or []
-                    GEOCODE_LAST_REQUEST_AT = time.monotonic()
+                    nominatim_raw = []
+                    for search_query in address_queries:
+                        nominatim_response = requests.get(
+                            "https://nominatim.openstreetmap.org/search",
+                            params={
+                                "q": search_query,
+                                "format": "jsonv2",
+                                "addressdetails": 1,
+                                "limit": 5,
+                                "countrycodes": "de" if "germany" in query.casefold() else ""
+                            },
+                            headers={
+                                "User-Agent": (
+                                    "TRANVIQ/1.0 (O&O TRANS route planner; "
+                                    "contact via application owner)"
+                                ),
+                                "Accept-Language": "de,en,pl,uk"
+                            },
+                            timeout=20
+                        )
+                        nominatim_response.raise_for_status()
+                        nominatim_raw = nominatim_response.json() or []
+                        GEOCODE_LAST_REQUEST_AT = time.monotonic()
+                        if nominatim_raw:
+                            break
+                        time.sleep(1.05)
 
                 for item in nominatim_raw:
                     try:
