@@ -6766,7 +6766,7 @@ def gps():
                         : 'Маршрут розраховано, але тахограф не дав ' +
                             'повного залишку часу.'));
 
-            const stopRows = schedule.stops.map(function(stop) {{
+            const stopRows = schedule.stops.map(function(stop, index) {{
                 let note = '';
                 if (stop.wait_seconds >= 60) {{
                     note += ' · очікування ' +
