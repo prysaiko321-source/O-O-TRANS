@@ -1509,7 +1509,7 @@ GLOBAL_UI_TRANSLATIONS = {
         "Їде": "Driving", "Стоїть": "Stopped", "Інша робота": "Other work", "Відпочинок": "Rest", "Немає даних": "No data", "Немає координат": "No coordinates", "Водія не визначено": "Driver not identified",
         "Картка водія не вставлена в тахограф.": "Driver card is not inserted in the tachograph.", "Без попереджень": "No warnings", "Готовність": "Availability", "Керування": "Driving",
         "Бус до 3,5 т": "Van up to 3.5 t", "Вантажний до 7,5 т": "Truck up to 7.5 t", "Вантажний до 12 т": "Truck up to 12 t", "Вантажний до 18 т": "Truck up to 18 t", "Вантажний до 26 т": "Truck up to 26 t", "Фура до 40 т": "Combination up to 40 t", "Понад 40 т": "Over 40 t",
-        " км/год": " km/h", " км": " km", " л/100 км": " l/100 km", " л ": " l ", " год ": " h ", " хв": " min", "год": "h", "км": "km", "керування": "driving"
+        " км/год": " km/h", " км": " km", " л/100 км": " l/100 km", " л ": " l ", " год ": " h ", " хв": " min",   "керування": "driving"
     },
     "de": {
         'Дані отримуються безпосередньо з Navirec:': 'Die Daten werden direkt von Navirec abgerufen:',
@@ -1579,9 +1579,73 @@ GLOBAL_UI_TRANSLATIONS = {
         "Їде": "Fährt", "Стоїть": "Steht", "Інша робота": "Andere Arbeit", "Відпочинок": "Ruhezeit", "Немає даних": "Keine Daten", "Немає координат": "Keine Koordinaten", "Водія не визначено": "Fahrer nicht erkannt",
         "Картка водія не вставлена в тахограф.": "Fahrerkarte ist nicht im Tachographen eingelegt.", "Без попереджень": "Keine Warnungen", "Готовність": "Verfügbarkeit", "Керування": "Fahren",
         "Бус до 3,5 т": "Transporter bis 3,5 t", "Вантажний до 7,5 т": "Lkw bis 7,5 t", "Вантажний до 12 т": "Lkw bis 12 t", "Вантажний до 18 т": "Lkw bis 18 t", "Вантажний до 26 т": "Lkw bis 26 t", "Фура до 40 т": "Zug bis 40 t", "Понад 40 т": "Über 40 t",
-        " км/год": " km/h", " км": " km", " л/100 км": " l/100 km", " л ": " l ", " год ": " Std. ", " хв": " Min.", "год": "Std.", "км": "km", "керування": "Fahrt"
+        " км/год": " km/h", " км": " km", " л/100 км": " l/100 km", " л ": " l ", " год ": " Std. ", " хв": " Min.",   "керування": "Fahrt"
     }
 }
+
+
+# Full-page localization supplements.  Keep complete UI phrases here instead
+# of replacing fragments inside words (which previously produced mixed text).
+FULL_PAGE_TRANSLATIONS = {
+    "pl": {
+        "Компанія:": "Firma:", "Автомобілів у системі:": "Pojazdy w systemie:",
+        "Є дані Navirec": "Dane Navirec dostępne", "Немає поточного стану": "Brak aktualnego stanu",
+        "Відкрити": "Otwórz", "Автомобіль": "Pojazd", "Швидкість": "Prędkość", "Деталі": "Szczegóły",
+        "Тут поки показується поточний рівень\n            палива з Navirec.\n            Збільшення рівня ще не вважаємо\n            автоматично заправкою.": "Na razie wyświetlany jest bieżący poziom paliwa z Navirec. Zwiększenia poziomu nie traktujemy jeszcze automatycznie jako tankowania.",
+        "Тут поки показується поточний рівень палива з Navirec. Збільшення рівня ще не вважаємо автоматично заправкою.": "Na razie wyświetlany jest bieżący poziom paliwa z Navirec. Zwiększenia poziomu nie traktujemy jeszcze automatycznie jako tankowania.",
+        "Дата": "Data", "Показати історію": "Pokaż historię", "GPS-точок": "Punkty GPS", "Початок": "Początek", "Кінець": "Koniec",
+        "Відстань": "Odległość", "Макс. швидкість": "Maks. prędkość", "Паливо на початку": "Paliwo na początku", "Паливо в кінці": "Paliwo na końcu",
+        "Рух": "Jazda", "Час руху": "Czas jazdy", "Стоянка": "Postój", "Холостий хід": "Praca na biegu jałowym", "Витрата": "Zużycie",
+        "Останні 100 GPS-точок": "Ostatnie 100 punktów GPS", "Час": "Czas", "Стан": "Stan", "Координати": "Współrzędne",
+        "Оплата доріг і віньєти": "Opłaty drogowe i winiety",
+        "Вибір тарифу залежить від ваги, кількості осей,\n            висоти, екологічного класу й країни.\n            Купуйте тільки на офіційних сторінках операторів.": "Wybór taryfy zależy od masy, liczby osi, wysokości, klasy emisji i kraju. Kupuj wyłącznie na oficjalnych stronach operatorów.",
+        "Розрахувати маршрут, паливо й оплату доріг": "Oblicz trasę, paliwo i opłaty drogowe",
+        "🇵🇱 Польща": "🇵🇱 Polska", "🇩🇪 Німеччина": "🇩🇪 Niemcy", "🇦🇹 Австрія": "🇦🇹 Austria", "🇨🇿 Чехія": "🇨🇿 Czechy",
+        "🇸🇰 Словаччина": "🇸🇰 Słowacja", "🇭🇺 Угорщина": "🇭🇺 Węgry", "🇸🇮 Словенія": "🇸🇮 Słowenia", "🇨🇭 Швейцарія": "🇨🇭 Szwajcaria",
+        "🇷🇴 Румунія": "🇷🇴 Rumunia", "🇧🇬 Болгарія": "🇧🇬 Bułgaria", "🇧🇪 Бельгія": "🇧🇪 Belgia", "🇫🇷 🇮🇹 🇪🇸 🇵🇹 Західна Європа": "🇫🇷 🇮🇹 🇪🇸 🇵🇹 Europa Zachodnia",
+        "До 3,5 т: окремі платні автомагістралі. Понад 3,5 т: система e-TOLL.": "Do 3,5 t: wybrane płatne autostrady. Powyżej 3,5 t: system e-TOLL.",
+        "До 3,5 т: загальної віньєтки немає. Понад 3,5 т: вантажний дорожній збір Toll Collect.": "Do 3,5 t: brak ogólnej winiety. Powyżej 3,5 t: opłata drogowa Toll Collect.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: GO-Box і кілометрова оплата.": "Do 3,5 t: e-winieta. Powyżej 3,5 t: GO-Box i opłata kilometrowa.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: електронна система MYTO CZ.": "Do 3,5 t: e-winieta. Powyżej 3,5 t: elektroniczny system MYTO CZ.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: кілометрова система eMyto.": "Do 3,5 t: e-winieta. Powyżej 3,5 t: system kilometrowy eMyto.",
+        "До 3,5 т: e-Matrica, категорія залежить від авто. Понад 3,5 т: HU-GO.": "Do 3,5 t: e-Matrica, kategoria zależy od pojazdu. Powyżej 3,5 t: HU-GO.",
+        "До 3,5 т: e-vignette 2A або 2B. Понад 3,5 т: DarsGo.": "Do 3,5 t: e-winieta 2A lub 2B. Powyżej 3,5 t: DarsGo.",
+        "До 3,5 т: швейцарська віньєтка. Понад 3,5 т: збір для важкого транспорту.": "Do 3,5 t: winieta szwajcarska. Powyżej 3,5 t: opłata dla ciężkiego transportu.",
+        "Rovinieta потрібна для більшості транспортних засобів. Категорія залежить від ваги та осей.": "Rovinieta jest wymagana dla większości pojazdów. Kategoria zależy od masy i liczby osi.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: маршрутний або кілометровий збір.": "Do 3,5 t: e-winieta. Powyżej 3,5 t: opłata trasowa lub kilometrowa.",
+        "До 3,5 т: загальної віньєтки немає. Понад 3,5 т: кілометровий збір Viapass.": "Do 3,5 t: brak ogólnej winiety. Powyżej 3,5 t: opłata kilometrowa Viapass.",
+        "У Франції, Італії, Іспанії та Португалії оплата часто стягується за конкретні ділянки, мости або тунелі, а не загальною віньєткою.": "We Francji, Włoszech, Hiszpanii i Portugalii opłaty są często pobierane za konkretne odcinki, mosty lub tunele zamiast ogólnej winiety.",
+        "Відкрити e-TOLL": "Otwórz e-TOLL", "Відкрити Toll Collect": "Otwórz Toll Collect", "Купити в ASFINAG": "Kup w ASFINAG",
+        "Купити e-vignette": "Kup e-winietę", "Купити eZnamka": "Kup eZnamka", "Купити e-Matrica": "Kup e-Matrica", "Купити Rovinieta": "Kup Rovinieta",
+        "Відкрити BG Toll": "Otwórz BG Toll", "Відкрити Viapass": "Otwórz Viapass",
+    },
+    "en": {
+        "Компанія:": "Company:", "Автомобілів у системі:": "Vehicles in system:", "Є дані Navirec": "Navirec data available", "Немає поточного стану": "No current state", "Відкрити": "Open",
+        "Автомобіль": "Vehicle", "Швидкість": "Speed", "Деталі": "Details", "Дата": "Date", "Показати історію": "Show history", "GPS-точок": "GPS points",
+        "Початок": "Start", "Кінець": "End", "Відстань": "Distance", "Макс. швидкість": "Max. speed", "Паливо на початку": "Fuel at start", "Паливо в кінці": "Fuel at end",
+        "Рух": "Driving", "Час руху": "Driving time", "Стоянка": "Parking", "Холостий хід": "Idling", "Витрата": "Consumption", "Останні 100 GPS-точок": "Last 100 GPS points",
+        "Час": "Time", "Стан": "State", "Координати": "Coordinates", "Оплата доріг і віньєти": "Road tolls and vignettes",
+        "Розрахувати маршрут, паливо й оплату доріг": "Calculate route, fuel and road tolls",
+        "Тут поки показується поточний рівень палива з Navirec. Збільшення рівня ще не вважаємо автоматично заправкою.": "For now, the current fuel level from Navirec is shown. An increase in level is not yet automatically treated as refuelling.",
+    },
+    "de": {
+        "Компанія:": "Firma:", "Автомобілів у системі:": "Fahrzeuge im System:", "Є дані Navirec": "Navirec-Daten verfügbar", "Немає поточного стану": "Kein aktueller Status", "Відкрити": "Öffnen",
+        "Автомобіль": "Fahrzeug", "Швидкість": "Geschwindigkeit", "Деталі": "Details", "Дата": "Datum", "Показати історію": "Historie anzeigen", "GPS-точок": "GPS-Punkte",
+        "Початок": "Start", "Кінець": "Ende", "Відстань": "Entfernung", "Макс. швидкість": "Max. Geschwindigkeit", "Паливо на початку": "Kraftstoff am Anfang", "Паливо в кінці": "Kraftstoff am Ende",
+        "Рух": "Fahrt", "Час руху": "Fahrzeit", "Стоянка": "Standzeit", "Холостий хід": "Leerlauf", "Витрата": "Verbrauch", "Останні 100 GPS-точок": "Letzte 100 GPS-Punkte",
+        "Час": "Zeit", "Стан": "Status", "Координати": "Koordinaten", "Оплата доріг і віньєти": "Maut und Vignetten",
+        "Розрахувати маршрут, паливо й оплату доріг": "Route, Kraftstoff und Maut berechnen",
+        "Тут поки показується поточний рівень палива з Navirec. Збільшення рівня ще не вважаємо автоматично заправкою.": "Derzeit wird der aktuelle Kraftstoffstand aus Navirec angezeigt. Ein Anstieg wird noch nicht automatisch als Betankung gewertet.",
+    }
+}
+for _lang, _items in FULL_PAGE_TRANSLATIONS.items():
+    GLOBAL_UI_TRANSLATIONS.setdefault(_lang, {}).update(_items)
+
+# Never replace bare word fragments inside other words.  Units are handled
+# with whitespace-aware forms, preventing strings such as "сьоgodz.ні".
+for _lang in ("pl", "en", "de"):
+    for _unsafe in ("год", "км", "хв", "керування"):
+        GLOBAL_UI_TRANSLATIONS.get(_lang, {}).pop(_unsafe, None)
 
 
 def translate_full_app_body(language, body):
@@ -1597,7 +1661,7 @@ def translate_full_app_body(language, body):
 def page(title, body, active=""):
     role = current_role()
     language = current_language()
-    visible_title = translate_title(language, title)
+    visible_title = translate_full_app_body(language, translate_title(language, title))
     body = translate_full_app_body(language, body)
     page_class = "page-gps" if active == "gps" else ""
     branding = get_company_branding(
@@ -1608,11 +1672,12 @@ def page(title, body, active=""):
         branding["company_name"]
     )
 
-    road_payments_label = (
-        "🛣️ Opłaty drogowe"
-        if language == "pl"
-        else "🛣️ Оплата доріг"
-    )
+    road_payments_label = {
+        "uk": "🛣️ Оплата доріг",
+        "pl": "🛣️ Opłaty drogowe",
+        "en": "🛣️ Road tolls",
+        "de": "🛣️ Maut",
+    }.get(language, "🛣️ Оплата доріг")
 
     if role == "driver":
         nav_items = [
@@ -7534,7 +7599,7 @@ def gps():
             "Безплатний": "Bezpłatny", "Уникати платних доріг": "Unikaj dróg płatnych",
             "Вулиця або точна адреса": "Ulica lub dokładny adres", "Шукати": "Szukaj",
             "Прокласти маршрут": "Wyznacz trasę", "Розвізний маршрут": "Trasa dostaw",
-            "Розвантаження, min": "Rozładunek, min", "год": "godz.",
+            "Розвантаження, min": "Rozładunek, min", 
             "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie usługom mapowym wyłącznie adresów tej trasy",
             "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Do mapy używane są wyłącznie adresy i okna czasowe. Imiona i numery telefonów nie są przekazywane.",
             "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Koszt jest orientacyjny. Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
@@ -7643,7 +7708,7 @@ def gps():
             "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
             "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
             "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
-            "керування.": "jazdy.", "км": "km", " л ": " l ", "год": "godz.", "хв": "min"
+            "керування.": "jazdy.",  " л ": " l ",  "хв": "min"
         },
         "en": {
             "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "I allow only the addresses of this route to be sent to map services",
@@ -7667,7 +7732,7 @@ def gps():
             "Імена та телефони не передаються.": "Names and phone numbers are not sent.",
             "Вартість є орієнтовною.": "The cost is an estimate.",
             "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "It depends on weight, axles, emission class, vignettes and payment method.",
-            "керування.": "driving.", "км": "km", " л ": " l ", "год": "h", "хв": "min"
+            "керування.": "driving.",  " л ": " l ",  "хв": "min"
         },
         "de": {
             "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Ich erlaube, nur die Adressen dieser Route an Kartendienste zu übermitteln",
@@ -7691,7 +7756,7 @@ def gps():
             "Імена та телефони не передаються.": "Namen und Telefonnummern werden nicht übermittelt.",
             "Вартість є орієнтовною.": "Die Kosten sind geschätzt.",
             "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
-            "керування.": "Fahrzeit.", "км": "km", " л ": " l ", "год": "Std.", "хв": "Min."
+            "керування.": "Fahrzeit.",  " л ": " l ",  "хв": "Min."
         }
     }
     if lang in gps_dynamic_i18n:
