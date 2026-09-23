@@ -5940,39 +5940,69 @@ def gps():
     async function readSavedDeliveryRoute(vehicleId) {{
         if (!vehicleId) return null;
 
+        // Читаємо ОБИДВІ копії. Сервер не має права затерти новіший маршрут
+        // старою версією лише тому, що відповів першим після F5.
+        let localSaved = null;
         try {{
-            const response = await fetch(
-                '/api/delivery-route/' + encodeURIComponent(vehicleId),
-                {{cache: 'no-store'}}
-            );
-            if (response.ok) {{
-                const data = await response.json();
-                const saved = data.route;
-                if (saved && saved.vehicle_id === vehicleId &&
-                        saved.delivery_route && saved.route_data) {{
-                    try {{
-                        localStorage.setItem(
-                            deliveryRouteStorageKey(vehicleId),
-                            JSON.stringify(saved)
-                        );
-                    }} catch (error) {{}}
-                    return saved;
+            const raw = localStorage.getItem(deliveryRouteStorageKey(vehicleId));
+            if (raw) {{
+                const candidate = JSON.parse(raw);
+                if (candidate && candidate.vehicle_id === vehicleId &&
+                        candidate.delivery_route && candidate.route_data) {{
+                    localSaved = candidate;
                 }}
             }}
         }} catch (error) {{}}
 
+        let serverSaved = null;
         try {{
-            const raw = localStorage.getItem(deliveryRouteStorageKey(vehicleId));
-            if (!raw) return null;
-            const saved = JSON.parse(raw);
-            if (!saved || saved.vehicle_id !== vehicleId ||
-                    !saved.delivery_route || !saved.route_data) {{
-                return null;
+            const response = await fetch(
+                '/api/delivery-route/' + encodeURIComponent(vehicleId) +
+                '?_=' + Date.now(),
+                {{cache: 'no-store'}}
+            );
+            if (response.ok) {{
+                const data = await response.json();
+                const candidate = data.route;
+                if (candidate && candidate.vehicle_id === vehicleId &&
+                        candidate.delivery_route && candidate.route_data) {{
+                    serverSaved = candidate;
+                }}
             }}
-            return saved;
-        }} catch (error) {{
-            return null;
+        }} catch (error) {{}}
+
+        if (!localSaved && !serverSaved) return null;
+
+        function savedRouteTime(route) {{
+            if (!route || !route.saved_at) return 0;
+            const value = Date.parse(route.saved_at);
+            return Number.isFinite(value) ? value : 0;
         }}
+
+        // Завжди беремо найновішу реально збережену версію маршруту.
+        const saved = (!serverSaved ||
+            (localSaved && savedRouteTime(localSaved) > savedRouteTime(serverSaved)))
+            ? localSaved
+            : serverSaved;
+
+        try {{
+            localStorage.setItem(
+                deliveryRouteStorageKey(vehicleId),
+                JSON.stringify(saved)
+            );
+        }} catch (error) {{}}
+
+        // Якщо локальна копія новіша за серверну, одразу синхронізуємо сервер.
+        if (saved === localSaved &&
+                (!serverSaved || savedRouteTime(localSaved) > savedRouteTime(serverSaved))) {{
+            try {{
+                await saveDeliveryRouteForVehicle(localSaved);
+            }} catch (error) {{
+                // Для F5 локальна актуальна копія все одно залишається доступною.
+            }}
+        }}
+
+        return saved;
     }}
 
     async function refreshVehicleDeliveryPopup(
