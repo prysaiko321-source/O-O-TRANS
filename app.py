@@ -7267,6 +7267,97 @@ def gps():
         for source_text, target_text in gps_pl_replacements.items():
             body = body.replace(source_text, target_text)
 
+
+    # GPS / route-planning localization. Keep all dynamic route text in the
+    # same language as the selected interface language.
+    gps_extra_translations = {
+        "pl": {
+            "Валюта": "Waluta", "Варіант маршруту": "Wariant trasy",
+            "Швидкий": "Szybki", "Платні дороги дозволені": "Drogi płatne dozwolone",
+            "Безплатний": "Bezpłatny", "Уникати платних доріг": "Unikaj dróg płatnych",
+            "Вулиця або точна адреса": "Ulica lub dokładny adres", "Шукати": "Szukaj",
+            "Прокласти маршрут": "Wyznacz trasę", "Розвізний маршрут": "Trasa dostaw",
+            "Розвантаження, min": "Rozładunek, min", "год": "godz.",
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Zezwalam na przekazanie usługom mapowym wyłącznie adresów tej trasy",
+            "Для карти використовуються лише адреси й часові вікна. Імена та телефони не передаються.": "Do mapy używane są wyłącznie adresy i okna czasowe. Imiona i numery telefonów nie są przekazywane.",
+            "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Koszt jest orientacyjny. Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
+            "Очистити карту": "Wyczyść mapę", "Розвізка": "Trasa dostaw",
+            "Автомобіль:": "Pojazd:", "Водій:": "Kierowca:",
+            "Початок сьогоднішньої роботи:": "Początek dzisiejszej pracy:",
+            "Сьогодні вже пройдено:": "Dzisiaj już przejechano:", "керування:": "jazda:",
+            "Перерв 45 хв:": "Przerw 45 min:", "добових відпочинків:": "odpoczynków dobowych:",
+            "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
+            "керування.": "jazdy.", "Маршрут узгоджено з актуальним тахографом.": "Trasa jest zgodna z aktualnymi danymi tachografu.",
+            "без часового вікна": "bez okna czasowego", "виїзд": "wyjazd",
+            "від попередньої точки": "od poprzedniego punktu", "км": "km"
+        },
+        "en": {
+            "Планування маршруту": "Route planning", "Початок маршруту — автомобіль": "Route start — vehicle",
+            "Тип транспорту": "Vehicle type", "Тип автомобіля": "Vehicle type", "Бус до 3,5 т": "Van up to 3.5 t",
+            "Вантажний до 7,5 т": "Truck up to 7.5 t", "Вантажний до 12 т": "Truck up to 12 t",
+            "Вантажний до 18 т": "Truck up to 18 t", "Вантажний до 26 т": "Truck up to 26 t",
+            "Фура до 40 т": "Combination up to 40 t", "Понад 40 т": "Over 40 t",
+            "Витрата, л/100 км": "Fuel consumption, l/100 km", "Ціна за літр": "Price per litre", "Валюта": "Currency",
+            "Варіант маршруту": "Route option", "Швидкий": "Fast", "Платні дороги дозволені": "Toll roads allowed",
+            "Безплатний": "Toll-free", "Уникати платних доріг": "Avoid toll roads", "Місто": "City",
+            "Вулиця або точна адреса": "Street or exact address", "Вулиця / адреса": "Street / address",
+            "Шукати": "Search", "Знайти адресу": "Find address", "Прокласти маршрут": "Plan route",
+            "Побудувати маршрут": "Plan route", "Розвізний маршрут": "Delivery route", "Дата доставок": "Delivery date",
+            "Адреси й часові вікна": "Addresses and time windows", "Змінити порядок адрес": "Change address order",
+            "Очистити всі адреси": "Clear all addresses", "Видалити маршрут автомобіля": "Delete vehicle route",
+            "Розвантаження, min": "Unloading, min", "Хв на точку": "Min per stop", "Добовий відпочинок": "Daily rest",
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "I allow only the addresses of this route to be sent to map services",
+            "Прорахувати всі доставки": "Calculate all deliveries", "Виміряти маршрут": "Measure route", "Очистити карту": "Clear map",
+            "Розвізка": "Delivery route", "Автомобіль:": "Vehicle:", "Водій:": "Driver:", "Відстань:": "Distance:",
+            "Чистий час керування:": "Pure driving time:", "Планований виїзд:": "Planned departure:",
+            "Початок сьогоднішньої роботи:": "Start of today's work:", "Сьогодні вже пройдено:": "Distance today:",
+            "керування:": "driving:", "Паливо:": "Fuel:", "Перерв 45 хв:": "45 min breaks:",
+            "добових відпочинків:": "daily rests:", "Фізично вільний:": "Physically available:",
+            "Наступне завантаження можна планувати:": "Next loading can be planned:",
+            "Рекомендований наступний виїзд:": "Recommended next departure:",
+            "Маршрут узгоджено з актуальним тахографом.": "Route is consistent with current tachograph data.",
+            "без часового вікна": "no time window", "виїзд": "departure", "від попередньої точки": "from previous stop",
+            "До наступної вигрузки:": "To next unloading:", "До останньої вигрузки:": "To final unloading:",
+            "Їде": "Driving", "Стоїть": "Stopped", "Статус:": "Status:", "Швидкість:": "Speed:",
+            " год ": " h ", " хв": " min"
+        },
+        "de": {
+            "Планування маршруту": "Routenplanung", "Початок маршруту — автомобіль": "Routenstart — Fahrzeug",
+            "Тип транспорту": "Fahrzeugtyp", "Тип автомобіля": "Fahrzeugtyp", "Бус до 3,5 т": "Transporter bis 3,5 t",
+            "Вантажний до 7,5 т": "Lkw bis 7,5 t", "Вантажний до 12 т": "Lkw bis 12 t",
+            "Вантажний до 18 т": "Lkw bis 18 t", "Вантажний до 26 т": "Lkw bis 26 t",
+            "Фура до 40 т": "Sattelzug bis 40 t", "Понад 40 т": "Über 40 t",
+            "Витрата, л/100 км": "Verbrauch, l/100 km", "Ціна за літр": "Preis pro Liter", "Валюта": "Währung",
+            "Варіант маршруту": "Routenvariante", "Швидкий": "Schnell", "Платні дороги дозволені": "Mautstraßen erlaubt",
+            "Безплатний": "Mautfrei", "Уникати платних доріг": "Mautstraßen vermeiden", "Місто": "Stadt",
+            "Вулиця або точна адреса": "Straße oder genaue Adresse", "Вулиця / адреса": "Straße / Adresse",
+            "Шукати": "Suchen", "Знайти адресу": "Adresse suchen", "Прокласти маршрут": "Route planen",
+            "Побудувати маршрут": "Route planen", "Розвізний маршрут": "Ausliefertour", "Дата доставок": "Lieferdatum",
+            "Адреси й часові вікна": "Adressen und Zeitfenster", "Змінити порядок адрес": "Adressreihenfolge ändern",
+            "Очистити всі адреси": "Alle Adressen löschen", "Видалити маршрут автомобіля": "Fahrzeugroute löschen",
+            "Розвантаження, min": "Entladung, Min.", "Хв на точку": "Min. pro Stopp", "Добовий відпочинок": "Tägliche Ruhezeit",
+            "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Ich erlaube, nur die Adressen dieser Route an Kartendienste zu übermitteln",
+            "Прорахувати всі доставки": "Alle Lieferungen berechnen", "Виміряти маршрут": "Route messen", "Очистити карту": "Karte leeren",
+            "Розвізка": "Ausliefertour", "Автомобіль:": "Fahrzeug:", "Водій:": "Fahrer:", "Відстань:": "Entfernung:",
+            "Чистий час керування:": "Reine Fahrzeit:", "Планований виїзд:": "Geplante Abfahrt:",
+            "Початок сьогоднішньої роботи:": "Beginn der heutigen Arbeit:", "Сьогодні вже пройдено:": "Heute bereits gefahren:",
+            "керування:": "Fahrzeit:", "Паливо:": "Kraftstoff:", "Перерв 45 хв:": "45-Min.-Pausen:",
+            "добових відпочинків:": "tägliche Ruhezeiten:", "Фізично вільний:": "Physisch verfügbar:",
+            "Наступне завантаження можна планувати:": "Nächste Beladung planbar:",
+            "Рекомендований наступний виїзд:": "Empfohlene nächste Abfahrt:",
+            "Маршрут узгоджено з актуальним тахографом.": "Route stimmt mit den aktuellen Tachographendaten überein.",
+            "без часового вікна": "ohne Zeitfenster", "виїзд": "Abfahrt", "від попередньої точки": "vom vorherigen Stopp",
+            "До наступної вигрузки:": "Bis zur nächsten Entladung:", "До останньої вигрузки:": "Bis zur letzten Entladung:",
+            "Їде": "Fährt", "Стоїть": "Steht", "Статус:": "Status:", "Швидкість:": "Geschwindigkeit:",
+            " год ": " Std. ", " хв": " Min."
+        }
+    }
+    lang = current_language()
+    if lang in gps_extra_translations:
+        # Replace longer phrases first so short words cannot damage them.
+        for source_text, target_text in sorted(gps_extra_translations[lang].items(), key=lambda item: len(item[0]), reverse=True):
+            body = body.replace(source_text, target_text)
+
     return page(
         "GPS",
         body,
