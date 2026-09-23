@@ -5953,7 +5953,7 @@ def gps():
                 line += ' | ' + stop.window_start + ' | ' + stop.window_end;
             }}
             return line;
-        }}).join('\n');
+        }}).join('\\n');
         buildDeliveryRoute();
     }}
 
