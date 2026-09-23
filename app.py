@@ -5893,8 +5893,10 @@ def gps():
         return 'tranviq_delivery_route_' + vehicleId;
     }}
 
-    function saveDeliveryRouteForVehicle(savedRoute) {{
-        if (!savedRoute || !savedRoute.vehicle_id) return;
+    async function saveDeliveryRouteForVehicle(savedRoute) {{
+        if (!savedRoute || !savedRoute.vehicle_id) return false;
+
+        // Спочатку зберігаємо останню версію локально як резервну копію.
         try {{
             localStorage.setItem(
                 deliveryRouteStorageKey(savedRoute.vehicle_id),
@@ -5902,13 +5904,26 @@ def gps():
             );
         }} catch (error) {{}}
 
-        fetch('/api/delivery-route/' + encodeURIComponent(savedRoute.vehicle_id), {{
-            method: 'PUT',
-            headers: {{'Content-Type': 'application/json'}},
-            body: JSON.stringify({{route: savedRoute}})
-        }}).catch(function() {{
-            // Локальна копія лишається резервною, якщо сервер недоступний.
-        }});
+        // Важливо: чекаємо підтвердження сервера. Раніше PUT запускався у фоні,
+        // тому швидкий F5 міг відновити попередню версію маршруту.
+        const response = await fetch(
+            '/api/delivery-route/' + encodeURIComponent(savedRoute.vehicle_id),
+            {{
+                method: 'PUT',
+                headers: {{'Content-Type': 'application/json'}},
+                cache: 'no-store',
+                body: JSON.stringify({{route: savedRoute}})
+            }}
+        );
+        if (!response.ok) {{
+            let message = 'Сервер не зберіг новий маршрут.';
+            try {{
+                const data = await response.json();
+                if (data && data.error) message = data.error;
+            }} catch (error) {{}}
+            throw new Error(message);
+        }}
+        return true;
     }}
 
     function removeSavedDeliveryRoute(vehicleId) {{
@@ -6809,7 +6824,9 @@ def gps():
                 serviceMinutes + ' хв на точку. Після виконання рейсу ' +
                 'порівняємо прогноз із фактом і скоригуємо норматив.</span>';
 
-            saveDeliveryRouteForVehicle({{
+            buildDeliveryRouteButton.textContent =
+                'Зберігаю активний маршрут...';
+            await saveDeliveryRouteForVehicle({{
                 vehicle_id: vehicle.id,
                 delivery_route: deliveryRoute,
                 route_data: routeData,
