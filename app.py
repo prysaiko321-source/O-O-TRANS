@@ -6391,8 +6391,10 @@ def gps():
         }});
 
         if (!looksLikeOrder) {{
-            if (simpleLines.length < 2) {{
-                throw new Error('Для розвізки потрібно щонайменше дві адреси.');
+            // Одна адреса теж є повноцінним маршрутом: старт беремо з
+            // поточної GPS-позиції вибраного автомобіля, а ця адреса є фінішем.
+            if (simpleLines.length < 1) {{
+                throw new Error('Вставте щонайменше одну адресу.');
             }}
             if (simpleLines.length > 24) {{
                 throw new Error('За один раз можна додати до 24 точок.');
