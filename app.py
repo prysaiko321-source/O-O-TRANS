@@ -6099,28 +6099,32 @@ def gps():
             return;
         }}
         deliveryStopOrderList.style.display = 'block';
-        deliveryStopOrderList.innerHTML = stops.map(function(stop, index) {{
+        const rows = stops.map(function(stop, index) {{
             const upDisabled = index === 0 ? ' disabled' : '';
             const downDisabled = index === stops.length - 1 ? ' disabled' : '';
-            return '<details style="margin:4px 0;border:1px solid #cbd8df;' +
-                'border-radius:8px;background:#fff;overflow:hidden;">' +
-                '<summary style="cursor:pointer;padding:8px 10px;' +
-                'font-size:12px;font-weight:700;white-space:nowrap;' +
-                'overflow:hidden;text-overflow:ellipsis;">' +
-                (index + 1) + '. ' + escapeHtml(stop.address) + '</summary>' +
-                '<div style="display:flex;align-items:center;gap:6px;' +
-                'padding:0 10px 9px 10px;">' +
+            return '<div style="display:flex;align-items:center;gap:6px;' +
+                'padding:7px 8px;border-top:1px solid #e3eaee;">' +
+                '<div style="min-width:0;flex:1;font-size:12px;' +
+                'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
+                '<strong>' + (index + 1) + '.</strong> ' +
+                escapeHtml(stop.address) + '</div>' +
                 '<button type="button" title="Підняти вище"' + upDisabled +
                 ' onclick="reorderActiveDeliveryStops(' + index + ', -1)"' +
-                ' style="height:30px;flex:1;">↑ Вище</button>' +
+                ' style="width:34px;height:30px;">↑</button>' +
                 '<button type="button" title="Опустити нижче"' + downDisabled +
                 ' onclick="reorderActiveDeliveryStops(' + index + ', 1)"' +
-                ' style="height:30px;flex:1;">↓ Нижче</button>' +
+                ' style="width:34px;height:30px;">↓</button>' +
                 '<button type="button" title="Видалити точку"' +
                 ' onclick="removeActiveDeliveryStop(' + index + ')"' +
-                ' style="height:30px;flex:1;">✕ Видалити</button>' +
-                '</div></details>';
+                ' style="width:34px;height:30px;">✕</button>' +
+                '</div>';
         }}).join('');
+        deliveryStopOrderList.innerHTML =
+            '<details style="margin:5px 0;border:1px solid #cbd8df;' +
+            'border-radius:9px;background:#fff;overflow:hidden;">' +
+            '<summary style="cursor:pointer;padding:9px 11px;' +
+            'font-size:12px;font-weight:800;">↕ Змінити порядок адрес (' +
+            stops.length + ')</summary>' + rows + '</details>';
     }}
 
     function reorderActiveDeliveryStops(index, direction) {{
@@ -6697,6 +6701,36 @@ def gps():
             }}
             if (!routeData.points || !routeData.points.length) {{
                 throw new Error('Маршрут через усі точки не знайдено.');
+            }}
+
+            // КРИТИЧНО: зберігаємо маршрут одразу після успішного розрахунку.
+            // Раніше запис був лише в самому кінці великого блоку аналізу;
+            // будь-яка помилка після малювання карти залишала на екрані новий
+            // маршрут, але після Reload повертався старий або порожній.
+            const earlySavedRoute = {{
+                vehicle_id: vehicle.id,
+                delivery_route: deliveryRoute,
+                route_data: routeData,
+                input_text: deliveryStopsInput.value,
+                service_minutes: Math.max(
+                    5,
+                    Number(deliveryServiceMinutes.value) || 25
+                ),
+                daily_rest_hours: Math.max(
+                    9,
+                    Math.min(11, Number(deliveryDailyRestHours.value) || 11)
+                ),
+                vehicle_profile: vehicleProfile,
+                summary_html: '',
+                saved_at: new Date().toISOString()
+            }};
+            // localStorage записується всередині функції ДО запиту на сервер.
+            // Навіть якщо сервер тимчасово недоступний, Reload має відновити
+            // останній маршрут із цього браузера.
+            try {{
+                await saveDeliveryRouteForVehicle(earlySavedRoute);
+            }} catch (saveError) {{
+                console.warn('Маршрут збережено локально; серверний запис не вдався.', saveError);
             }}
 
             buildDeliveryRouteButton.textContent =
