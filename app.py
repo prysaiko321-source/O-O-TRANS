@@ -7380,7 +7380,13 @@ def gps():
             "Оплата доріг:": "Opłaty drogowe:", "платних ділянок": "płatnych odcinków",
             "Дорогами:": "Drogami:", "Приблизний час:": "Przybliżony czas:", "По прямій:": "W linii prostej:",
             "До наступної вигрузки:": "Do następnego rozładunku:", "До останньої вигрузки:": "Do ostatniego rozładunku:",
-            "год": "godz.", "хв": "min"
+            "Дозволяю передати картографічним сервісам": "Zezwalam na przekazanie usługom mapowym",
+            "лише адреси цього маршруту": "wyłącznie adresów tej trasy",
+            "Для карти використовуються лише адреси й часові вікна.": "Do mapy używane są wyłącznie adresy i okna czasowe.",
+            "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
+            "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
+            "керування.": "jazdy.", "км": "km", " л ": " l ", "год": "godz.", "хв": "min"
         },
         "en": {
             "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "I allow only the addresses of this route to be sent to map services",
@@ -7398,7 +7404,13 @@ def gps():
             "Орієнтовна оплата доріг:": "Estimated road tolls:", "Орієнтовна оплата": "Estimated toll",
             "Оплата доріг:": "Road tolls:", "Дорогами:": "By road:", "Приблизний час:": "Approximate time:", "По прямій:": "Straight line:",
             "До наступної вигрузки:": "To next unloading:", "До останньої вигрузки:": "To final unloading:",
-            "год": "h", "хв": "min"
+            "Дозволяю передати картографічним сервісам": "I allow addresses to be sent to map services",
+            "лише адреси цього маршруту": "for this route only",
+            "Для карти використовуються лише адреси й часові вікна.": "Only addresses and time windows are used for the map.",
+            "Імена та телефони не передаються.": "Names and phone numbers are not sent.",
+            "Вартість є орієнтовною.": "The cost is an estimate.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "It depends on weight, axles, emission class, vignettes and payment method.",
+            "керування.": "driving.", "км": "km", " л ": " l ", "год": "h", "хв": "min"
         },
         "de": {
             "Дозволяю передати картографічним сервісам лише адреси цього маршруту": "Ich erlaube, nur die Adressen dieser Route an Kartendienste zu übermitteln",
@@ -7416,7 +7428,13 @@ def gps():
             "Орієнтовна оплата доріг:": "Geschätzte Mautkosten:", "Орієнтовна оплата": "Geschätzte Maut",
             "Оплата доріг:": "Mautkosten:", "Дорогами:": "Auf der Straße:", "Приблизний час:": "Ungefähre Zeit:", "По прямій:": "Luftlinie:",
             "До наступної вигрузки:": "Bis zur nächsten Entladung:", "До останньої вигрузки:": "Bis zur letzten Entladung:",
-            "год": "Std.", "хв": "Min."
+            "Дозволяю передати картографічним сервісам": "Ich erlaube die Übermittlung von Adressen an Kartendienste",
+            "лише адреси цього маршруту": "nur für diese Route",
+            "Для карти використовуються лише адреси й часові вікна.": "Für die Karte werden nur Adressen und Zeitfenster verwendet.",
+            "Імена та телефони не передаються.": "Namen und Telefonnummern werden nicht übermittelt.",
+            "Вартість є орієнтовною.": "Die Kosten sind geschätzt.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
+            "керування.": "Fahrzeit.", "км": "km", " л ": " l ", "год": "Std.", "хв": "Min."
         }
     }
     if lang in gps_dynamic_i18n:
