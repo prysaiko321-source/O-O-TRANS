@@ -4915,8 +4915,8 @@ def gps():
         }});
         const vehicleName = vehicle ? vehicle.name : vehicleId;
         if (!window.confirm(
-            'Видалити активний маршрут для ' + vehicleName + '?\n' +
-            'Він буде стертий і з карти, і з пам\'яті TRANVIQ.'
+            "Видалити активний маршрут для " + vehicleName + "?\\n" +
+            "Він буде стертий і з карти, і з пам'яті TRANVIQ."
         )) return;
 
         deleteVehicleRouteButton.disabled = true;
