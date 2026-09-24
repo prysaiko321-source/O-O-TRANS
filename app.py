@@ -4799,6 +4799,39 @@ def route_calculate():
         }), 503
 
 
+@app.route("/api/live-vehicle-states")
+def api_live_vehicle_states():
+    """Fresh Navirec positions for the live GPS map."""
+    states = get_vehicle_states()
+    snapshots = build_tachograph_snapshots(states)
+    vehicles = []
+
+    for vehicle in VEHICLES:
+        state = state_for_vehicle(vehicle["id"], states)
+        if not state:
+            continue
+        latitude, longitude = extract_coordinates(state.get("location"))
+        if latitude is None or longitude is None:
+            continue
+        item = {
+            "id": vehicle["id"],
+            "name": vehicle["name"],
+            "plate": vehicle.get("plate") or vehicle["name"],
+            "latitude": latitude,
+            "longitude": longitude,
+            "speed": safe_float(state.get("speed")),
+            "ignition": bool(state.get("ignition")),
+            "activity": get_activity(state),
+            "activity_started_at": state.get("activity_started_at"),
+            "fuel": safe_float(state.get("fuel_level")),
+            "fuel_consumption": get_vehicle_average_consumption(vehicle["id"]),
+        }
+        item.update(snapshots.get(vehicle["id"], {}))
+        vehicles.append(item)
+
+    return jsonify({"ok": True, "vehicles": vehicles})
+
+
 @app.route("/gps")
 def gps():
     selected_id = normalize_vehicle_id(
@@ -5239,6 +5272,60 @@ def gps():
             vehicle.latitude,
             vehicle.longitude
         ]);
+    }});
+
+    function liveVehicleIcon(vehicle) {{
+        const moving = Number(vehicle.speed || 0) > 1;
+        const status = moving ? 'moving' : (vehicle.ignition ? 'idling' : 'stopped');
+        return L.divIcon({{
+            className: 'vehicle-marker-icon',
+            html: '<div class="vehicle-marker-pin vehicle-marker-' + status + '"></div>',
+            iconSize: [28, 36], iconAnchor: [14, 34], popupAnchor: [0, -31], tooltipAnchor: [0, -30]
+        }});
+    }}
+
+    function liveVehiclePopup(vehicle) {{
+        const moving = Number(vehicle.speed || 0) > 1;
+        const statusLabel = moving ? 'Їде' : (vehicle.ignition ? 'Заведена' : 'Стоїть');
+        const speed = vehicle.speed === null ? '—' : Number(vehicle.speed).toFixed(0) + ' км/год';
+        const fuel = vehicle.fuel === null ? '—' : Number(vehicle.fuel).toFixed(1) + '%';
+        return '<strong>' + vehicle.name + '</strong><br>' +
+            'Статус: ' + statusLabel + '<br>' + 'Швидкість: ' + speed + '<br>' +
+            'Паливо: ' + fuel + '<br>' + Number(vehicle.latitude).toFixed(6) + ', ' + Number(vehicle.longitude).toFixed(6);
+    }}
+
+    let liveGpsRefreshBusy = false;
+    async function refreshLiveVehiclePositions() {{
+        if (liveGpsRefreshBusy || document.hidden) return;
+        liveGpsRefreshBusy = true;
+        try {{
+            const response = await fetch('/api/live-vehicle-states', {{cache: 'no-store'}});
+            const data = await response.json();
+            if (!response.ok || !data.ok || !Array.isArray(data.vehicles)) return;
+            for (const fresh of data.vehicles) {{
+                const vehicle = vehicles.find(function(item) {{ return item.id === fresh.id; }});
+                const marker = vehicleMarkersById[fresh.id];
+                if (!vehicle || !marker) continue;
+                Object.assign(vehicle, fresh);
+                marker.setLatLng([fresh.latitude, fresh.longitude]);
+                marker.setIcon(liveVehicleIcon(vehicle));
+                const basePopup = liveVehiclePopup(vehicle);
+                vehiclePopupBaseById[vehicle.id] = basePopup;
+                marker.setPopupContent(basePopup);
+                if (typeof activeDeliveryRoute !== 'undefined' && activeDeliveryRoute && activeDeliveryRoute.vehicle_id === vehicle.id) {{
+                    await refreshDeliveryStopStatuses(vehicle, activeDeliveryRoute);
+                }}
+            }}
+        }} catch (error) {{
+            // Тимчасова помилка Navirec не повинна зупиняти живу карту.
+        }} finally {{
+            liveGpsRefreshBusy = false;
+        }}
+    }}
+
+    setInterval(refreshLiveVehiclePositions, 15000);
+    document.addEventListener('visibilitychange', function() {{
+        if (!document.hidden) refreshLiveVehiclePositions();
     }});
 
     if (bounds.length > 1) {{
