@@ -8039,7 +8039,7 @@ def gps():
             "Імена та телефони не передаються.": "Imiona i numery telefonów nie są przekazywane.",
             "Вартість є орієнтовною.": "Koszt jest orientacyjny.",
             "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Zależy od masy, liczby osi, klasy emisji, winiet i sposobu płatności.",
-            "керування.": "jazdy.", " год ": " godz. ", " км": " km", " л ": " l ", "хв": "min",
+            "керування.": "jazdy.", "керування": "jazdy", " год ": " godz. ", " км": " km", " л ": " l ", "хв": "min",
             "Перерв 45 min:": "Przerw 45 min:", "Після завершення залишається щонайменше": "Po zakończeniu pozostaje co najmniej",
             "Szacunkowa opłata A2: ≈ 10 PLN (67.9 км платною": "Szacunkowa opłata A2: ≈ 10 PLN (67.9 km odcinka płatnego"
         },
