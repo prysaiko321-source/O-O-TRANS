@@ -5180,6 +5180,7 @@ def gps():
     <script>
     const vehicles = {markers};
     const selectedId = {selected};
+    const gpsUiLanguage = {ui_lang};
 
     const map = L.map('map').setView(
         [{lat}, {lon}],
@@ -5732,7 +5733,7 @@ def gps():
         const hours = Math.floor(totalMinutes / 60);
         const minutes = totalMinutes % 60;
 
-        const polishUi = document.documentElement.lang === 'pl';
+        const polishUi = gpsUiLanguage === 'pl';
         if (hours > 0) {{
             return polishUi
                 ? hours + ' godz. ' + minutes + ' min'
@@ -6061,7 +6062,7 @@ def gps():
                 freeAt.getTime() + dailyRestSeconds * 1000
             );
             nextRecommendation =
-                (document.documentElement.lang === 'pl'
+                (gpsUiLanguage === 'pl'
                     ? 'Bez pełnych danych z tachografu kolejny wyjazd można bezpiecznie planować dopiero po odpoczynku dobowym.'
                     : 'Без повних даних тахографа безпечно планувати новий ' +
                         'виїзд лише після добового відпочинку.');
@@ -6074,20 +6075,20 @@ def gps():
                 freeAt.getTime() + 45 * 60 * 1000
             );
             nextRecommendation =
-                (document.documentElement.lang === 'pl'
+                (gpsUiLanguage === 'pl'
                     ? 'Następny załadunek można wykonać po zakończeniu dostaw, a dalszą jazdę planować po 45-minutowej przerwie. Ostatecznie zweryfikować z tachografem.'
                     : 'Наступне завантаження можна виконувати після ' +
                         'розвізки, а подальший рух планувати після перерви ' +
                         '45 хв. Остаточно звірити з тахографом.');
         }} else if (canDriveAfter >= 60 * 60) {{
             nextRecommendation = restBeforeStart && !hasTachograph
-                ? (document.documentElement.lang === 'pl'
+                ? (gpsUiLanguage === 'pl'
                     ? 'Przed porannym wyjazdem podczas postoju zostanie osiągnięty odpoczynek dobowy. Po zakończeniu pozostanie około ' + formatDuration(canDriveAfter) + ' czasu jazdy; po uruchomieniu należy zweryfikować dane z tachografem.'
                     : 'До ранкового виїзду за стоянкою набирається ' +
                         'добовий відпочинок. Після завершення залишається ' +
                         'орієнтовно ' + formatDuration(canDriveAfter) +
                         ' керування; після запуску звірити з тахографом.')
-                : (document.documentElement.lang === 'pl'
+                : (gpsUiLanguage === 'pl'
                     ? 'Po zakończeniu pozostaje co najmniej ' + formatDuration(canDriveAfter) + ' czasu jazdy.'
                     : 'Після завершення залишається щонайменше ' + formatDuration(canDriveAfter) + ' керування.');
         }} else {{
@@ -6095,7 +6096,7 @@ def gps():
                 freeAt.getTime() + dailyRestSeconds * 1000
             );
             nextRecommendation =
-                (document.documentElement.lang === 'pl'
+                (gpsUiLanguage === 'pl'
                     ? 'Przed następną trasą wymagany jest odpoczynek dobowy.'
                     : 'Для наступного рейсу потрібен добовий відпочинок.');
         }}
@@ -6174,7 +6175,7 @@ def gps():
 
     function formatTollInformation(routeData) {{
         if (routeData.avoid_tolls) {{
-            return document.documentElement.lang === 'pl'
+            return gpsUiLanguage === 'pl'
                 ? 'Drogi płatne: trasa próbuje ich unikać. Sprawdź wynik, ponieważ całkowite uniknięcie opłat nie jest gwarantowane.'
                 : 'Платні дороги: маршрут намагається їх уникати. ' + 'Перевірте результат, бо повне уникнення не гарантується.';
         }}
@@ -6189,20 +6190,20 @@ def gps():
                 return Number(price.amount).toFixed(2) +
                     ' ' + price.currency;
             }});
-            return (document.documentElement.lang === 'pl' ? 'Szacunkowe opłaty drogowe: ' : 'Орієнтовна оплата доріг: ') + prices.join(' + ');
+            return (gpsUiLanguage === 'pl' ? 'Szacunkowe opłaty drogowe: ' : 'Орієнтовна оплата доріг: ') + prices.join(' + ');
         }}
 
         if (routeData.toll_estimate) {{
             const estimate = routeData.toll_estimate;
             const segmentText = estimate.segment
-                ? (document.documentElement.lang === 'pl' ? '; odcinek ' : '; ділянка ') + estimate.segment
+                ? (gpsUiLanguage === 'pl' ? '; odcinek ' : '; ділянка ') + estimate.segment
                 : '';
-            return (document.documentElement.lang === 'pl' ? 'Szacunkowa opłata ' : 'Орієнтовна оплата ') + estimate.road + ': ≈ ' +
+            return (gpsUiLanguage === 'pl' ? 'Szacunkowa opłata ' : 'Орієнтовна оплата ') + estimate.road + ': ≈ ' +
                 Number(estimate.amount).toFixed(0) + ' ' +
                 estimate.currency + ' (' +
                 Number(estimate.distance_km).toFixed(1) +
-                (document.documentElement.lang === 'pl' ? ' km drogą płatną' : ' км платною дорогою') + segmentText +
-                (document.documentElement.lang === 'pl' ? '; taryfa z 11.09.2026).' : '; тариф від 11.09.2026).');
+                (gpsUiLanguage === 'pl' ? ' km drogą płatną' : ' км платною дорогою') + segmentText +
+                (gpsUiLanguage === 'pl' ? '; taryfa z 11.09.2026).' : '; тариф від 11.09.2026).');
         }}
 
         if (routeData.has_tolls) {{
@@ -6888,7 +6889,7 @@ def gps():
         }}
         if (saved.summary_html) {{
             let restoredSummary = saved.summary_html;
-            if (document.documentElement.lang === 'pl') {{
+            if (gpsUiLanguage === 'pl') {{
                 const plSummaryReplacements = [
                     ['Розвізка', 'Trasa dostaw'],
                     ['Автомобіль:', 'Pojazd:'],
@@ -6936,52 +6937,11 @@ def gps():
                     '<li><strong>'
                 );
             }}
-            // Polish GPS: saved summaries may have been created while the UI was Ukrainian.
-            // Translate the saved HTML BEFORE inserting it into the page. This changes text only;
-            // routing, tachograph calculations, geocoding and live GPS are untouched.
-            if ("__TRANVIQ_POLISH_UI__" === "1") {{
-                const savedPlPairs = [
-                    ['Розвізка', 'Trasa dostaw'],
-                    ['Автомобіль:', 'Pojazd:'],
-                    ['Водій:', 'Kierowca:'],
-                    ['Відстань:', 'Odległość:'],
-                    ['Чистий час керування:', 'Czysty czas jazdy:'],
-                    ['Планований виїзд:', 'Planowany wyjazd:'],
-                    ['Початок сьогоднішньої роботи:', 'Początek dzisiejszej pracy:'],
-                    ['Сьогодні вже пройдено:', 'Dzisiaj przejechano:'],
-                    ['керування:', 'czas jazdy:'],
-                    ['Паливо:', 'Paliwo:'],
-                    ['Перерв 45 хв:', 'Przerwy 45 min:'],
-                    ['добових відпочинків:', 'odpoczynki dobowe:'],
-                    ['Фізично вільний:', 'Fizycznie wolny:'],
-                    ['Наступне завантаження можна планувати:', 'Następny załadunek można planować:'],
-                    ['Рекомендований наступний виїзд:', 'Zalecany następny wyjazd:'],
-                    ['Маршрут узгоджено з актуальним тахографом.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
-                    ['без часового вікна', 'bez okna czasowego'],
-                    ['виїзд', 'wyjazd'],
-                    ['від попередньої точки', 'od poprzedniego punktu'],
-                    ['Орієнтовна оплата', 'Szacunkowa opłata'],
-                    ['км платною дорогою', 'km drogą płatną'],
-                    ['ділянка', 'odcinek'],
-                    ['тариф від', 'taryfa z'],
-                    ['Розвантаження прийнято по', 'Przyjęto czas rozładunku:'],
-                    ['хв на точку.', 'min na punkt.'],
-                    ['Після виконання рейсу', 'Po wykonaniu trasy'],
-                    ['порівняємо прогноз із фактом і скоригуємо норматив.', 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.'],
-                    [' год ', ' godz. '],
-                    [' хв', ' min'],
-                    [' км', ' km'],
-                    [' л ≈', ' l ≈']
-                ];
-                savedPlPairs.forEach(function(pair) {{
-                    restoredSummary = restoredSummary.split(pair[0]).join(pair[1]);
-                }});
-            }}
             measureResult.innerHTML = restoredSummary;
 
             // Polish GPS: translate the restored route summary once, directly in this block.
             // No observer and no changes to routing/calculation logic.
-            if (document.documentElement.lang === 'pl') {{
+            if (gpsUiLanguage === 'pl') {{
                 const walker = document.createTreeWalker(
                     measureResult,
                     NodeFilter.SHOW_TEXT
@@ -7031,7 +6991,7 @@ def gps():
             measureResult.innerHTML =
                 '<strong>' + escapeHtml(saved.delivery_route.label) +
                 '</strong><br>' +
-                (document.documentElement.lang === 'pl'
+                (gpsUiLanguage === 'pl'
                     ? 'Przywrócono zapisaną trasę dla <strong>'
                     : 'Відновлено збережений маршрут для <strong>') +
                 escapeHtml(vehicle.name) + '</strong>.';
@@ -7452,7 +7412,7 @@ def gps():
             const daySummaryPromise = loadVehicleDaySummary(vehicle.id);
             const stops = await geocodeDeliveryStops(parsedStops);
             const deliveryRoute = {{
-                label: (document.documentElement.lang === 'pl' ? 'Trasa dostaw ' : 'Розвізка ') + deliveryRouteDate.value,
+                label: (gpsUiLanguage === 'pl' ? 'Trasa dostaw ' : 'Розвізка ') + deliveryRouteDate.value,
                 vehicle_id: vehicle.id,
                 date: deliveryRouteDate.value,
                 stops: stops
@@ -7585,7 +7545,7 @@ def gps():
             );
             const fuelLitres = distanceKm * fuelConsumption / 100;
             const fuelCost = fuelLitres * fuelPrice;
-            const polishUi = document.documentElement.lang === 'pl';
+            const polishUi = gpsUiLanguage === 'pl';
             const pauseLabel = schedule.pause_type === 'daily_rest'
                 ? (polishUi ? 'długi odpoczynek dobowy' : 'довгий добовий відпочинок')
                 : (schedule.pause_type === 'break_45'
@@ -7919,22 +7879,15 @@ def gps():
     """.format(
         markers=marker_json,
         selected=json.dumps(selected_id),
+        ui_lang=json.dumps(current_language()),
         lat=center_lat,
         lon=center_lon
-    )
-
-    # Stable server-side language flag for restored dynamic route summaries.
-    # This avoids relying on the browser <html lang> value.
-    body = body.replace(
-        '"__TRANVIQ_POLISH_UI__" === "1"',
-        'true' if current_language() == 'pl' else 'false'
     )
 
     if current_language() == "pl":
         # GPS JavaScript is rendered server-side. Force every Polish branch
         # before sending the page to the browser, so dynamic route results
         # cannot fall back to Ukrainian.
-        body = body.replace("document.documentElement.lang === 'pl'", "true")
         gps_pl_replacements = {
             "Планування маршруту": "Planowanie trasy",
             "Початок маршруту — автомобіль": "Początek trasy — pojazd",
