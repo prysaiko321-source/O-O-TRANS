@@ -107,6 +107,7 @@ ROLE_ENDPOINTS = {
         "geocode_search",
         "route_calculate",
         "delivery_stop_status",
+        "delivery_route_storage",
         "tachograph"
     },
     "driver": {
