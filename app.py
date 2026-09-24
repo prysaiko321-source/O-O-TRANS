@@ -8356,6 +8356,24 @@ def gps():
             body = replace_visible_gps_text(body, source_text, target_text)
 
 
+    if current_language() == "de":
+        # Mirror the proven Polish visible-text handling for German.
+        # These source strings are split across HTML lines, so full-phrase
+        # replacements alone do not catch them.
+        gps_de_visible_replacements = {
+            "Добовий відпочинок, год": "Tägliche Ruhezeit, Std.",
+            "Tägliche Ruhezeit, год": "Tägliche Ruhezeit, Std.",
+            "Дозволяю передати картографічним сервісам": "Ich erlaube die Übermittlung an Kartendienste",
+            "лише адреси цього маршруту": "ausschließlich der Adressen dieser Route",
+            "Для карти використовуються лише адреси й часові": "Für die Karte werden ausschließlich Adressen und Zeitfenster verwendet.",
+            "вікна. Імена та телефони не передаються.": "Namen und Telefonnummern werden nicht übermittelt.",
+            "Вартість є орієнтовною. Вона залежить від ваги,": "Die Kostenangabe ist unverbindlich. Sie hängt von Gewicht,",
+            "осей, екологічного класу, віньєт і способу оплати.": "Achszahl, Emissionsklasse, Vignetten und Zahlungsart ab.",
+        }
+        for source_text, target_text in gps_de_visible_replacements.items():
+            body = replace_visible_gps_text(body, source_text, target_text)
+
+
     # GPS / route-planning localization. Keep all dynamic route text in the
     # same language as the selected interface language.
     gps_extra_translations = {
