@@ -5241,8 +5241,35 @@ def gps():
     // Source phrases are written as Unicode escapes on purpose: the server-side
     // Polish body replacements must not rewrite these lookup keys before JS runs.
     function localizeSavedRouteSummary(html) {{
-        if (gpsUiLanguage !== 'pl' || !html) return html || '';
-        const replacements = [
+        if (!html || (gpsUiLanguage !== 'pl' && gpsUiLanguage !== 'en')) return html || '';
+        const englishReplacements = [
+            ['\\u0420\\u043e\\u0437\\u0432\\u0456\\u0437\\u043a\\u0430', 'Delivery route'],
+            ['\\u0410\\u0432\\u0442\\u043e\\u043c\\u043e\\u0431\\u0456\\u043b\\u044c:', 'Vehicle:'],
+            ['\\u0412\\u043e\\u0434\\u0456\\u0439:', 'Driver:'],
+            ['\\u0412\\u0456\\u0434\\u0441\\u0442\\u0430\\u043d\\u044c:', 'Distance:'],
+            ['\\u0427\\u0438\\u0441\\u0442\\u0438\\u0439 \\u0447\\u0430\\u0441 \\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f:', 'Driving time:'],
+            ['\\u041f\\u043b\\u0430\\u043d\\u043e\\u0432\\u0430\\u043d\\u0438\\u0439 \\u0432\\u0438\\u0457\\u0437\\u0434:', 'Planned departure:'],
+            ['\\u041f\\u043e\\u0447\\u0430\\u0442\\u043e\\u043a \\u0441\\u044c\\u043e\\u0433\\u043e\\u0434\\u043d\\u0456\\u0448\\u043d\\u044c\\u043e\\u0457 \\u0440\\u043e\\u0431\\u043e\\u0442\\u0438:', "Start of today's work:"],
+            ['\\u0421\\u044c\\u043e\\u0433\\u043e\\u0434\\u043d\\u0456 \\u0432\\u0436\\u0435 \\u043f\\u0440\\u043e\\u0439\\u0434\\u0435\\u043d\\u043e:', 'Distance today:'],
+            ['\\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f:', 'driving:'],
+            ['\\u041f\\u0430\\u043b\\u0438\\u0432\\u043e:', 'Fuel:'],
+            ['\\u041f\\u0435\\u0440\\u0435\\u0440\\u0432 45 \\u0445\\u0432:', '45-minute breaks:'],
+            ['\\u0434\\u043e\\u0431\\u043e\\u0432\\u0438\\u0445 \\u0432\\u0456\\u0434\\u043f\\u043e\\u0447\\u0438\\u043d\\u043a\\u0456\\u0432:', 'daily rests:'],
+            ['\\u0424\\u0456\\u0437\\u0438\\u0447\\u043d\\u043e \\u0432\\u0456\\u043b\\u044c\\u043d\\u0438\\u0439:', 'Available from:'],
+            ['\\u041d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u0435 \\u0437\\u0430\\u0432\\u0430\\u043d\\u0442\\u0430\\u0436\\u0435\\u043d\\u043d\\u044f \\u043c\\u043e\\u0436\\u043d\\u0430 \\u043f\\u043b\\u0430\\u043d\\u0443\\u0432\\u0430\\u0442\\u0438:', 'Next loading can be planned from:'],
+            ['\\u0420\\u0435\\u043a\\u043e\\u043c\\u0435\\u043d\\u0434\\u043e\\u0432\\u0430\\u043d\\u0438\\u0439 \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u0438\\u0439 \\u0432\\u0438\\u0457\\u0437\\u0434:', 'Recommended next departure:'],
+            ['\\u041f\\u0456\\u0441\\u043b\\u044f \\u0437\\u0430\\u0432\\u0435\\u0440\\u0448\\u0435\\u043d\\u043d\\u044f \\u0437\\u0430\\u043b\\u0438\\u0448\\u0430\\u0454\\u0442\\u044c\\u0441\\u044f \\u0449\\u043e\\u043d\\u0430\\u0439\\u043c\\u0435\\u043d\\u0448\\u0435', 'After completion, at least'],
+            ['\\u0447\\u0430\\u0441\\u0443 \\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', 'of driving time remains.'],
+            ['\\u0414\\u043b\\u044f \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u043e\\u0433\\u043e \\u0440\\u0435\\u0439\\u0441\\u0443 \\u043f\\u043e\\u0442\\u0440\\u0456\\u0431\\u0435\\u043d \\u0434\\u043e\\u0431\\u043e\\u0432\\u0438\\u0439 \\u0432\\u0456\\u0434\\u043f\\u043e\\u0447\\u0438\\u043d\\u043e\\u043a.', 'A daily rest is required before the next trip.'],
+            ['\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0443\\u0437\\u0433\\u043e\\u0434\\u0436\\u0435\\u043d\\u043e \\u0437 \\u0430\\u043a\\u0442\\u0443\\u0430\\u043b\\u044c\\u043d\\u0438\\u043c \\u0442\\u0430\\u0445\\u043e\\u0433\\u0440\\u0430\\u0444\\u043e\\u043c.', 'The route is consistent with the latest tachograph data.'],
+            ['\\u0431\\u0435\\u0437 \\u0447\\u0430\\u0441\\u043e\\u0432\\u043e\\u0433\\u043e \\u0432\\u0456\\u043a\\u043d\\u0430', 'no time window'],
+            ['\\u0432\\u0438\\u0457\\u0437\\u0434', 'departure'],
+            ['\\u0432\\u0456\\u0434 \\u043f\\u043e\\u043f\\u0435\\u0440\\u0435\\u0434\\u043d\\u044c\\u043e\\u0457 \\u0442\\u043e\\u0447\\u043a\\u0438', 'from previous stop'],
+            ['\\u041e\\u043f\\u043b\\u0430\\u0442\\u0430 \\u0434\\u043e\\u0440\\u0456\\u0433:', 'Road tolls:'],
+            ['\\u0434\\u0430\\u043d\\u0438\\u0445 \\u043f\\u0440\\u043e \\u043f\\u043b\\u0430\\u0442\\u043d\\u0456 \\u0434\\u0456\\u043b\\u044f\\u043d\\u043a\\u0438 \\u043d\\u0435\\u043c\\u0430\\u0454. \\u0426\\u0435 \\u043d\\u0435 \\u043e\\u0437\\u043d\\u0430\\u0447\\u0430\\u0454, \\u0449\\u043e \\u043c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0431\\u0435\\u0437\\u043f\\u043b\\u0430\\u0442\\u043d\\u0438\\u0439.', 'no toll-section data is available. This does not mean the route is toll-free.'],
+            [' \\u0433\\u043e\\u0434 ', ' h '], [' \\u0445\\u0432', ' min'], [' \\u043a\\u043c', ' km'], [' \\u043b \\u2248', ' l ≈']
+        ];
+        const replacements = gpsUiLanguage === 'en' ? englishReplacements : [
             ['\\u0420\\u043e\\u0437\\u0432\\u0456\\u0437\\u043a\\u0430', 'Trasa dostaw'],
             ['\\u0410\\u0432\\u0442\\u043e\\u043c\\u043e\\u0431\\u0456\\u043b\\u044c:', 'Pojazd:'],
             ['\\u0412\\u043e\\u0434\\u0456\\u0439:', 'Kierowca:'],
@@ -7695,6 +7722,8 @@ def gps():
                 serviceMinutes + (polishUi ? ' min na punkt. Po wykonaniu trasy ' : ' хв на точку. Після виконання рейсу ') +
                 (polishUi ? 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.</span>' : 'порівняємо прогноз із фактом і скоригуємо норматив.</span>');
 
+            measureResult.innerHTML = localizeSavedRouteSummary(measureResult.innerHTML);
+
             buildDeliveryRouteButton.textContent =
                 'Зберігаю активний маршрут...';
             await saveDeliveryRouteForVehicle({{
@@ -8013,6 +8042,21 @@ def gps():
             " хв": " min"
         }
         for source_text, target_text in gps_pl_replacements.items():
+            body = replace_visible_gps_text(body, source_text, target_text)
+
+
+    if current_language() == "en":
+        gps_en_visible_replacements = {
+            "Змінити порядок адрес": "Reorder addresses",
+            "Добовий відпочинок, год": "Daily rest, hours",
+            "Дозволяю передати картографічним сервісам": "I allow the addresses of this route to be sent to map services",
+            "лише адреси цього маршруту": "",
+            "Для карти використовуються лише адреси й часові": "Only addresses and time windows are used for the map.",
+            "вікна. Імена та телефони не передаються.": "Names and phone numbers are not shared.",
+            "Вартість є орієнтовною. Вона залежить від ваги,": "The cost is an estimate. It depends on weight,",
+            "осей, екологічного класу, віньєт і способу оплати.": "number of axles, emission class, vignettes and payment method.",
+        }
+        for source_text, target_text in gps_en_visible_replacements.items():
             body = replace_visible_gps_text(body, source_text, target_text)
 
 
