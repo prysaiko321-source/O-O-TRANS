@@ -1540,7 +1540,7 @@ GLOBAL_UI_TRANSLATIONS = {
         "Добовий відпочинок": "Daily rest", "Вулиця або точна адреса": "Street or exact address", "Прокласти маршрут": "Calculate route",
         "Варіант маршруту": "Route option", "Платні дороги дозволені": "Toll roads allowed", "Уникати платних доріг": "Avoid toll roads", "Безплатний": "Toll-free", "Швидкий": "Fast",
         "Витрата, л/100 км": "Consumption, l/100 km", "Ціна за літр": "Price per litre", "Валюта": "Currency", "Тип автомобіля": "Vehicle type", "Тип транспорту": "Transport type",
-        "Місто": "City", "Вулиця / адреса": "Street / address", "Шукати": "Search", "Знайти адресу": "Find address", "Виміряти маршрут": "Measure route", "Очистити карту": "Clear map",
+        "Місто": "City", "Вулиця / адреса": "Street / address", "Почніть вводити назву міста": "Start typing a city name", "Спочатку виберіть місто": "Select a city first", "Шукати": "Search", "Знайти адресу": "Find address", "Виміряти маршрут": "Measure route", "Очистити карту": "Clear map",
         "Автомобіль:": "Vehicle:", "Водій:": "Driver:", "Відстань:": "Distance:", "Паливо:": "Fuel:", "Чистий час керування:": "Pure driving time:", "Планований виїзд:": "Planned departure:",
         "Сьогодні вже пройдено:": "Distance today:", "Фізично вільний:": "Physically available:", "Перерв 45 хв:": "45-min breaks:", "без часового вікна": "no time window",
         "від попередньої точки": "from previous point", "виїзд": "departure", "керування:": "driving:", "керування.": "driving.",
@@ -6492,7 +6492,7 @@ def gps():
         selectedDestination = null;
         destinationInput.value = '';
         destinationInput.disabled = true;
-        destinationInput.placeholder = 'Спочатку виберіть місто';
+        destinationInput.placeholder = gpsUiLanguage === 'en' ? 'Select a city first' : (gpsUiLanguage === 'de' ? 'Zuerst eine Stadt auswählen' : (gpsUiLanguage === 'pl' ? 'Najpierw wybierz miasto' : 'Спочатку виберіть місто'));
         addressSearchButton.disabled = true;
         addressResults.hidden = true;
         buildRouteButton.disabled = true;
@@ -6562,7 +6562,7 @@ def gps():
 
         if (!selectedCity) {{
             addressResults.hidden = false;
-            addressResults.textContent = 'Спочатку виберіть місто.';
+            addressResults.textContent = gpsUiLanguage === 'en' ? 'Select a city first.' : (gpsUiLanguage === 'de' ? 'Zuerst eine Stadt auswählen.' : (gpsUiLanguage === 'pl' ? 'Najpierw wybierz miasto.' : 'Спочатку виберіть місто.'));
             return;
         }}
 
