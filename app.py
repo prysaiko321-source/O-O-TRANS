@@ -97,23 +97,17 @@ def t(key):
 
 ROLE_HOME_ENDPOINTS = {
     "director": "home",
-    "dispatcher": "dispatcher_dashboard",
+    "dispatcher": "tachograph",
     "driver": "driver_dashboard"
 }
 
 ROLE_ENDPOINTS = {
     "dispatcher": {
-        "dispatcher_dashboard",
-        "vehicles",
-        "vehicle_page",
         "gps",
         "geocode_search",
         "route_calculate",
         "delivery_stop_status",
-        "history",
-        "fuel",
-        "tachograph",
-        "road_payments"
+        "tachograph"
     },
     "driver": {
         "driver_dashboard",
@@ -1400,7 +1394,13 @@ GLOBAL_UI_TRANSLATIONS = {
         'Автомобілі': 'Pojazdy',
         'Картка вставлена': 'Karta włożona',
         'Станів водіїв Navirec': 'Stanów kierowców Navirec',
+        'Попередження тахографа (код ': 'Ostrzeżenia tachografu (kod ',
+        ')': ')',
         'Попередження': 'Ostrzeżenia',
+        'Залишилося мало безперервного керування:': 'Pozostało mało czasu jazdy ciągłej:',
+        'Залишилося мало денного керування:': 'Pozostało mało czasu jazdy dzisiaj:',
+        "Залишилося мало часу до обов'язкової перерви:": 'Pozostało mało czasu do obowiązkowej przerwy:',
+        'Залишилося мало часу до денного відпочинку:': 'Pozostało mało czasu do odpoczynku dobowego:',
         'Водій': 'Kierowca',
         'Картка водія': 'Karta kierowcy',
         'Вставлена': 'Włożona',
@@ -1796,17 +1796,8 @@ def page(title, body, active=""):
         ]
     elif role == "dispatcher":
         nav_items = [
-            ("dispatcher", "/dispatcher", t("work_panel")),
-            ("vehicles", "/vehicles", t("vehicles")),
             ("gps", "/gps", t("gps")),
-            ("history", "/history", t("history")),
-            ("fuel", "/fuel", t("fuel")),
-            ("tachograph", "/tachograph", t("tachograph")),
-            (
-                "road_payments",
-                "/road-payments",
-                road_payments_label
-            )
+            ("tachograph", "/tachograph", t("tachograph"))
         ]
     elif role == "director":
         nav_items = [
@@ -5334,6 +5325,7 @@ def gps():
             ['\\u0420\\u0435\\u043a\\u043e\\u043c\\u0435\\u043d\\u0434\\u043e\\u0432\\u0430\\u043d\\u0438\\u0439 \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u0438\\u0439 \\u0432\\u0438\\u0457\\u0437\\u0434:', 'Recommended next departure:'],
             ['\\u041f\\u0456\\u0441\\u043b\\u044f \\u0437\\u0430\\u0432\\u0435\\u0440\\u0448\\u0435\\u043d\\u043d\\u044f \\u0437\\u0430\\u043b\\u0438\\u0448\\u0430\\u0454\\u0442\\u044c\\u0441\\u044f \\u0449\\u043e\\u043d\\u0430\\u0439\\u043c\\u0435\\u043d\\u0448\\u0435', 'After completion, at least'],
             ['\\u0447\\u0430\\u0441\\u0443 \\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', 'of driving time remains.'],
+            [' \\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', ' of driving time remains.'],
             ['\\u0414\\u043b\\u044f \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u043e\\u0433\\u043e \\u0440\\u0435\\u0439\\u0441\\u0443 \\u043f\\u043e\\u0442\\u0440\\u0456\\u0431\\u0435\\u043d \\u0434\\u043e\\u0431\\u043e\\u0432\\u0438\\u0439 \\u0432\\u0456\\u0434\\u043f\\u043e\\u0447\\u0438\\u043d\\u043e\\u043a.', 'A daily rest is required before the next trip.'],
             ['\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0443\\u0437\\u0433\\u043e\\u0434\\u0436\\u0435\\u043d\\u043e \\u0437 \\u0430\\u043a\\u0442\\u0443\\u0430\\u043b\\u044c\\u043d\\u0438\\u043c \\u0442\\u0430\\u0445\\u043e\\u0433\\u0440\\u0430\\u0444\\u043e\\u043c.', 'The route is consistent with the latest tachograph data.'],
             ['\\u0431\\u0435\\u0437 \\u0447\\u0430\\u0441\\u043e\\u0432\\u043e\\u0433\\u043e \\u0432\\u0456\\u043a\\u043d\\u0430', 'no time window'],
@@ -9670,9 +9662,7 @@ def tachograph():
             для перевірки, чи можна брати рейс Trans.eu.
         </p>
 
-        <a class="button" href="/tachograph-debug">
-            Технічна перевірка даних
-        </a>
+        {debug_link}
     </div>
 
     {error_block}
@@ -9700,6 +9690,10 @@ def tachograph():
 
     {vehicle_blocks}
     """.format(
+        debug_link=(
+            '<a class="button" href="/tachograph-debug">Технічна перевірка даних</a>'
+            if current_role() == "director" else ""
+        ),
         error_block=error_block,
         vehicles=len(VEHICLES),
         cards_present=vehicles_with_cards,
