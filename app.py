@@ -3269,6 +3269,14 @@ def director_dashboard():
 
 @app.route("/dispatcher")
 def dispatcher_dashboard():
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
         <h2>Робоча панель логіста</h2>
@@ -3290,6 +3298,14 @@ def dispatcher_dashboard():
 
 @app.route("/driver")
 def driver_dashboard():
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
         <h2>Мої рейси</h2>
@@ -3429,6 +3445,14 @@ def road_payments():
             '</a></p>'
         )
 
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
         <h2>🛣️ Оплата доріг і віньєти</h2>
@@ -3543,6 +3567,14 @@ def home():
             )
         )
 
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
 
@@ -3656,6 +3688,14 @@ def vehicles():
             )
         )
 
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
 
@@ -3729,11 +3769,11 @@ def vehicle_page(vehicle_id):
         )
         ignition = state.get("ignition")
 
+        lang = current_language()
+
         if speed is not None:
-            speed_text = (
-                format_number(speed, 0)
-                + " км/год"
-            )
+            speed_unit = "km/h" if lang in {"en", "de", "pl"} else "км/год"
+            speed_text = format_number(speed, 0) + " " + speed_unit
         else:
             speed_text = "—"
 
@@ -3754,23 +3794,26 @@ def vehicle_page(vehicle_id):
             heading_text = "—"
 
         if engine_speed is not None:
-            engine_text = (
-                format_number(engine_speed, 0)
-                + " об/хв"
-            )
+            engine_unit = "rpm" if lang in {"en", "de", "pl"} else "об/хв"
+            engine_text = format_number(engine_speed, 0) + " " + engine_unit
         else:
             engine_text = "—"
 
         if total_distance is not None:
-            distance_text = (
-                format_number(total_distance, 1)
-                + " км"
-            )
+            # Navirec total_distance is returned in metres; display kilometres.
+            distance_text = format_number(total_distance / 1000.0, 1) + " km"
         else:
             distance_text = "—"
 
         if ignition is not None:
-            ignition_text = str(ignition)
+            if lang == "en":
+                ignition_text = "On" if bool(ignition) else "Off"
+            elif lang == "pl":
+                ignition_text = "Włączony" if bool(ignition) else "Wyłączony"
+            elif lang == "de":
+                ignition_text = "Ein" if bool(ignition) else "Aus"
+            else:
+                ignition_text = "Увімкнено" if bool(ignition) else "Вимкнено"
         else:
             ignition_text = "—"
 
@@ -3840,6 +3883,14 @@ def vehicle_page(vehicle_id):
             name=safe_name
         )
 
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
 
@@ -3858,32 +3909,32 @@ def vehicle_page(vehicle_id):
     <div class="grid">
 
         <div class="stat">
-            <div class="label">Швидкість</div>
+            <div class="label">{label_speed}</div>
             <div class="value">{speed}</div>
         </div>
 
         <div class="stat">
-            <div class="label">Паливо</div>
+            <div class="label">{label_fuel}</div>
             <div class="value">{fuel}</div>
         </div>
 
         <div class="stat">
-            <div class="label">Напрямок</div>
+            <div class="label">{label_heading}</div>
             <div class="value">{heading}</div>
         </div>
 
         <div class="stat">
-            <div class="label">Оберти двигуна</div>
+            <div class="label">{label_engine}</div>
             <div class="value">{engine}</div>
         </div>
 
         <div class="stat">
-            <div class="label">Загальна відстань</div>
+            <div class="label">{label_distance}</div>
             <div class="value">{distance}</div>
         </div>
 
         <div class="stat">
-            <div class="label">Запалювання</div>
+            <div class="label">{label_ignition}</div>
             <div class="value">{ignition}</div>
         </div>
 
@@ -3897,7 +3948,7 @@ def vehicle_page(vehicle_id):
             class="button"
             href="/history?vehicle={id}"
         >
-            Історія маршруту
+            {label_history}
         </a>
 
         <a
@@ -3917,6 +3968,13 @@ def vehicle_page(vehicle_id):
         engine=engine_text,
         distance=distance_text,
         ignition=ignition_text,
+        label_speed=vehicle_labels.get("speed", "Speed"),
+        label_fuel=vehicle_labels.get("fuel", "Fuel"),
+        label_heading=vehicle_labels.get("heading", "Heading"),
+        label_engine=vehicle_labels.get("engine", "Engine RPM"),
+        label_distance=vehicle_labels.get("distance", "Total distance"),
+        label_ignition=vehicle_labels.get("ignition", "Ignition"),
+        label_history=vehicle_labels.get("history", "Route history"),
         map_block=map_block
     )
 
@@ -8522,11 +8580,11 @@ def history():
             point.get("fuel_level")
         )
 
+        lang = current_language()
+
         if speed is not None:
-            speed_text = (
-                format_number(speed, 0)
-                + " км/год"
-            )
+            speed_unit = "km/h" if lang in {"en", "de", "pl"} else "км/год"
+            speed_text = format_number(speed, 0) + " " + speed_unit
         else:
             speed_text = "—"
 
@@ -8590,6 +8648,14 @@ def history():
         """.format(
             error=result["error"]
         )
+
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
 
     body = """
     <div class="card">
@@ -8880,6 +8946,14 @@ def fuel():
                 fuel=fuel_text
             )
         )
+
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
 
     body = """
     <div class="card">
@@ -9576,6 +9650,14 @@ def tachograph():
             )
         )
 
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
         <p>
@@ -9648,6 +9730,14 @@ def tachograph_debug():
         "tachograph_cards": cards_result
     }
 
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
+
     body = """
     <div class="card">
         <p class="small">
@@ -9686,6 +9776,14 @@ def navirec_debug():
 
     for state in states[:20]:
         safe_states.append(dict(state))
+
+    lang = current_language()
+    vehicle_labels = {
+        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
+        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
+        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
+        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
+    }.get(lang, {})
 
     body = """
     <div class="card">
