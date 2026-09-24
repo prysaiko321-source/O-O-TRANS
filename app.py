@@ -1147,9 +1147,13 @@ def delivery_stop_status():
             longitude = safe_float(raw_stop.get("longitude"))
             if latitude is None or longitude is None:
                 continue
+            manual_status = str(raw_stop.get("manual_status") or "").strip().lower()
+            if manual_status not in ("completed", "pending"):
+                manual_status = ""
             stops.append({
                 "latitude": latitude,
-                "longitude": longitude
+                "longitude": longitude,
+                "manual_status": manual_status
             })
 
     if not stops:
@@ -1158,8 +1162,10 @@ def delivery_stop_status():
     today = datetime.now(POLAND_TZ).date()
     if selected_date > today:
         return jsonify({
-            "statuses": ["pending"] * len(stops),
-            "radius_m": 180
+            "statuses": [
+                stop.get("manual_status") or "pending" for stop in stops
+            ],
+            "radius_m": 1000
         })
 
     history = get_vehicle_history(vehicle_id, date_string)
@@ -1173,16 +1179,32 @@ def delivery_stop_status():
             current_state.get("location")
         )
 
-    # Реальні склади, рампи та в'їзди часто знаходяться не точно в точці
-    # геокодера. Для доставки використовуємо робочу геозону 1 км.
-    # Точку вважаємо виконаною після щонайменше 5 хв стоянки в цій
-    # геозоні. Це також дозволяє коректно закрити вже пройдену точку
-    # за історією Navirec після оновлення програми.
+    # Real warehouses, gates and geocoded street addresses can differ by
+    # several hundred metres. Treat a 1 km geofence as the delivery area.
+    # Automatic completion requires at least 5 minutes of stopped/slow GPS
+    # history inside that area. A manual driver/dispatcher choice overrides it.
     radius_km = 1.0
-    required_dwell_s = 5 * 60
+    minimum_dwell_seconds = 5 * 60
     statuses = []
 
+    def point_time(point):
+        raw = str(point.get("time") or "").strip()
+        if not raw:
+            return None
+        try:
+            parsed = datetime.fromisoformat(raw.replace("Z", "+00:00"))
+            if parsed.tzinfo is None:
+                parsed = parsed.replace(tzinfo=timezone.utc)
+            return parsed
+        except ValueError:
+            return None
+
     for stop in stops:
+        manual_status = stop.get("manual_status") or ""
+        if manual_status in ("completed", "pending"):
+            statuses.append(manual_status)
+            continue
+
         is_current = False
         if current_latitude is not None and current_longitude is not None:
             current_distance = haversine_km(
@@ -1194,43 +1216,26 @@ def delivery_stop_status():
             )
             is_current = current_distance <= radius_km
 
-        dwell_s = 0.0
+        dwell_start = None
+        dwell_end = None
         visited = False
-
-        for index, point in enumerate(points):
+        for point in points:
             distance = haversine_km(point, stop)
-            if distance > radius_km:
-                dwell_s = 0.0
-                continue
-
             speed = safe_float(point.get("speed")) or 0.0
             activity = str(point.get("activity") or "").strip().lower()
-            stationary = (
-                speed <= 8
-                or activity not in ("driving", "moving")
-            )
-            if not stationary:
-                dwell_s = 0.0
-                continue
+            stopped = speed <= 8 or activity not in ("driving", "moving")
+            timestamp = point_time(point)
 
-            current_time = parse_time(point.get("time"))
-            next_time = None
-            if index + 1 < len(points):
-                next_time = parse_time(points[index + 1].get("time"))
-
-            if current_time and next_time and next_time > current_time:
-                # Navirec може надсилати точки нерівномірно. Один
-                # стаціонарний запис діє до наступного GPS-запису, але
-                # не більше 15 хв, щоб велика прогалина історії не
-                # створила фальшиве розвантаження.
-                dwell_s += min(
-                    (next_time - current_time).total_seconds(),
-                    15 * 60
-                )
-
-            if dwell_s >= required_dwell_s:
-                visited = True
-                break
+            if distance <= radius_km and stopped and timestamp is not None:
+                if dwell_start is None:
+                    dwell_start = timestamp
+                dwell_end = timestamp
+                if (dwell_end - dwell_start).total_seconds() >= minimum_dwell_seconds:
+                    visited = True
+                    break
+            else:
+                dwell_start = None
+                dwell_end = None
 
         if visited:
             statuses.append("completed")
@@ -1242,7 +1247,7 @@ def delivery_stop_status():
     return jsonify({
         "statuses": statuses,
         "radius_m": int(radius_km * 1000),
-        "required_dwell_minutes": int(required_dwell_s / 60)
+        "minimum_dwell_minutes": 5
     })
 
 
@@ -6904,14 +6909,11 @@ def gps():
                 [stop.latitude, stop.longitude],
                 {{icon: deliveryStopIcon(index + 1, 'pending')}}
             ).addTo(map);
-            marker.bindPopup(
-                '<strong>Доставка ' + (index + 1) + '</strong><br>' +
-                escapeHtml(stop.address) + '<br>' +
-                (stop.window_start && stop.window_end
-                    ? stop.window_start + '–' + stop.window_end
-                    : 'Без часового вікна') +
-                '<br><strong>Ще не вигружено</strong>'
-            );
+            marker.bindPopup(deliveryStopPopup(
+                stop,
+                index,
+                stop.manual_status || 'pending'
+            ));
             deliveryMarkers.push(marker);
         }});
     }}
@@ -7283,6 +7285,48 @@ def gps():
         return 'Ще не вигружено';
     }}
 
+    function deliveryStopPopup(stop, index, status) {{
+        const completed = status === 'completed';
+        const manualCompleted = stop.manual_status === 'completed';
+        const manualPending = stop.manual_status === 'pending';
+        const doneLabel = gpsUiLanguage === 'pl' ? '✓ Rozładowano' : '✓ Розвантажено';
+        const notDoneLabel = gpsUiLanguage === 'pl' ? '✕ Nie rozładowano' : '✕ Не розвантажено';
+        return '<strong>Доставка ' + (index + 1) + '</strong><br>' +
+            escapeHtml(stop.address) + '<br>' +
+            (stop.window_start && stop.window_end
+                ? stop.window_start + '–' + stop.window_end
+                : 'Без часового вікна') +
+            '<br><strong>' + escapeHtml(deliveryStatusLabel(status)) + '</strong>' +
+            '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
+            '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\'completed\')"' +
+            (manualCompleted ? ' disabled' : '') + '>' + doneLabel + '</button>' +
+            '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\'pending\')"' +
+            (manualPending ? ' disabled' : '') + '>' + notDoneLabel + '</button>' +
+            '</div>';
+    }}
+
+    async function setDeliveryStopManualStatus(index, status) {{
+        if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) return;
+        const stop = activeDeliveryRoute.stops[index];
+        if (!stop || !['completed', 'pending'].includes(status)) return;
+        stop.manual_status = status;
+
+        const saved = await readSavedDeliveryRoute(activeDeliveryRoute.vehicle_id);
+        if (saved && saved.delivery_route) {{
+            saved.delivery_route = activeDeliveryRoute;
+            saved.saved_at = new Date().toISOString();
+            await saveDeliveryRouteForVehicle(saved);
+        }}
+
+        const vehicle = vehicles.find(function(item) {{
+            return item.id === activeDeliveryRoute.vehicle_id;
+        }});
+        if (vehicle) {{
+            await refreshDeliveryStopStatuses(vehicle, activeDeliveryRoute);
+        }}
+    }}
+    window.setDeliveryStopManualStatus = setDeliveryStopManualStatus;
+
     async function refreshDeliveryStopStatuses(vehicle, deliveryRoute) {{
         if (!deliveryMarkers.length || !deliveryRoute.stops.length) {{
             return;
@@ -7297,7 +7341,8 @@ def gps():
                     stops: deliveryRoute.stops.map(function(stop) {{
                         return {{
                             latitude: stop.latitude,
-                            longitude: stop.longitude
+                            longitude: stop.longitude,
+                            manual_status: stop.manual_status || null
                         }};
                     }})
                 }})
@@ -7314,14 +7359,7 @@ def gps():
 
                 marker.setIcon(deliveryStopIcon(index + 1, status));
                 marker.setPopupContent(
-                    '<strong>Доставка ' + (index + 1) + '</strong><br>' +
-                    escapeHtml(stop.address) + '<br>' +
-                    (stop.window_start && stop.window_end
-                        ? stop.window_start + '–' + stop.window_end
-                        : 'Без часового вікна') +
-                    '<br><strong>' +
-                    escapeHtml(deliveryStatusLabel(status)) +
-                    '</strong>'
+                    deliveryStopPopup(stop, index, status)
                 );
             }});
             await refreshVehicleDeliveryPopup(
