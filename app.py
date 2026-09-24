@@ -1173,7 +1173,13 @@ def delivery_stop_status():
             current_state.get("location")
         )
 
-    radius_km = 0.18
+    # Реальні склади, рампи та в'їзди часто знаходяться не точно в точці
+    # геокодера. Для доставки використовуємо робочу геозону 1 км.
+    # Точку вважаємо виконаною після щонайменше 5 хв стоянки в цій
+    # геозоні. Це також дозволяє коректно закрити вже пройдену точку
+    # за історією Navirec після оновлення програми.
+    radius_km = 1.0
+    required_dwell_s = 5 * 60
     statuses = []
 
     for stop in stops:
@@ -1188,27 +1194,55 @@ def delivery_stop_status():
             )
             is_current = current_distance <= radius_km
 
-        if is_current and selected_date == today:
-            statuses.append("current")
-            continue
-
+        dwell_s = 0.0
         visited = False
-        for point in points:
+
+        for index, point in enumerate(points):
             distance = haversine_km(point, stop)
             if distance > radius_km:
+                dwell_s = 0.0
                 continue
 
             speed = safe_float(point.get("speed")) or 0.0
             activity = str(point.get("activity") or "").strip().lower()
-            if speed <= 8 or activity not in ("driving", "moving"):
+            stationary = (
+                speed <= 8
+                or activity not in ("driving", "moving")
+            )
+            if not stationary:
+                dwell_s = 0.0
+                continue
+
+            current_time = parse_time(point.get("time"))
+            next_time = None
+            if index + 1 < len(points):
+                next_time = parse_time(points[index + 1].get("time"))
+
+            if current_time and next_time and next_time > current_time:
+                # Navirec може надсилати точки нерівномірно. Один
+                # стаціонарний запис діє до наступного GPS-запису, але
+                # не більше 15 хв, щоб велика прогалина історії не
+                # створила фальшиве розвантаження.
+                dwell_s += min(
+                    (next_time - current_time).total_seconds(),
+                    15 * 60
+                )
+
+            if dwell_s >= required_dwell_s:
                 visited = True
                 break
 
-        statuses.append("completed" if visited else "pending")
+        if visited:
+            statuses.append("completed")
+        elif is_current and selected_date == today:
+            statuses.append("current")
+        else:
+            statuses.append("pending")
 
     return jsonify({
         "statuses": statuses,
-        "radius_m": int(radius_km * 1000)
+        "radius_m": int(radius_km * 1000),
+        "required_dwell_minutes": int(required_dwell_s / 60)
     })
 
 
@@ -5205,6 +5239,8 @@ def gps():
             ['\\u0420\\u0435\\u043a\\u043e\\u043c\\u0435\\u043d\\u0434\\u043e\\u0432\\u0430\\u043d\\u0438\\u0439 \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u0438\\u0439 \\u0432\\u0438\\u0457\\u0437\\u0434:', 'Zalecany następny wyjazd:'],
             ['\\u041f\\u0456\\u0441\\u043b\\u044f \\u0437\\u0430\\u0432\\u0435\\u0440\\u0448\\u0435\\u043d\\u043d\\u044f \\u0437\\u0430\\u043b\\u0438\\u0448\\u0430\\u0454\\u0442\\u044c\\u0441\\u044f \\u0449\\u043e\\u043d\\u0430\\u0439\\u043c\\u0435\\u043d\\u0448\\u0435', 'Po zakończeniu pozostaje co najmniej'],
             ['\\u0447\\u0430\\u0441\\u0443 \\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', 'czasu jazdy.'],
+            ['\\u0414\\u043b\\u044f \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u043e\\u0433\\u043e \\u0440\\u0435\\u0439\\u0441\\u0443 \\u043f\\u043e\\u0442\\u0440\\u0456\\u0431\\u0435\\u043d \\u0434\\u043e\\u0431\\u043e\\u0432\\u0438\\u0439 \\u0432\\u0456\\u0434\\u043f\\u043e\\u0447\\u0438\\u043d\\u043e\\u043a.', 'Przed następną trasą wymagany jest odpoczynek dobowy.'],
+            ['\\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', 'jazdy.'],
             ['\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0443\\u0437\\u0433\\u043e\\u0434\\u0436\\u0435\\u043d\\u043e \\u0437 \\u0430\\u043a\\u0442\\u0443\\u0430\\u043b\\u044c\\u043d\\u0438\\u043c \\u0442\\u0430\\u0445\\u043e\\u0433\\u0440\\u0430\\u0444\\u043e\\u043c.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
             ['\\u0431\\u0435\\u0437 \\u0447\\u0430\\u0441\\u043e\\u0432\\u043e\\u0433\\u043e \\u0432\\u0456\\u043a\\u043d\\u0430', 'bez okna czasowego'],
             ['\\u0432\\u0438\\u0457\\u0437\\u0434', 'wyjazd'],
