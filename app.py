@@ -6565,9 +6565,9 @@ def gps():
         cityResults.replaceChildren();
         destinationInput.value = '';
         destinationInput.disabled = false;
-        destinationInput.placeholder =
-            'Введіть вулицю у ' +
-            (result.short_name || result.city || 'місті');
+        destinationInput.placeholder = gpsUiLanguage === 'de'
+            ? 'Straße in ' + (result.short_name || result.city || 'der Stadt') + ' eingeben'
+            : ('Введіть вулицю у ' + (result.short_name || result.city || 'місті'));
         addressSearchButton.disabled = false;
         addressResults.hidden = true;
         addressResults.replaceChildren();
@@ -8014,9 +8014,9 @@ def gps():
                 '<br><strong>' +
                 escapeHtml(formatTollInformation(routeData)) +
                 '</strong>' +
-                (polishUi ? '<br><span class="small">Przyjęto czas rozładunku: ' : '<br><span class="small">Розвантаження прийнято по ') +
-                serviceMinutes + (polishUi ? ' min na punkt. Po wykonaniu trasy ' : ' хв на точку. Після виконання рейсу ') +
-                (polishUi ? 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.</span>' : 'порівняємо прогноз із фактом і скоригуємо норматив.</span>');
+                (polishUi ? '<br><span class="small">Przyjęto czas rozładunku: ' : (gpsUiLanguage === 'de' ? '<br><span class="small">Für die Entladung wurden ' : '<br><span class="small">Розвантаження прийнято по ')) +
+                serviceMinutes + (polishUi ? ' min na punkt. Po wykonaniu trasy ' : (gpsUiLanguage === 'de' ? ' Min. pro Stopp eingeplant. Nach Abschluss der Tour ' : ' хв на точку. Після виконання рейсу ')) +
+                (polishUi ? 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.</span>' : (gpsUiLanguage === 'de' ? 'vergleichen wir die Prognose mit den tatsächlichen Werten und passen die Vorgabe entsprechend an.</span>' : 'порівняємо прогноз із фактом і скоригуємо норматив.</span>'));
 
             measureResult.innerHTML = localizeSavedRouteSummary(measureResult.innerHTML);
 
@@ -8437,6 +8437,7 @@ def gps():
             "Варіант маршруту": "Routenvariante", "Швидкий": "Schnell", "Платні дороги дозволені": "Mautstraßen erlaubt",
             "Безплатний": "Mautfrei", "Уникати платних доріг": "Mautstraßen vermeiden", "Місто": "Stadt",
             "Вулиця або точна адреса": "Straße oder genaue Adresse", "Вулиця / адреса": "Straße / Adresse",
+            "Почніть вводити назву міста": "Stadtnamen eingeben", "Спочатку виберіть місто": "Zuerst eine Stadt auswählen",
             "Шукати": "Suchen", "Знайти адресу": "Adresse suchen", "Прокласти маршрут": "Route planen",
             "Побудувати маршрут": "Route planen", "Розвізний маршрут": "Ausliefertour", "Дата доставок": "Lieferdatum",
             "Адреси й часові вікна": "Adressen und Zeitfenster", "Змінити порядок адрес": "Adressreihenfolge ändern",
