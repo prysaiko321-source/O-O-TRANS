@@ -1531,7 +1531,7 @@ GLOBAL_UI_TRANSLATIONS = {
         "Вартість є орієнтовною. Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "The cost is an estimate. It depends on weight, axles, emission class, vignettes and payment method.",
         "Маршрут узгоджено з актуальним тахографом.": "The route is consistent with current tachograph data.",
         "Наступне завантаження можна планувати:": "Next loading can be planned:", "Рекомендований наступний виїзд:": "Recommended next departure:",
-        "Початок сьогоднішньої роботи:": "Start of today's work:", "Після завершення залишається щонайменше": "After completion, at least",
+        "Початок сьогоднішньої роботи:": "Start of today’s work:", "Після завершення залишається щонайменше": "After completion, at least",
         "Орієнтовна оплата доріг:": "Estimated road toll:", "До наступної вигрузки:": "To next unloading:", "До останньої вигрузки:": "To final unloading:",
         "Тахограф і час водіїв": "Tachograph and driver time", "Тахограф — технічні дані": "Tachograph — technical data",
         "Планування маршруту": "Route planning", "Початок маршруту — автомобіль": "Route start — vehicle", "Розвізний маршрут": "Delivery route",
