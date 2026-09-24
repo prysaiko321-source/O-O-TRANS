@@ -1830,6 +1830,62 @@ def page(title, body, active=""):
     language = current_language()
     visible_title = translate_full_app_body(language, translate_title(language, title))
     body = translate_full_app_body(language, body, preserve_scripts=(active == "gps"))
+
+    # Targeted cleanup for Finance only; transport/GPS logic is untouched.
+    if active == "finance" and language == "en":
+        finance_en_cleanup = {
+            "Усі підключені пошти автоматично перевіряються кожні 15 minилин.": "All connected mailboxes are automatically checked every 15 minutes.",
+            "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "All connected mailboxes are automatically checked every 15 minutes.",
+            "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
+            "Taxes, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+            "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+            "Open документ": "Open document",
+            "Otwórz документ": "Open document",
+        }
+        for source, target in finance_en_cleanup.items():
+            body = body.replace(source, target)
+
+    # Localized custom file picker for Branding; upload behavior stays unchanged.
+    if active == "branding":
+        file_picker_text = {
+            "uk": ("Вибрати файл", "Файл не вибрано"),
+            "pl": ("Wybierz plik", "Nie wybrano pliku"),
+            "en": ("Choose file", "No file selected"),
+            "de": ("Datei auswählen", "Keine Datei ausgewählt"),
+        }.get(language, ("Choose file", "No file selected"))
+        choose_label, empty_label = file_picker_text
+        body += f'''
+<style>
+.tranviq-file-picker {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:6px 0; }}
+.tranviq-file-picker button {{ cursor:pointer; }}
+.tranviq-file-picker-name {{ opacity:.82; }}
+</style>
+<script>
+document.addEventListener('DOMContentLoaded', function () {{
+  document.querySelectorAll('input[type="file"]').forEach(function (input) {{
+    if (input.dataset.tranviqLocalized === '1') return;
+    input.dataset.tranviqLocalized = '1';
+    input.style.display = 'none';
+    const box = document.createElement('div');
+    box.className = 'tranviq-file-picker';
+    const button = document.createElement('button');
+    button.type = 'button';
+    button.textContent = {json.dumps(choose_label, ensure_ascii=False)};
+    const name = document.createElement('span');
+    name.className = 'tranviq-file-picker-name';
+    name.textContent = {json.dumps(empty_label, ensure_ascii=False)};
+    button.addEventListener('click', function () {{ input.click(); }});
+    input.addEventListener('change', function () {{
+      name.textContent = input.files && input.files.length ? input.files[0].name : {json.dumps(empty_label, ensure_ascii=False)};
+    }});
+    box.appendChild(button);
+    box.appendChild(name);
+    input.insertAdjacentElement('afterend', box);
+  }});
+}});
+</script>
+'''
+
     page_class = "page-gps" if active == "gps" else ""
     branding = get_company_branding(
         COMPANY_ID,
