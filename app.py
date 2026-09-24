@@ -6260,7 +6260,7 @@ def gps():
         let routeStart = new Date(now.getTime());
         if (firstStopHasWindow) {{
             const firstWindowStart = deliveryWindow(
-                deliveryRoute.date,
+                deliveryRoute.stops[0].date || deliveryRoute.date,
                 deliveryRoute.stops[0].window_start
             );
             routeStart = new Date(
@@ -6434,10 +6434,10 @@ def gps():
                 stop.window_start && stop.window_end
             );
             const windowStart = hasWindow
-                ? deliveryWindow(deliveryRoute.date, stop.window_start)
+                ? deliveryWindow(stop.date || deliveryRoute.date, stop.window_start)
                 : null;
             const windowEnd = hasWindow
-                ? deliveryWindow(deliveryRoute.date, stop.window_end)
+                ? deliveryWindow(stop.date || deliveryRoute.date, stop.window_end)
                 : null;
             let waitSeconds = 0;
 
@@ -6475,6 +6475,7 @@ def gps():
                 departure: new Date(cursor.getTime()),
                 wait_seconds: waitSeconds,
                 late: late,
+                date: stop.date || deliveryRoute.date,
                 window_start: stop.window_start,
                 window_end: stop.window_end
             }});
@@ -7191,7 +7192,11 @@ def gps():
     function deliveryStopLine(stop) {{
         let line = stop.address;
         if (stop.window_start && stop.window_end) {{
-            line += ' | ' + stop.window_start + ' | ' + stop.window_end;
+            if (stop.date) {{
+                line += ' | ' + stop.date + ' | ' + stop.window_start + ' | ' + stop.window_end;
+            }} else {{
+                line += ' | ' + stop.window_start + ' | ' + stop.window_end;
+            }}
         }}
         return line;
     }}
@@ -7367,7 +7372,15 @@ def gps():
         }}
 
         const validTime = /^([01]\\d|2[0-3]):[0-5]\\d$/;
-        const datePattern = /^\\d{{4}}[-./]\\d{{2}}[-./]\\d{{2}}$/;
+        const datePattern = /^(?:\\d{{4}}[-./]\\d{{2}}[-./]\\d{{2}}|\\d{{2}}[-./]\\d{{2}}[-./]\\d{{4}})$/;
+        function normalizeDeliveryDate(value) {{
+            const text = String(value || '').trim();
+            let match = text.match(/^(\\d{{4}})[-./](\\d{{2}})[-./](\\d{{2}})$/);
+            if (match) return match[1] + '-' + match[2] + '-' + match[3];
+            match = text.match(/^(\\d{{2}})[-./](\\d{{2}})[-./](\\d{{4}})$/);
+            if (match) return match[3] + '-' + match[2] + '-' + match[1];
+            return null;
+        }}
         const countryNames = {{
             DE: 'Germany', PL: 'Poland', CZ: 'Czechia', AT: 'Austria',
             NL: 'Netherlands', BE: 'Belgium', FR: 'France', IT: 'Italy',
@@ -7461,21 +7474,34 @@ def gps():
                     return part.trim();
                 }});
                 const address = parts[0] || '';
-                const windowStart = parts[1] || '';
-                const windowEnd = parts[2] || '';
+                let stopDate = null;
+                let windowStart = '';
+                let windowEnd = '';
+                if (parts.length === 4) {{
+                    stopDate = normalizeDeliveryDate(parts[1]);
+                    windowStart = parts[2] || '';
+                    windowEnd = parts[3] || '';
+                }} else {{
+                    windowStart = parts[1] || '';
+                    windowEnd = parts[2] || '';
+                }}
                 const hasAnyWindow = Boolean(windowStart || windowEnd);
                 if (!address) {{
                     throw new Error('Рядок ' + (index + 1) + ': адреса порожня.');
                 }}
-                if (parts.length > 3 || (hasAnyWindow &&
+                if (parts.length > 4 ||
+                        (parts.length === 4 && !stopDate) ||
+                        (hasAnyWindow &&
                         (!validTime.test(windowStart) || !validTime.test(windowEnd)))) {{
                     throw new Error(
                         'Рядок ' + (index + 1) +
-                        ': використайте «адреса» або «адреса | 08:00 | 10:00».'
+                        ': використайте «адреса», «адреса | 08:00 | 10:00» або ' +
+                        '«адреса | 25.09.2026 | 08:00 | 10:00».'
                     );
                 }}
                 return {{
                     address: address,
+                    date: stopDate,
                     window_start: hasAnyWindow ? windowStart : null,
                     window_end: hasAnyWindow ? windowEnd : null,
                     stop_type: null
@@ -7532,6 +7558,7 @@ def gps():
         let stops = blocks.map(function(block) {{
             return {{
                 address: addressFromBlock(block.lines),
+                date: normalizeDeliveryDate(block.lines[0]),
                 window_start: null,
                 window_end: null,
                 stop_type: block.stop_type
