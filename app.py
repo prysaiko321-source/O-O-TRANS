@@ -7280,9 +7280,14 @@ def gps():
     }}
 
     function deliveryStatusLabel(status) {{
-        if (status === 'completed') return 'Вигружено';
-        if (status === 'current') return 'Машина на вигрузці';
-        return 'Ще не вигружено';
+        if (gpsUiLanguage === 'pl') {{
+            if (status === 'completed') return 'Rozładowano';
+            if (status === 'current') return 'Pojazd na rozładunku';
+            return 'Jeszcze nie rozładowano';
+        }}
+        if (status === 'completed') return 'Розвантажено';
+        if (status === 'current') return 'Автомобіль на розвантаженні';
+        return 'Ще не розвантажено';
     }}
 
     function deliveryStopPopup(stop, index, status) {{
