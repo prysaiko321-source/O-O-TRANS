@@ -6936,6 +6936,47 @@ def gps():
                     '<li><strong>'
                 );
             }}
+            // Polish GPS: saved summaries may have been created while the UI was Ukrainian.
+            // Translate the saved HTML BEFORE inserting it into the page. This changes text only;
+            // routing, tachograph calculations, geocoding and live GPS are untouched.
+            if ("__TRANVIQ_POLISH_UI__" === "1") {{
+                const savedPlPairs = [
+                    ['Розвізка', 'Trasa dostaw'],
+                    ['Автомобіль:', 'Pojazd:'],
+                    ['Водій:', 'Kierowca:'],
+                    ['Відстань:', 'Odległość:'],
+                    ['Чистий час керування:', 'Czysty czas jazdy:'],
+                    ['Планований виїзд:', 'Planowany wyjazd:'],
+                    ['Початок сьогоднішньої роботи:', 'Początek dzisiejszej pracy:'],
+                    ['Сьогодні вже пройдено:', 'Dzisiaj przejechano:'],
+                    ['керування:', 'czas jazdy:'],
+                    ['Паливо:', 'Paliwo:'],
+                    ['Перерв 45 хв:', 'Przerwy 45 min:'],
+                    ['добових відпочинків:', 'odpoczynki dobowe:'],
+                    ['Фізично вільний:', 'Fizycznie wolny:'],
+                    ['Наступне завантаження можна планувати:', 'Następny załadunek można planować:'],
+                    ['Рекомендований наступний виїзд:', 'Zalecany następny wyjazd:'],
+                    ['Маршрут узгоджено з актуальним тахографом.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
+                    ['без часового вікна', 'bez okna czasowego'],
+                    ['виїзд', 'wyjazd'],
+                    ['від попередньої точки', 'od poprzedniego punktu'],
+                    ['Орієнтовна оплата', 'Szacunkowa opłata'],
+                    ['км платною дорогою', 'km drogą płatną'],
+                    ['ділянка', 'odcinek'],
+                    ['тариф від', 'taryfa z'],
+                    ['Розвантаження прийнято по', 'Przyjęto czas rozładunku:'],
+                    ['хв на точку.', 'min na punkt.'],
+                    ['Після виконання рейсу', 'Po wykonaniu trasy'],
+                    ['порівняємо прогноз із фактом і скоригуємо норматив.', 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.'],
+                    [' год ', ' godz. '],
+                    [' хв', ' min'],
+                    [' км', ' km'],
+                    [' л ≈', ' l ≈']
+                ];
+                savedPlPairs.forEach(function(pair) {{
+                    restoredSummary = restoredSummary.split(pair[0]).join(pair[1]);
+                }});
+            }}
             measureResult.innerHTML = restoredSummary;
 
             // Polish GPS: translate the restored route summary once, directly in this block.
@@ -7880,6 +7921,13 @@ def gps():
         selected=json.dumps(selected_id),
         lat=center_lat,
         lon=center_lon
+    )
+
+    # Stable server-side language flag for restored dynamic route summaries.
+    # This avoids relying on the browser <html lang> value.
+    body = body.replace(
+        '"__TRANVIQ_POLISH_UI__" === "1"',
+        'true' if current_language() == 'pl' else 'false'
     )
 
     if current_language() == "pl":
