@@ -1792,6 +1792,45 @@ GLOBAL_UI_TRANSLATIONS.setdefault("en", {}).update({
     "Зберегти / Save": "Save"
 })
 
+
+# Extended German UI localization (Finance, Branding, vehicle/history and shared pages).
+# Full phrases only: no route/GPS/calculation logic is changed.
+GLOBAL_UI_TRANSLATIONS.setdefault("de", {}).update({
+    "Результат у EUR": "Ergebnis in EUR", "Результат у PLN": "Ergebnis in PLN",
+    "Доходи:": "Einnahmen:", "Витрати:": "Ausgaben:", "Фінансовий результат": "Finanzergebnis", "Ще немає даних": "Noch keine Daten",
+    "Підключені Gmail:": "Verbundene Gmail-Konten:", "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "Alle verbundenen Postfächer werden automatisch alle 15 Minuten geprüft.",
+    "Підключена пошта": "Verbundenes Postfach", "Остання перевірка:": "Letzte Prüfung:", "Перевірено файлів:": "Geprüfte Dateien:", "Нових документів:": "Neue Dokumente:",
+    "Відключити цю пошту": "Dieses Postfach trennen", "Перевірити всі пошти": "Alle Postfächer prüfen", "Додати ще один Gmail": "Weiteres Gmail-Konto hinzufügen",
+    "Бухгалтерія": "Buchhaltung", "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Geben Sie den Namen des Buchhaltungsbüros sowie die Adresse oder Domain an, von der die Dokumente gesendet werden. Es können mehrere Buchhaltungsbüros verbunden werden.",
+    "Назва бухгалтерії": "Name des Buchhaltungsbüros", "Адреса або домен відправника": "Absenderadresse oder Domain",
+    "Зберегти": "Speichern", "Відключити": "Trennen", "Додати бухгалтерію": "Buchhaltungsbüro hinzufügen", "Додати": "Hinzufügen",
+    "Документи бухгалтерії": "Buchhaltungsunterlagen", "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Steuern, ZUS, Lohnabrechnungen, Fahrerabrechnungen und Personalunterlagen werden getrennt von Rechnungen und Transportaufträgen gespeichert.",
+    "Тип": "Typ", "Податки": "Steuern", "Зарплати": "Lohnabrechnungen", "Розрахунки водіїв": "Fahrerabrechnungen", "Кадрові документи": "Personalunterlagen", "ZUS і страхові внески": "ZUS und Versicherungsbeiträge",
+    "Період": "Zeitraum", "Сума": "Betrag", "Суму ще не визначено": "Betrag noch nicht ermittelt", "На перевірку": "Zur Prüfung", "Отримано на Gmail": "Über Gmail erhalten", "Документ": "Dokument",
+    "Otwórz документ": "Dokument öffnen", "Open документ": "Dokument öffnen", "Відкрити документ": "Dokument öffnen", "Перевірити дані": "Daten prüfen", "Зберегти в архіві": "Im Archiv speichern",
+    "Додати у витрати": "Als Ausgabe buchen", "Додати в доходи": "Als Einnahme buchen", "Додати операцію": "Buchung hinzufügen", "Дохід": "Einnahme", "Витрата": "Ausgabe",
+    "Категорія": "Kategorie", "Дохід за перевезення": "Transporterlös", "Ремонт і сервіс": "Reparatur und Service", "Дороги й паркінги": "Maut und Parken", "Лізинг або кредит": "Leasing oder Kredit",
+    "Страхування": "Versicherung", "Зарплата": "Lohn", "Податки та збори": "Steuern und Abgaben", "Офісні витрати": "Bürokosten", "Інше": "Sonstiges",
+    "Вся компанія": "Gesamtes Unternehmen", "Опис": "Beschreibung", "Контрагент": "Geschäftspartner", "Номер фактури": "Rechnungsnummer", "Термін оплати": "Fälligkeitsdatum",
+    "Оплата": "Zahlung", "Не оплачено": "Unbezahlt", "Оплачено": "Bezahlt", "Останні операції": "Letzte Buchungen", "Редагувати": "Bearbeiten", "Оригінальний файл не прикріплений": "Originaldatei nicht angehängt",
+    "Фактури та транспортні замовлення з пошти": "Rechnungen und Transportaufträge aus E-Mails",
+    "Транспортне замовлення записується як дохід, а вхідна фактура — як витрата. Перед підтвердженням тип документа можна змінити через кнопку «Перевірити».": "Ein Transportauftrag wird als Einnahme und eine Eingangsrechnung als Ausgabe erfasst. Vor der Bestätigung kann der Dokumenttyp über die Schaltfläche „Prüfen“ geändert werden.",
+    "Програма перевірятиме дублікати за контрагентом, номером фактури, сумою та валютою.": "Das System prüft Dubletten anhand von Geschäftspartner, Rechnungsnummer, Betrag und Währung.",
+    "Нове": "Neu", "Дані перевезення": "Transportdaten", "Номер замовника:": "Kundennummer:", "Маршрут:": "Route:", "Дати:": "Daten:", "Умови оплати:": "Zahlungsbedingungen:",
+    "Перевірити": "Prüfen", "Відхилити": "Ablehnen", "Спочатку перевірте суму.": "Prüfen Sie zuerst den Betrag.", "Транспортне замовлення з Gmail": "Transportauftrag aus Gmail", "Фактура з Gmail": "Rechnung aus Gmail",
+    "Логотип показується у шапці та великим прозорим фоном на вході.": "Das Logo wird in der Kopfzeile und als großer transparenter Hintergrund auf der Anmeldeseite angezeigt.",
+    "Використовується початковий логотип.": "Das Standardlogo wird derzeit verwendet.", "Логотип / Logo": "Logo", "PNG, JPG або WebP, максимум 2 МБ.": "PNG, JPG oder WebP, maximal 2 MB.", "Зберегти / Save": "Speichern",
+    "Компанія:": "Unternehmen:", "Автомобілів у системі:": "Fahrzeuge im System:", "Є дані Navirec": "Navirec-Daten verfügbar", "Немає поточного стану": "Kein aktueller Status",
+    "Відкрити": "Öffnen", "Автомобіль": "Fahrzeug", "Швидкість": "Geschwindigkeit", "Деталі": "Details", "Дата": "Datum", "Показати історію": "Historie anzeigen",
+    "GPS-точок": "GPS-Punkte", "Початок": "Beginn", "Кінець": "Ende", "Відстань": "Entfernung", "Макс. швидкість": "Max. Geschwindigkeit", "Паливо на початку": "Kraftstoff am Anfang", "Паливо в кінці": "Kraftstoff am Ende",
+    "Рух": "Fahrt", "Час руху": "Fahrzeit", "Стоянка": "Standzeit", "Холостий хід": "Leerlauf", "Витрата": "Verbrauch", "Останні 100 GPS-точок": "Letzte 100 GPS-Punkte", "Час": "Zeit", "Стан": "Status", "Координати": "Koordinaten",
+    "Оплата доріг і віньєти": "Maut und Vignetten", "Розрахувати маршрут, паливо й оплату доріг": "Route, Kraftstoff und Maut berechnen",
+    "🇵🇱 Польща": "🇵🇱 Polen", "🇩🇪 Німеччина": "🇩🇪 Deutschland", "🇦🇹 Австрія": "🇦🇹 Österreich", "🇨🇿 Чехія": "🇨🇿 Tschechien", "🇸🇰 Словаччина": "🇸🇰 Slowakei", "🇭🇺 Угорщина": "🇭🇺 Ungarn", "🇸🇮 Словенія": "🇸🇮 Slowenien", "🇨🇭 Швейцарія": "🇨🇭 Schweiz", "🇷🇴 Румунія": "🇷🇴 Rumänien", "🇧🇬 Болгарія": "🇧🇬 Bulgarien", "🇧🇪 Бельгія": "🇧🇪 Belgien", "🇫🇷 🇮🇹 🇪🇸 🇵🇹 Західна Європа": "🇫🇷 🇮🇹 🇪🇸 🇵🇹 Westeuropa",
+    "Тут поки показується поточний рівень палива з Navirec. Збільшення рівня ще не вважаємо автоматично заправкою.": "Derzeit wird der aktuelle Kraftstoffstand aus Navirec angezeigt. Ein Anstieg des Füllstands wird noch nicht automatisch als Betankung gewertet.",
+    "Вибір тарифу залежить від ваги, кількості осей, висоти, екологічного класу й країни. Купуйте тільки на офіційних сторінках операторів.": "Der Tarif hängt von Gewicht, Achsanzahl, Höhe, Emissionsklasse und Land ab. Kaufen Sie nur über die offiziellen Seiten der Betreiber.",
+    "Напрямок": "Fahrtrichtung", "Оберти двигуна": "Motordrehzahl", "об/хв": "U/min", "Загальна відстань": "Gesamtstrecke", "Запалювання": "Zündung", "Увімкнено": "Ein", "Вимкнено": "Aus", "Історія маршруту": "Routenhistorie"
+})
+
 # Never replace bare word fragments inside other words.  Units are handled
 # with whitespace-aware forms, preventing strings such as "сьоgodz.ні".
 for _lang in ("pl", "en", "de"):
@@ -1832,30 +1871,17 @@ def page(title, body, active=""):
     body = translate_full_app_body(language, body, preserve_scripts=(active == "gps"))
 
     # Targeted cleanup for Finance only; transport/GPS logic is untouched.
-    # Some Finance strings can become partly translated by the global UI pass
-    # (for example "15 minилин"), so normalize those final visible phrases here.
-    if active == "finance" and language in ("pl", "en"):
-        finance_cleanup = {
-            "pl": {
-                "Усі підключені пошти автоматично перевіряються кожні 15 minилин.": "Wszystkie podłączone skrzynki są automatycznie sprawdzane co 15 minut.",
-                "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "Wszystkie podłączone skrzynki są automatycznie sprawdzane co 15 minut.",
-                "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Podaj nazwę biura księgowego oraz adres lub domenę, z której wysyła dokumenty. Można podłączyć kilka biur księgowych.",
-                "Podatki, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Podatki, ZUS, wynagrodzenia, rozliczenia kierowców i dokumenty kadrowe są przechowywane oddzielnie od faktur i zleceń transportowych.",
-                "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Podatki, ZUS, wynagrodzenia, rozliczenia kierowców i dokumenty kadrowe są przechowywane oddzielnie od faktur i zleceń transportowych.",
-                "Otwórz документ": "Otwórz dokument",
-                "Open документ": "Otwórz dokument",
-            },
-            "en": {
-                "Усі підключені пошти автоматично перевіряються кожні 15 minилин.": "All connected mailboxes are automatically checked every 15 minutes.",
-                "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "All connected mailboxes are automatically checked every 15 minutes.",
-                "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
-                "Taxes, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
-                "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
-                "Open документ": "Open document",
-                "Otwórz документ": "Open document",
-            },
-        }[language]
-        for source, target in finance_cleanup.items():
+    if active == "finance" and language == "en":
+        finance_en_cleanup = {
+            "Усі підключені пошти автоматично перевіряються кожні 15 minилин.": "All connected mailboxes are automatically checked every 15 minutes.",
+            "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "All connected mailboxes are automatically checked every 15 minutes.",
+            "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
+            "Taxes, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+            "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+            "Open документ": "Open document",
+            "Otwórz документ": "Open document",
+        }
+        for source, target in finance_en_cleanup.items():
             body = body.replace(source, target)
 
     # Localized custom file picker for Branding; upload behavior stays unchanged.
