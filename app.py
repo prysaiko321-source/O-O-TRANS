@@ -1832,17 +1832,30 @@ def page(title, body, active=""):
     body = translate_full_app_body(language, body, preserve_scripts=(active == "gps"))
 
     # Targeted cleanup for Finance only; transport/GPS logic is untouched.
-    if active == "finance" and language == "en":
-        finance_en_cleanup = {
-            "Усі підключені пошти автоматично перевіряються кожні 15 minилин.": "All connected mailboxes are automatically checked every 15 minutes.",
-            "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "All connected mailboxes are automatically checked every 15 minutes.",
-            "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
-            "Taxes, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
-            "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
-            "Open документ": "Open document",
-            "Otwórz документ": "Open document",
-        }
-        for source, target in finance_en_cleanup.items():
+    # Some Finance strings can become partly translated by the global UI pass
+    # (for example "15 minилин"), so normalize those final visible phrases here.
+    if active == "finance" and language in ("pl", "en"):
+        finance_cleanup = {
+            "pl": {
+                "Усі підключені пошти автоматично перевіряються кожні 15 minилин.": "Wszystkie podłączone skrzynki są automatycznie sprawdzane co 15 minut.",
+                "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "Wszystkie podłączone skrzynki są automatycznie sprawdzane co 15 minut.",
+                "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Podaj nazwę biura księgowego oraz adres lub domenę, z której wysyła dokumenty. Można podłączyć kilka biur księgowych.",
+                "Podatki, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Podatki, ZUS, wynagrodzenia, rozliczenia kierowców i dokumenty kadrowe są przechowywane oddzielnie od faktur i zleceń transportowych.",
+                "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Podatki, ZUS, wynagrodzenia, rozliczenia kierowców i dokumenty kadrowe są przechowywane oddzielnie od faktur i zleceń transportowych.",
+                "Otwórz документ": "Otwórz dokument",
+                "Open документ": "Otwórz dokument",
+            },
+            "en": {
+                "Усі підключені пошти автоматично перевіряються кожні 15 minилин.": "All connected mailboxes are automatically checked every 15 minutes.",
+                "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "All connected mailboxes are automatically checked every 15 minutes.",
+                "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
+                "Taxes, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+                "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+                "Open документ": "Open document",
+                "Otwórz документ": "Open document",
+            },
+        }[language]
+        for source, target in finance_cleanup.items():
             body = body.replace(source, target)
 
     # Localized custom file picker for Branding; upload behavior stays unchanged.
