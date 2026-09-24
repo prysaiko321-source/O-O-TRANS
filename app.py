@@ -7298,9 +7298,9 @@ def gps():
                 : 'Без часового вікна') +
             '<br><strong>' + escapeHtml(deliveryStatusLabel(status)) + '</strong>' +
             '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
-            '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\'completed\')"' +
+            '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\\'completed\\')"' +
             (manualCompleted ? ' disabled' : '') + '>' + doneLabel + '</button>' +
-            '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\'pending\')"' +
+            '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\\'pending\\')"' +
             (manualPending ? ' disabled' : '') + '>' + notDoneLabel + '</button>' +
             '</div>';
     }}
