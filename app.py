@@ -5182,6 +5182,47 @@ def gps():
     const selectedId = {selected};
     const gpsUiLanguage = {ui_lang};
 
+    // Translate previously saved Ukrainian route summaries after a language switch.
+    // Source phrases are written as Unicode escapes on purpose: the server-side
+    // Polish body replacements must not rewrite these lookup keys before JS runs.
+    function localizeSavedRouteSummary(html) {{
+        if (gpsUiLanguage !== 'pl' || !html) return html || '';
+        const replacements = [
+            ['\u0420\u043e\u0437\u0432\u0456\u0437\u043a\u0430', 'Trasa dostaw'],
+            ['\u0410\u0432\u0442\u043e\u043c\u043e\u0431\u0456\u043b\u044c:', 'Pojazd:'],
+            ['\u0412\u043e\u0434\u0456\u0439:', 'Kierowca:'],
+            ['\u0412\u0456\u0434\u0441\u0442\u0430\u043d\u044c:', 'Odległość:'],
+            ['\u0427\u0438\u0441\u0442\u0438\u0439 \u0447\u0430\u0441 \u043a\u0435\u0440\u0443\u0432\u0430\u043d\u043d\u044f:', 'Czysty czas jazdy:'],
+            ['\u041f\u043b\u0430\u043d\u043e\u0432\u0430\u043d\u0438\u0439 \u0432\u0438\u0457\u0437\u0434:', 'Planowany wyjazd:'],
+            ['\u041f\u043e\u0447\u0430\u0442\u043e\u043a \u0441\u044c\u043e\u0433\u043e\u0434\u043d\u0456\u0448\u043d\u044c\u043e\u0457 \u0440\u043e\u0431\u043e\u0442\u0438:', 'Początek dzisiejszej pracy:'],
+            ['\u0421\u044c\u043e\u0433\u043e\u0434\u043d\u0456 \u0432\u0436\u0435 \u043f\u0440\u043e\u0439\u0434\u0435\u043d\u043e:', 'Dzisiaj już przejechano:'],
+            ['\u043a\u0435\u0440\u0443\u0432\u0430\u043d\u043d\u044f:', 'czas jazdy:'],
+            ['\u041f\u0430\u043b\u0438\u0432\u043e:', 'Paliwo:'],
+            ['\u041f\u0435\u0440\u0435\u0440\u0432 45 \u0445\u0432:', 'Przerwy 45 min:'],
+            ['\u0434\u043e\u0431\u043e\u0432\u0438\u0445 \u0432\u0456\u0434\u043f\u043e\u0447\u0438\u043d\u043a\u0456\u0432:', 'odpoczynki dobowe:'],
+            ['\u0424\u0456\u0437\u0438\u0447\u043d\u043e \u0432\u0456\u043b\u044c\u043d\u0438\u0439:', 'Fizycznie wolny:'],
+            ['\u041d\u0430\u0441\u0442\u0443\u043f\u043d\u0435 \u0437\u0430\u0432\u0430\u043d\u0442\u0430\u0436\u0435\u043d\u043d\u044f \u043c\u043e\u0436\u043d\u0430 \u043f\u043b\u0430\u043d\u0443\u0432\u0430\u0442\u0438:', 'Następny załadunek można planować:'],
+            ['\u0420\u0435\u043a\u043e\u043c\u0435\u043d\u0434\u043e\u0432\u0430\u043d\u0438\u0439 \u043d\u0430\u0441\u0442\u0443\u043f\u043d\u0438\u0439 \u0432\u0438\u0457\u0437\u0434:', 'Zalecany następny wyjazd:'],
+            ['\u041f\u0456\u0441\u043b\u044f \u0437\u0430\u0432\u0435\u0440\u0448\u0435\u043d\u043d\u044f \u0437\u0430\u043b\u0438\u0448\u0430\u0454\u0442\u044c\u0441\u044f \u0449\u043e\u043d\u0430\u0439\u043c\u0435\u043d\u0448\u0435', 'Po zakończeniu pozostaje co najmniej'],
+            ['\u0447\u0430\u0441\u0443 \u043a\u0435\u0440\u0443\u0432\u0430\u043d\u043d\u044f.', 'czasu jazdy.'],
+            ['\u041c\u0430\u0440\u0448\u0440\u0443\u0442 \u0443\u0437\u0433\u043e\u0434\u0436\u0435\u043d\u043e \u0437 \u0430\u043a\u0442\u0443\u0430\u043b\u044c\u043d\u0438\u043c \u0442\u0430\u0445\u043e\u0433\u0440\u0430\u0444\u043e\u043c.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
+            ['\u0431\u0435\u0437 \u0447\u0430\u0441\u043e\u0432\u043e\u0433\u043e \u0432\u0456\u043a\u043d\u0430', 'bez okna czasowego'],
+            ['\u0432\u0438\u0457\u0437\u0434', 'wyjazd'],
+            ['\u0432\u0456\u0434 \u043f\u043e\u043f\u0435\u0440\u0435\u0434\u043d\u044c\u043e\u0457 \u0442\u043e\u0447\u043a\u0438', 'od poprzedniego punktu'],
+            ['\u041e\u043f\u043b\u0430\u0442\u0430 \u0434\u043e\u0440\u0456\u0433:', 'Opłaty drogowe:'],
+            ['\u0434\u0430\u043d\u0438\u0445 \u043f\u0440\u043e \u043f\u043b\u0430\u0442\u043d\u0456 \u0434\u0456\u043b\u044f\u043d\u043a\u0438 \u043d\u0435\u043c\u0430\u0454.', 'brak danych o płatnych odcinkach.'],
+            [' \u0433\u043e\u0434 ', ' godz. '],
+            [' \u0445\u0432', ' min'],
+            [' \u043a\u043c', ' km'],
+            [' \u043b \u2248', ' l ≈']
+        ];
+        let result = html;
+        replacements.forEach(function(pair) {{
+            result = result.split(pair[0]).join(pair[1]);
+        }});
+        return result;
+    }}
+
     const map = L.map('map').setView(
         [{lat}, {lon}],
         6
@@ -6888,105 +6929,7 @@ def gps():
             );
         }}
         if (saved.summary_html) {{
-            let restoredSummary = saved.summary_html;
-            if (gpsUiLanguage === 'pl') {{
-                const plSummaryReplacements = [
-                    ['Розвізка', 'Trasa dostaw'],
-                    ['Автомобіль:', 'Pojazd:'],
-                    ['Водій:', 'Kierowca:'],
-                    ['Відстань:', 'Odległość:'],
-                    ['Чистий час керування:', 'Czysty czas jazdy:'],
-                    ['Планований виїзд:', 'Planowany wyjazd:'],
-                    ['Початок сьогоднішньої роботи:', 'Początek dzisiejszej pracy:'],
-                    ['Сьогодні вже пройдено:', 'Dzisiaj już przejechano:'],
-                    ['керування:', 'jazda:'],
-                    ['Паливо:', 'Paliwo:'],
-                    ['Перерв 45 хв:', 'Przerwy 45 min:'],
-                    ['добових відпочинків:', 'odpoczynki dobowe:'],
-                    ['Фізично вільний:', 'Fizycznie wolny:'],
-                    ['Наступне завантаження можна планувати:', 'Następny załadunek można planować:'],
-                    ['Рекомендований наступний виїзд:', 'Zalecany następny wyjazd:'],
-                    ['Після завершення залишається щонайменше', 'Po zakończeniu pozostaje co najmniej'],
-                    ['Для наступного рейсу потрібен добовий відпочинок.', 'Przed następną trasą wymagany jest odpoczynek dobowy.'],
-                    ['Маршрут узгоджено з актуальним тахографом.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
-                    ['без часового вікна', 'bez okna czasowego'],
-                    ['виїзд', 'wyjazd'],
-                    ['від попередньої точки', 'od poprzedniego punktu'],
-                    ['Орієнтовна оплата', 'Szacunkowa opłata'],
-                    ['км платною дорогою', 'km drogą płatną'],
-                    ['км платною', 'km płatne'],
-                    ['ділянка', 'odcinek'],
-                    ['тариф від', 'taryfa z'],
-                    ['орієнтовно', 'około'],
-                    ['часу керування', 'czasu jazdy'],
-                    ['Розвантаження прийнято по', 'Przyjęto czas rozładunku:'],
-                    ['хв на точку.', 'min na punkt.'],
-                    ['Після виконання рейсу', 'Po wykonaniu trasy'],
-                    ['порівняємо прогноз із фактом і скоригуємо норматив.', 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.'],
-                    [' год ', ' godz. '],
-                    [' хв', ' min'],
-                    [' км', ' km'],
-                    [' л ≈', ' l ≈'],
-                    [' керування.', ' jazdy.']
-                ];
-                plSummaryReplacements.forEach(function(pair) {{
-                    restoredSummary = restoredSummary.split(pair[0]).join(pair[1]);
-                }});
-                restoredSummary = restoredSummary.replace(
-                    /<li><strong>\d+\.\s*/g,
-                    '<li><strong>'
-                );
-            }}
-            measureResult.innerHTML = restoredSummary;
-
-            // Polish GPS: translate the restored route summary once, directly in this block.
-            // No observer and no changes to routing/calculation logic.
-            if (gpsUiLanguage === 'pl') {{
-                const walker = document.createTreeWalker(
-                    measureResult,
-                    NodeFilter.SHOW_TEXT
-                );
-                const textNodes = [];
-                while (walker.nextNode()) textNodes.push(walker.currentNode);
-                const replacements = [
-                    ['Розвізка', 'Trasa dostaw'],
-                    ['Автомобіль:', 'Pojazd:'],
-                    ['Водій:', 'Kierowca:'],
-                    ['Відстань:', 'Odległość:'],
-                    ['Чистий час керування:', 'Czysty czas jazdy:'],
-                    ['Планований виїзд:', 'Planowany wyjazd:'],
-                    ['Початок сьогоднішньої роботи:', 'Początek dzisiejszej pracy:'],
-                    ['Сьогодні вже пройдено:', 'Dzisiaj już przejechano:'],
-                    ['керування:', 'czas jazdy:'],
-                    ['Паливо:', 'Paliwo:'],
-                    ['Перерв 45 хв:', 'Przerwy 45 min:'],
-                    ['добових відпочинків:', 'odpoczynki dobowe:'],
-                    ['Фізично вільний:', 'Fizycznie wolny:'],
-                    ['Наступне завантаження можна планувати:', 'Następny załadunek można planować:'],
-                    ['Рекомендований наступний виїзд:', 'Zalecany następny wyjazd:'],
-                    ['Після завершення залишається щонайменше', 'Po zakończeniu pozostaje co najmniej'],
-                    ['часу керування.', 'czasu jazdy.'],
-                    ['Маршрут узгоджено з актуальним тахографом.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
-                    ['без часового вікна', 'bez okna czasowego'],
-                    ['виїзд', 'wyjazd'],
-                    ['від попередньої точки', 'od poprzedniego punktu'],
-                    ['Орієнтовна оплата', 'Szacunkowa opłata'],
-                    ['км платною дорогою', 'km drogą płatną'],
-                    ['ділянка', 'odcinek'],
-                    ['тариф від', 'taryfa z'],
-                    [' год ', ' godz. '],
-                    [' хв', ' min'],
-                    [' км', ' km'],
-                    [' л ≈', ' l ≈']
-                ];
-                textNodes.forEach(function(node) {{
-                    let value = node.nodeValue || '';
-                    replacements.forEach(function(pair) {{
-                        value = value.split(pair[0]).join(pair[1]);
-                    }});
-                    node.nodeValue = value;
-                }});
-            }}
+            measureResult.innerHTML = localizeSavedRouteSummary(saved.summary_html);
         }} else {{
             measureResult.innerHTML =
                 '<strong>' + escapeHtml(saved.delivery_route.label) +
