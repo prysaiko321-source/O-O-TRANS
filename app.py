@@ -1690,6 +1690,7 @@ FULL_PAGE_TRANSLATIONS = {
         "Тут поки показується поточний рівень палива з Navirec. Збільшення рівня ще не вважаємо автоматично заправкою.": "For now, the current fuel level from Navirec is shown. An increase in level is not yet automatically treated as refuelling.",
     },
     "de": {
+        "Тут поки показується поточний рівень\n            палива з Navirec.\n            Збільшення рівня ще не вважаємо\n            автоматично заправкою.": "Derzeit wird der aktuelle Kraftstoffstand von Navirec angezeigt. Ein Anstieg des Kraftstoffstands wird noch nicht automatisch als Tankvorgang erkannt.",
         "Компанія:": "Firma:", "Автомобілів у системі:": "Fahrzeuge im System:", "Є дані Navirec": "Navirec-Daten verfügbar", "Немає поточного стану": "Kein aktueller Status", "Відкрити": "Öffnen",
         "Автомобіль": "Fahrzeug", "Швидкість": "Geschwindigkeit", "Деталі": "Details", "Дата": "Datum", "Показати історію": "Historie anzeigen", "GPS-точок": "GPS-Punkte",
         "Початок": "Start", "Кінець": "Ende", "Відстань": "Entfernung", "Макс. швидкість": "Max. Geschwindigkeit", "Паливо на початку": "Kraftstoff am Anfang", "Паливо в кінці": "Kraftstoff am Ende",
