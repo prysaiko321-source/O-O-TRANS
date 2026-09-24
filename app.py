@@ -5891,12 +5891,14 @@ def gps():
         const minutes = totalMinutes % 60;
 
         const polishUi = gpsUiLanguage === 'pl';
+        const englishUi = gpsUiLanguage === 'en';
         if (hours > 0) {{
-            return polishUi
-                ? hours + ' godz. ' + minutes + ' min'
-                : hours + ' год ' + minutes + ' хв';
+            if (polishUi) return hours + ' godz. ' + minutes + ' min';
+            if (englishUi) return hours + ' h ' + minutes + ' min';
+            return hours + ' год ' + minutes + ' хв';
         }}
-        return polishUi ? minutes + ' min' : minutes + ' хв';
+        if (polishUi || englishUi) return minutes + ' min';
+        return minutes + ' хв';
     }}
 
     function formatArrival(seconds) {{
@@ -6881,13 +6883,20 @@ def gps():
             const finalDistance = Number(data.distance_m || 0);
             const finalDuration = Number(data.duration_s || 0);
 
+            const nextDeliveryLabel = gpsUiLanguage === 'en'
+                ? 'To next delivery:'
+                : 'До наступної вигрузки:';
+            const finalDeliveryLabel = gpsUiLanguage === 'en'
+                ? 'To final delivery:'
+                : 'До останньої вигрузки:';
+            const distanceUnit = gpsUiLanguage === 'en' ? ' km · ' : ' км · ';
             let extra = '<hr style="margin:7px 0">' +
-                '<strong>До наступної вигрузки:</strong> ' +
-                (nextDistance / 1000).toFixed(1) + ' км · ' +
+                '<strong>' + nextDeliveryLabel + '</strong> ' +
+                (nextDistance / 1000).toFixed(1) + distanceUnit +
                 formatDuration(nextDuration);
             if (remainingStops.length > 1) {{
-                extra += '<br><strong>До останньої вигрузки:</strong> ' +
-                    (finalDistance / 1000).toFixed(1) + ' км · ' +
+                extra += '<br><strong>' + finalDeliveryLabel + '</strong> ' +
+                    (finalDistance / 1000).toFixed(1) + distanceUnit +
                     formatDuration(finalDuration);
             }}
             marker.setPopupContent(
