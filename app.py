@@ -8522,9 +8522,16 @@ def gps():
             "лише адреси цього маршруту": "nur für diese Route",
             "Для карти використовуються лише адреси й часові вікна.": "Für die Karte werden nur Adressen und Zeitfenster verwendet.",
             "Імена та телефони не передаються.": "Namen und Telefonnummern werden nicht übermittelt.",
-            "Вартість є орієнтовною.": "Die Kosten sind geschätzt.",
+            "Вартість є орієнтовною.": "Die Kostenangabe ist unverbindlich.",
             "Тут поки показується поточний рівень палива з Navirec. Збільшення рівня ще не вважаємо автоматично заправкою.": "Derzeit wird der aktuelle Kraftstoffstand von Navirec angezeigt. Ein Anstieg des Kraftstoffstands wird noch nicht automatisch als Tankvorgang erkannt.",
-            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Sie hängen von Gewicht, Achsen, Emissionsklasse, Vignetten und Zahlungsart ab.",
+            "Вона залежить від ваги, осей, екологічного класу, віньєт і способу оплати.": "Sie hängt von Gewicht, Achszahl, Emissionsklasse, Vignetten und Zahlungsart ab.",
+            "Для карти використовуються лише адреси й часові": "Für die Karte werden ausschließlich Adressen und Zeitfenster verwendet.",
+            "вікна. Імена та телефони не передаються.": "Namen und Telefonnummern werden nicht übermittelt.",
+            "Вартість є орієнтовною. Вона залежить від ваги,": "Die Kostenangabe ist unverbindlich. Sie hängt von Gewicht,",
+            "осей, екологічного класу, віньєт і способу оплати.": "Achszahl, Emissionsklasse, Vignetten und Zahlungsart ab.",
+            "Tägliche Ruhezeit, год": "Tägliche Ruhezeit, Std.",
+            "Добовий відпочинок, год": "Tägliche Ruhezeit, Std.",
+            " год": " Std.",
             "керування.": "Fahrzeit.",  " л ": " l ",  "хв": "Min."
         }
     }
