@@ -107,7 +107,8 @@ ROLE_ENDPOINTS = {
         "geocode_search",
         "route_calculate",
         "delivery_stop_status",
-        "tachograph"
+        "tachograph",
+        "road_payments"
     },
     "driver": {
         "driver_dashboard",
@@ -1660,6 +1661,7 @@ FULL_PAGE_TRANSLATIONS = {
         "Відкрити BG Toll": "Otwórz BG Toll", "Відкрити Viapass": "Otwórz Viapass",
     },
     "en": {
+        "Тут поки показується поточний рівень\n            палива з Navirec.\n            Збільшення рівня ще не вважаємо\n            автоматично заправкою.": "The current fuel level from Navirec is shown here. An increase in fuel level is not yet automatically treated as a refuelling event.",
         "Компанія:": "Company:", "Автомобілів у системі:": "Vehicles in system:", "Є дані Navirec": "Navirec data available", "Немає поточного стану": "No current state", "Відкрити": "Open",
         "Автомобіль": "Vehicle", "Швидкість": "Speed", "Деталі": "Details", "Дата": "Date", "Показати історію": "Show history", "GPS-точок": "GPS points",
         "Початок": "Start", "Кінець": "End", "Відстань": "Distance", "Макс. швидкість": "Max. speed", "Паливо на початку": "Fuel at start", "Паливо в кінці": "Fuel at end",
@@ -1729,6 +1731,46 @@ GLOBAL_UI_TRANSLATIONS.setdefault("pl", {}).update({
     "Використовується початковий логотип.": "Używany jest domyślny logotyp.",
     "Логотип / Logo": "Logo", "PNG, JPG або WebP, максимум 2 МБ.": "PNG, JPG lub WebP, maksymalnie 2 MB.",
     "Зберегти / Save": "Zapisz"
+})
+
+# Complete English localization for Finance and Branding.
+GLOBAL_UI_TRANSLATIONS.setdefault("en", {}).update({
+    "Результат у EUR": "Result in EUR", "Результат у PLN": "Result in PLN",
+    "Доходи:": "Income:", "Витрати:": "Expenses:", "Підключені Gmail:": "Connected Gmail accounts:",
+    "Усі підключені пошти автоматично перевіряються кожні 15 хвилин.": "All connected mailboxes are automatically checked every 15 minutes.",
+    "Підключена пошта": "Connected mailbox", "Остання перевірка:": "Last check:",
+    "Перевірено файлів:": "Files checked:", "Нових документів:": "New documents:",
+    "Відключити цю пошту": "Disconnect this mailbox", "Перевірити всі пошти": "Check all mailboxes",
+    "Додати ще один Gmail": "Add another Gmail account", "Бухгалтерія": "Accounting",
+    "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.": "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
+    "Назва бухгалтерії": "Accounting office name", "Адреса або домен відправника": "Sender address or domain",
+    "Зберегти": "Save", "Відключити": "Disconnect", "Додати бухгалтерію": "Add accounting office", "Додати": "Add",
+    "Документи бухгалтерії": "Accounting documents",
+    "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.": "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+    "Тип": "Type", "Податки": "Taxes", "Зарплати": "Payroll", "Розрахунки водіїв": "Driver settlements",
+    "Кадрові документи": "HR documents", "ZUS і страхові внески": "ZUS and insurance contributions",
+    "Період": "Period", "Сума": "Amount", "Суму ще не визначено": "Amount not yet determined",
+    "Статус": "Status", "На перевірку": "For review", "Отримано на Gmail": "Received via Gmail", "Документ": "Document",
+    "Otwórz документ": "Open document", "Перевірити дані": "Review data", "Зберегти в архіві": "Save to archive",
+    "Додати у витрати": "Add to expenses", "Додати в доходи": "Add to income", "Додати операцію": "Add transaction",
+    "Дохід": "Income", "Витрата": "Expense", "Категорія": "Category", "Дохід за перевезення": "Transport income",
+    "Ремонт і сервіс": "Repairs and service", "Дороги й паркінги": "Roads and parking", "Лізинг або кредит": "Leasing or loan",
+    "Страхування": "Insurance", "Зарплата": "Salary", "Податки та збори": "Taxes and fees",
+    "Офісні витрати": "Office expenses", "Інше": "Other", "Вся компанія": "Entire company", "Опис": "Description",
+    "Контрагент": "Counterparty", "Номер фактури": "Invoice number", "Термін оплати": "Payment due date",
+    "Оплата": "Payment", "Не оплачено": "Unpaid", "Оплачено": "Paid", "Останні операції": "Recent transactions",
+    "Редагувати": "Edit", "Оригінальний файл не прикріплений": "Original file not attached",
+    "Фактури та транспортні замовлення з пошти": "Invoices and transport orders from email",
+    "Транспортне замовлення записується як дохід, а вхідна фактура — як витрата. Перед підтвердженням тип документа можна змінити через кнопку «Перевірити».": "A transport order is recorded as income and an incoming invoice as an expense. Before confirmation, the document type can be changed using the Review button.",
+    "Програма перевірятиме дублікати за контрагентом, номером фактури, сумою та валютою.": "The system checks for duplicates by counterparty, invoice number, amount and currency.",
+    "Нове": "New", "Дані перевезення": "Transport details", "Номер замовника:": "Customer number:", "Маршрут:": "Route:",
+    "Дати:": "Dates:", "Умови оплати:": "Payment terms:", "Перевірити": "Review", "Відхилити": "Reject",
+    "Спочатку перевірте суму.": "Review the amount first.", "Транспортне замовлення з Gmail": "Transport order from Gmail",
+    "Фактура з Gmail": "Invoice from Gmail",
+    "Логотип показується у шапці та великим прозорим фоном на вході.": "The logo is displayed in the header and as a large transparent background on the login page.",
+    "Використовується початковий логотип.": "The default logo is currently being used.",
+    "Логотип / Logo": "Logo", "PNG, JPG або WebP, максимум 2 МБ.": "PNG, JPG or WebP, maximum 2 MB.",
+    "Зберегти / Save": "Save"
 })
 
 # Never replace bare word fragments inside other words.  Units are handled
