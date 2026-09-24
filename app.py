@@ -1668,6 +1668,25 @@ FULL_PAGE_TRANSLATIONS = {
         "Рух": "Driving", "Час руху": "Driving time", "Стоянка": "Parking", "Холостий хід": "Idling", "Витрата": "Consumption", "Останні 100 GPS-точок": "Last 100 GPS points",
         "Час": "Time", "Стан": "State", "Координати": "Coordinates", "Оплата доріг і віньєти": "Road tolls and vignettes",
         "Розрахувати маршрут, паливо й оплату доріг": "Calculate route, fuel and road tolls",
+        "Вибір тарифу залежить від ваги, кількості осей,\n            висоти, екологічного класу й країни.\n            Купуйте тільки на офіційних сторінках операторів.": "The toll rate depends on vehicle weight, number of axles, height, emission class and country. Buy vignettes and toll products only from official operator websites.",
+        "🇵🇱 Польща": "🇵🇱 Poland", "🇩🇪 Німеччина": "🇩🇪 Germany", "🇦🇹 Австрія": "🇦🇹 Austria", "🇨🇿 Чехія": "🇨🇿 Czech Republic",
+        "🇸🇰 Словаччина": "🇸🇰 Slovakia", "🇭🇺 Угорщина": "🇭🇺 Hungary", "🇸🇮 Словенія": "🇸🇮 Slovenia", "🇨🇭 Швейцарія": "🇨🇭 Switzerland",
+        "🇷🇴 Румунія": "🇷🇴 Romania", "🇧🇬 Болгарія": "🇧🇬 Bulgaria", "🇧🇪 Бельгія": "🇧🇪 Belgium", "🇫🇷 🇮🇹 🇪🇸 🇵🇹 Західна Європа": "🇫🇷 🇮🇹 🇪🇸 🇵🇹 Western Europe",
+        "До 3,5 т: окремі платні автомагістралі. Понад 3,5 т: система e-TOLL.": "Up to 3.5 t: selected motorways are tolled. Over 3.5 t: the e-TOLL system applies.",
+        "До 3,5 т: загальної віньєтки немає. Понад 3,5 т: вантажний дорожній збір Toll Collect.": "Up to 3.5 t: no general vignette. Over 3.5 t: Toll Collect road tolls apply to goods vehicles.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: GO-Box і кілометрова оплата.": "Up to 3.5 t: electronic vignette. Over 3.5 t: GO-Box and distance-based tolling.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: електронна система MYTO CZ.": "Up to 3.5 t: electronic vignette. Over 3.5 t: the MYTO CZ electronic toll system.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: кілометрова система eMyto.": "Up to 3.5 t: electronic vignette. Over 3.5 t: the eMyto distance-based toll system.",
+        "До 3,5 т: e-Matrica, категорія залежить від авто. Понад 3,5 т: HU-GO.": "Up to 3.5 t: e-Matrica; the category depends on the vehicle. Over 3.5 t: HU-GO.",
+        "До 3,5 т: e-vignette 2A або 2B. Понад 3,5 т: DarsGo.": "Up to 3.5 t: e-vignette category 2A or 2B. Over 3.5 t: DarsGo.",
+        "До 3,5 т: швейцарська віньєтка. Понад 3,5 т: збір для важкого транспорту.": "Up to 3.5 t: Swiss motorway vignette. Over 3.5 t: heavy vehicle charge applies.",
+        "Rovinieta потрібна для більшості транспортних засобів. Категорія залежить від ваги та осей.": "A Rovinieta is required for most vehicles. The category depends on vehicle weight and number of axles.",
+        "До 3,5 т: електронна віньєтка. Понад 3,5 т: маршрутний або кілометровий збір.": "Up to 3.5 t: electronic vignette. Over 3.5 t: route-based or distance-based tolling.",
+        "До 3,5 т: загальної віньєтки немає. Понад 3,5 т: кілометровий збір Viapass.": "Up to 3.5 t: no general vignette. Over 3.5 t: Viapass distance-based tolling.",
+        "У Франції, Італії, Іспанії та Португалії оплата часто стягується за конкретні ділянки, мости або тунелі, а не загальною віньєткою.": "In France, Italy, Spain and Portugal, tolls are often charged for specific road sections, bridges or tunnels rather than through a nationwide vignette.",
+        "Відкрити e-TOLL": "Open e-TOLL", "Відкрити Toll Collect": "Open Toll Collect", "Купити в ASFINAG": "Buy from ASFINAG",
+        "Купити e-vignette": "Buy e-vignette", "Купити eZnamka": "Buy eZnamka", "Купити e-Matrica": "Buy e-Matrica", "Купити Rovinieta": "Buy Rovinieta",
+        "Відкрити BG Toll": "Open BG Toll", "Відкрити Viapass": "Open Viapass", "Інформація про дороги": "Road information",
         "Тут поки показується поточний рівень палива з Navirec. Збільшення рівня ще не вважаємо автоматично заправкою.": "For now, the current fuel level from Navirec is shown. An increase in level is not yet automatically treated as refuelling.",
     },
     "de": {
@@ -1839,7 +1858,12 @@ def page(title, body, active=""):
     elif role == "dispatcher":
         nav_items = [
             ("gps", "/gps", t("gps")),
-            ("tachograph", "/tachograph", t("tachograph"))
+            ("tachograph", "/tachograph", t("tachograph")),
+            (
+                "road_payments",
+                "/road-payments",
+                road_payments_label
+            )
         ]
     elif role == "director":
         nav_items = [
