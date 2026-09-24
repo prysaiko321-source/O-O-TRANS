@@ -5334,7 +5334,6 @@ def gps():
             ['\\u0420\\u0435\\u043a\\u043e\\u043c\\u0435\\u043d\\u0434\\u043e\\u0432\\u0430\\u043d\\u0438\\u0439 \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u0438\\u0439 \\u0432\\u0438\\u0457\\u0437\\u0434:', 'Recommended next departure:'],
             ['\\u041f\\u0456\\u0441\\u043b\\u044f \\u0437\\u0430\\u0432\\u0435\\u0440\\u0448\\u0435\\u043d\\u043d\\u044f \\u0437\\u0430\\u043b\\u0438\\u0448\\u0430\\u0454\\u0442\\u044c\\u0441\\u044f \\u0449\\u043e\\u043d\\u0430\\u0439\\u043c\\u0435\\u043d\\u0448\\u0435', 'After completion, at least'],
             ['\\u0447\\u0430\\u0441\\u0443 \\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', 'of driving time remains.'],
-            ['\\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', 'of driving time remains.'],
             ['\\u0414\\u043b\\u044f \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u043e\\u0433\\u043e \\u0440\\u0435\\u0439\\u0441\\u0443 \\u043f\\u043e\\u0442\\u0440\\u0456\\u0431\\u0435\\u043d \\u0434\\u043e\\u0431\\u043e\\u0432\\u0438\\u0439 \\u0432\\u0456\\u0434\\u043f\\u043e\\u0447\\u0438\\u043d\\u043e\\u043a.', 'A daily rest is required before the next trip.'],
             ['\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0443\\u0437\\u0433\\u043e\\u0434\\u0436\\u0435\\u043d\\u043e \\u0437 \\u0430\\u043a\\u0442\\u0443\\u0430\\u043b\\u044c\\u043d\\u0438\\u043c \\u0442\\u0430\\u0445\\u043e\\u0433\\u0440\\u0430\\u0444\\u043e\\u043c.', 'The route is consistent with the latest tachograph data.'],
             ['\\u0431\\u0435\\u0437 \\u0447\\u0430\\u0441\\u043e\\u0432\\u043e\\u0433\\u043e \\u0432\\u0456\\u043a\\u043d\\u0430', 'no time window'],
@@ -5582,16 +5581,6 @@ def gps():
     const destinationInput = document.getElementById(
         'destination-search'
     );
-    if (gpsUiLanguage === 'en') {
-        cityInput.placeholder = 'Start typing a city name';
-        destinationInput.placeholder = 'Select a city first';
-    } else if (gpsUiLanguage === 'pl') {
-        cityInput.placeholder = 'Zacznij wpisywać nazwę miasta';
-        destinationInput.placeholder = 'Najpierw wybierz miasto';
-    } else if (gpsUiLanguage === 'de') {
-        cityInput.placeholder = 'Stadtnamen eingeben';
-        destinationInput.placeholder = 'Wählen Sie zuerst eine Stadt';
-    }
     const addressSearchButton = document.getElementById(
         'address-search-button'
     );
@@ -6503,7 +6492,7 @@ def gps():
         selectedDestination = null;
         destinationInput.value = '';
         destinationInput.disabled = true;
-        destinationInput.placeholder = gpsUiLanguage === 'en' ? 'Select a city first' : (gpsUiLanguage === 'pl' ? 'Najpierw wybierz miasto' : (gpsUiLanguage === 'de' ? 'Wählen Sie zuerst eine Stadt' : 'Спочатку виберіть місто'));
+        destinationInput.placeholder = 'Спочатку виберіть місто';
         addressSearchButton.disabled = true;
         addressResults.hidden = true;
         buildRouteButton.disabled = true;
@@ -7885,7 +7874,7 @@ def gps():
         selectedDestination = null;
         destinationInput.value = '';
         destinationInput.disabled = true;
-        destinationInput.placeholder = gpsUiLanguage === 'en' ? 'Select a city first' : (gpsUiLanguage === 'pl' ? 'Najpierw wybierz miasto' : (gpsUiLanguage === 'de' ? 'Wählen Sie zuerst eine Stadt' : 'Спочатку виберіть місто'));
+        destinationInput.placeholder = 'Спочатку виберіть місто';
         addressSearchButton.disabled = true;
         addressResults.hidden = true;
         buildRouteButton.disabled = true;
