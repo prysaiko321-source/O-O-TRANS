@@ -1703,6 +1703,36 @@ FULL_PAGE_TRANSLATIONS = {
 for _lang, _items in FULL_PAGE_TRANSLATIONS.items():
     GLOBAL_UI_TRANSLATIONS.setdefault(_lang, {}).update(_items)
 
+
+# German cleanup for the remaining visible Maut/Tachograph strings.
+# Text only: no routing, GPS, Navirec or calculation logic is changed.
+GLOBAL_UI_TRANSLATIONS.setdefault("de", {}).update({
+    "Вибір тарифу залежить від ваги, кількості осей,\n            висоти, екологічного класу й країни.\n            Купуйте тільки на офіційних сторінках операторів.": "Die Tarifwahl hängt von Gewicht, Achsanzahl, Höhe, Emissionsklasse und Land ab. Kaufen Sie ausschließlich über die offiziellen Seiten der Betreiber.",
+    "До 3,5 т: окремі платні автомагістралі. Понад 3,5 т: система e-TOLL.": "Bis 3,5 t: einzelne Autobahnen sind mautpflichtig. Über 3,5 t: e-TOLL-System.",
+    "До 3,5 т: загальної віньєтки немає. Понад 3,5 т: вантажний дорожній збір Toll Collect.": "Bis 3,5 t: keine allgemeine Vignettenpflicht. Über 3,5 t: Lkw-Maut über Toll Collect.",
+    "До 3,5 т: електронна віньєтка. Понад 3,5 т: GO-Box і кілометрова оплата.": "Bis 3,5 t: elektronische Vignette. Über 3,5 t: GO-Box und streckenabhängige Maut.",
+    "До 3,5 т: електронна віньєтка. Понад 3,5 т: електронна система MYTO CZ.": "Bis 3,5 t: elektronische Vignette. Über 3,5 t: elektronisches Mautsystem MYTO CZ.",
+    "До 3,5 т: електронна віньєтка. Понад 3,5 т: кілометрова система eMyto.": "Bis 3,5 t: elektronische Vignette. Über 3,5 t: streckenabhängiges eMyto-System.",
+    "До 3,5 т: e-Matrica, категорія залежить від авто. Понад 3,5 т: HU-GO.": "Bis 3,5 t: e-Matrica; die Kategorie hängt vom Fahrzeug ab. Über 3,5 t: HU-GO.",
+    "До 3,5 т: e-vignette 2A або 2B. Понад 3,5 т: DarsGo.": "Bis 3,5 t: E-Vignette der Kategorie 2A oder 2B. Über 3,5 t: DarsGo.",
+    "До 3,5 т: швейцарська віньєтка. Понад 3,5 т: збір для важкого транспорту.": "Bis 3,5 t: Schweizer Autobahnvignette. Über 3,5 t: Schwerverkehrsabgabe.",
+    "Rovinieta потрібна для більшості транспортних засобів. Категорія залежить від ваги та осей.": "Für die meisten Fahrzeuge ist eine Rovinieta erforderlich. Die Kategorie hängt von Gewicht und Achsanzahl ab.",
+    "До 3,5 т: електронна віньєтка. Понад 3,5 т: маршрутний або кілометровий збір.": "Bis 3,5 t: elektronische Vignette. Über 3,5 t: strecken- oder kilometerabhängige Maut.",
+    "До 3,5 т: загальної віньєтки немає. Понад 3,5 т: кілометровий збір Viapass.": "Bis 3,5 t: keine allgemeine Vignettenpflicht. Über 3,5 t: kilometerabhängige Maut über Viapass.",
+    "У Франції, Італії, Іспанії та Португалії оплата часто стягується за конкретні ділянки, мости або тунелі, а не загальною віньєткою.": "In Frankreich, Italien, Spanien und Portugal wird die Maut häufig für bestimmte Streckenabschnitte, Brücken oder Tunnel erhoben und nicht über eine allgemeine Vignette.",
+    "Відкрити e-TOLL": "e-TOLL öffnen",
+    "Відкрити Toll Collect": "Toll Collect öffnen",
+    "Купити в ASFINAG": "Bei ASFINAG kaufen",
+    "Купити e-vignette": "E-Vignette kaufen",
+    "Купити eZnamka": "eZnamka kaufen",
+    "Купити e-Matrica": "e-Matrica kaufen",
+    "Купити Rovinieta": "Rovinieta kaufen",
+    "Відкрити BG Toll": "BG Toll öffnen",
+    "Відкрити Viapass": "Viapass öffnen",
+    "Інформація про дороги": "Straßeninformationen",
+    "Немає часу останнього оновлення тахографа.": "Der Zeitpunkt der letzten Tachographen-Aktualisierung ist nicht verfügbar.",
+})
+
 # Complete Polish localization for Finance and Branding.  These modules
 # render through page(), so translating complete labels/phrases here keeps
 # their business logic untouched.
