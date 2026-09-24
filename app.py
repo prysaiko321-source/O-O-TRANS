@@ -4957,13 +4957,13 @@ def gps():
 
         <div class="gps-status-legend">
             <span>
-                <i class="gps-status-dot moving"></i> Їде
+                <i class="gps-status-dot moving"></i> <span id="gps-legend-moving">Їде</span>
             </span>
             <span>
-                <i class="gps-status-dot idling"></i> Заведена
+                <i class="gps-status-dot idling"></i> <span id="gps-legend-idling">Заведена</span>
             </span>
             <span>
-                <i class="gps-status-dot stopped"></i> Стоїть
+                <i class="gps-status-dot stopped"></i> <span id="gps-legend-stopped">Стоїть</span>
             </span>
         </div>
 
@@ -5236,6 +5236,22 @@ def gps():
     const vehicles = {markers};
     const selectedId = {selected};
     const gpsUiLanguage = {ui_lang};
+    const gpsLegendMoving = document.getElementById('gps-legend-moving');
+    const gpsLegendIdling = document.getElementById('gps-legend-idling');
+    const gpsLegendStopped = document.getElementById('gps-legend-stopped');
+    if (gpsUiLanguage === 'en') {{
+        if (gpsLegendMoving) gpsLegendMoving.textContent = 'Driving';
+        if (gpsLegendIdling) gpsLegendIdling.textContent = 'Engine on';
+        if (gpsLegendStopped) gpsLegendStopped.textContent = 'Stopped';
+    }} else if (gpsUiLanguage === 'pl') {{
+        if (gpsLegendMoving) gpsLegendMoving.textContent = 'Jedzie';
+        if (gpsLegendIdling) gpsLegendIdling.textContent = 'Silnik włączony';
+        if (gpsLegendStopped) gpsLegendStopped.textContent = 'Stoi';
+    }} else if (gpsUiLanguage === 'de') {{
+        if (gpsLegendMoving) gpsLegendMoving.textContent = 'Fährt';
+        if (gpsLegendIdling) gpsLegendIdling.textContent = 'Motor an';
+        if (gpsLegendStopped) gpsLegendStopped.textContent = 'Steht';
+    }}
 
     // Translate previously saved Ukrainian route summaries after a language switch.
     // Source phrases are written as Unicode escapes on purpose: the server-side
@@ -5347,10 +5363,11 @@ def gps():
             vehicle.longitude
         ], {{icon: markerIcon}}).addTo(map);
 
+        const speedUnit = gpsUiLanguage === 'en' ? ' km/h' : (gpsUiLanguage === 'uk' ? ' км/год' : ' km/h');
         const speed =
             vehicle.speed === null
             ? '—'
-            : vehicle.speed.toFixed(0) + ' км/год';
+            : vehicle.speed.toFixed(0) + speedUnit;
 
         const fuel =
             vehicle.fuel === null
@@ -5358,8 +5375,10 @@ def gps():
             : vehicle.fuel.toFixed(1) + '%';
 
         const statusLabel = markerStatus === 'moving'
-            ? 'Їде'
-            : (markerStatus === 'idling' ? 'Заведена' : 'Стоїть');
+            ? (gpsUiLanguage === 'en' ? 'Driving' : (gpsUiLanguage === 'pl' ? 'Jedzie' : (gpsUiLanguage === 'de' ? 'Fährt' : 'Їде')))
+            : (markerStatus === 'idling'
+                ? (gpsUiLanguage === 'en' ? 'Engine on' : (gpsUiLanguage === 'pl' ? 'Silnik włączony' : (gpsUiLanguage === 'de' ? 'Motor an' : 'Заведена')))
+                : (gpsUiLanguage === 'en' ? 'Stopped' : (gpsUiLanguage === 'pl' ? 'Stoi' : (gpsUiLanguage === 'de' ? 'Steht' : 'Стоїть'))));
 
         const numberLabel = document.createElement('span');
         numberLabel.textContent = vehicle.plate || vehicle.name;
@@ -5371,12 +5390,16 @@ def gps():
             className: 'vehicle-number-label'
         }});
 
+        const popupStatusLabel = gpsUiLanguage === 'en' ? 'Status: ' : (gpsUiLanguage === 'pl' ? 'Status: ' : (gpsUiLanguage === 'de' ? 'Status: ' : 'Статус: '));
+        const popupSpeedLabel = gpsUiLanguage === 'en' ? 'Speed: ' : (gpsUiLanguage === 'pl' ? 'Prędkość: ' : (gpsUiLanguage === 'de' ? 'Geschwindigkeit: ' : 'Швидкість: '));
+        const popupFuelLabel = gpsUiLanguage === 'en' ? 'Fuel: ' : (gpsUiLanguage === 'pl' ? 'Paliwo: ' : (gpsUiLanguage === 'de' ? 'Kraftstoff: ' : 'Паливо: '));
+        const popupCoordinatesLabel = gpsUiLanguage === 'en' ? 'Coordinates: ' : (gpsUiLanguage === 'pl' ? 'Współrzędne: ' : (gpsUiLanguage === 'de' ? 'Koordinaten: ' : 'Координати: '));
         const basePopup =
             '<strong>' + vehicle.name + '</strong><br>' +
-            'Статус: ' + statusLabel + '<br>' +
-            'Швидкість: ' + speed + '<br>' +
-            'Паливо: ' + fuel + '<br>' +
-            vehicle.latitude.toFixed(6) + ', ' +
+            popupStatusLabel + statusLabel + '<br>' +
+            popupSpeedLabel + speed + '<br>' +
+            popupFuelLabel + fuel + '<br>' +
+            popupCoordinatesLabel + vehicle.latitude.toFixed(6) + ', ' +
             vehicle.longitude.toFixed(6);
         vehicleMarkersById[vehicle.id] = marker;
         vehiclePopupBaseById[vehicle.id] = basePopup;
@@ -5412,12 +5435,21 @@ def gps():
 
     function liveVehiclePopup(vehicle) {{
         const moving = Number(vehicle.speed || 0) > 1;
-        const statusLabel = moving ? 'Їде' : (vehicle.ignition ? 'Заведена' : 'Стоїть');
-        const speed = vehicle.speed === null ? '—' : Number(vehicle.speed).toFixed(0) + ' км/год';
+        const statusLabel = moving
+            ? (gpsUiLanguage === 'en' ? 'Driving' : (gpsUiLanguage === 'pl' ? 'Jedzie' : (gpsUiLanguage === 'de' ? 'Fährt' : 'Їде')))
+            : (vehicle.ignition
+                ? (gpsUiLanguage === 'en' ? 'Engine on' : (gpsUiLanguage === 'pl' ? 'Silnik włączony' : (gpsUiLanguage === 'de' ? 'Motor an' : 'Заведена')))
+                : (gpsUiLanguage === 'en' ? 'Stopped' : (gpsUiLanguage === 'pl' ? 'Stoi' : (gpsUiLanguage === 'de' ? 'Steht' : 'Стоїть'))));
+        const speedUnit = gpsUiLanguage === 'en' ? ' km/h' : (gpsUiLanguage === 'uk' ? ' км/год' : ' km/h');
+        const speed = vehicle.speed === null ? '—' : Number(vehicle.speed).toFixed(0) + speedUnit;
         const fuel = vehicle.fuel === null ? '—' : Number(vehicle.fuel).toFixed(1) + '%';
+        const popupStatusLabel = gpsUiLanguage === 'en' ? 'Status: ' : (gpsUiLanguage === 'pl' ? 'Status: ' : (gpsUiLanguage === 'de' ? 'Status: ' : 'Статус: '));
+        const popupSpeedLabel = gpsUiLanguage === 'en' ? 'Speed: ' : (gpsUiLanguage === 'pl' ? 'Prędkość: ' : (gpsUiLanguage === 'de' ? 'Geschwindigkeit: ' : 'Швидкість: '));
+        const popupFuelLabel = gpsUiLanguage === 'en' ? 'Fuel: ' : (gpsUiLanguage === 'pl' ? 'Paliwo: ' : (gpsUiLanguage === 'de' ? 'Kraftstoff: ' : 'Паливо: '));
+        const popupCoordinatesLabel = gpsUiLanguage === 'en' ? 'Coordinates: ' : (gpsUiLanguage === 'pl' ? 'Współrzędne: ' : (gpsUiLanguage === 'de' ? 'Koordinaten: ' : 'Координати: '));
         return '<strong>' + vehicle.name + '</strong><br>' +
-            'Статус: ' + statusLabel + '<br>' + 'Швидкість: ' + speed + '<br>' +
-            'Паливо: ' + fuel + '<br>' + Number(vehicle.latitude).toFixed(6) + ', ' + Number(vehicle.longitude).toFixed(6);
+            popupStatusLabel + statusLabel + '<br>' + popupSpeedLabel + speed + '<br>' +
+            popupFuelLabel + fuel + '<br>' + popupCoordinatesLabel + Number(vehicle.latitude).toFixed(6) + ', ' + Number(vehicle.longitude).toFixed(6);
     }}
 
     let liveGpsRefreshBusy = false;
@@ -6215,7 +6247,11 @@ def gps():
                         ' керування; після запуску звірити з тахографом.')
                 : (gpsUiLanguage === 'pl'
                     ? 'Po zakończeniu pozostaje co najmniej ' + formatDuration(canDriveAfter) + ' czasu jazdy.'
-                    : 'Після завершення залишається щонайменше ' + formatDuration(canDriveAfter) + ' керування.');
+                    : (gpsUiLanguage === 'en'
+                        ? 'After completion, at least ' + formatDuration(canDriveAfter) + ' of driving time remains.'
+                        : (gpsUiLanguage === 'de'
+                            ? 'Nach Abschluss verbleiben mindestens ' + formatDuration(canDriveAfter) + ' Fahrzeit.'
+                            : 'Після завершення залишається щонайменше ' + formatDuration(canDriveAfter) + ' керування.')));
         }} else {{
             nextSafeStart = new Date(
                 freeAt.getTime() + dailyRestSeconds * 1000
@@ -6906,7 +6942,8 @@ def gps():
             '<details style="margin:5px 0;border:1px solid #cbd8df;' +
             'border-radius:9px;background:#fff;overflow:hidden;">' +
             '<summary style="cursor:pointer;padding:9px 11px;' +
-            'font-size:12px;font-weight:800;">↕ Змінити порядок адрес (' +
+            'font-size:12px;font-weight:800;">↕ ' +
+            (gpsUiLanguage === 'en' ? 'Reorder addresses' : (gpsUiLanguage === 'pl' ? 'Zmień kolejność adresów' : (gpsUiLanguage === 'de' ? 'Adressreihenfolge ändern' : 'Змінити порядок адрес'))) + ' (' +
             stops.length + ')</summary>' + rows + '</details>';
     }}
 
