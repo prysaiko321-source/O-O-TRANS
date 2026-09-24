@@ -1772,6 +1772,12 @@ def start_gmail_auto_sync():
 
 
 def register_finance_routes(app, page_renderer, vehicles, html_text):
+    # Finance-specific localization for text assembled inside this module.
+    # Keeping it here prevents multiline/dynamic Finance text from bypassing app.py translations.
+    def finance_text(uk, pl, en, de):
+        language = (session.get("language") or "uk").lower()
+        return {"pl": pl, "en": en, "de": de}.get(language, uk)
+
     @app.route("/finance/gmail/connect")
     def finance_gmail_connect():
         schema_ok, schema_error = ensure_finance_schema()
@@ -3338,10 +3344,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                        href="/finance/email-invoices/{queue_id}/document"
                        target="_blank" rel="noopener"
                        style="margin-top:8px;background:#147a42">
-                        Відкрити документ
+                        {open_document_label}
                     </a>
                 """.format(
-                    queue_id=escape(str(row["queue_id"]))
+                    queue_id=escape(str(row["queue_id"])),
+                    open_document_label=finance_text(
+                        "Відкрити документ", "Otwórz dokument", "Open document", "Dokument öffnen"
+                    )
                 )
             else:
                 document_button = """
@@ -3772,8 +3781,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         <div class="card">
             <h2>Бухгалтерія</h2>
             <p>
-                Вкажіть назву бухгалтерії та адресу або домен, з якого вона
-                надсилає документи. Можна підключити декілька бухгалтерій.
+                {accounting_intro}
             </p>
             <div class="detail-grid" style="margin:14px 0">
                 {providers}
@@ -3806,14 +3814,25 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         <div class="card">
             <h2>Документи бухгалтерії</h2>
             <p>
-                Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи
-                зберігаються окремо від фактур і транспортних замовлень.
+                {accounting_docs_intro}
             </p>
             <div class="invoice-list">{documents}</div>
         </div>
         """.format(
             providers="".join(accounting_provider_cards),
-            documents="".join(accounting_document_cards)
+            documents="".join(accounting_document_cards),
+            accounting_intro=finance_text(
+                "Вкажіть назву бухгалтерії та адресу або домен, з якого вона надсилає документи. Можна підключити декілька бухгалтерій.",
+                "Podaj nazwę biura księgowego oraz adres lub domenę, z której wysyła dokumenty. Można podłączyć kilka biur księgowych.",
+                "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
+                "Geben Sie den Namen des Buchhaltungsbüros sowie die Adresse oder Domain an, von der die Dokumente gesendet werden. Es können mehrere Buchhaltungsbüros verbunden werden."
+            ),
+            accounting_docs_intro=finance_text(
+                "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.",
+                "Podatki, ZUS, wynagrodzenia, rozliczenia kierowców i dokumenty kadrowe są przechowywane oddzielnie od faktur i zleceń transportowych.",
+                "Taxes, ZUS, payroll, driver settlements and HR documents are stored separately from invoices and transport orders.",
+                "Steuern, ZUS, Lohnabrechnungen, Fahrerabrechnungen und Personalunterlagen werden getrennt von Rechnungen und Transportaufträgen gespeichert."
+            )
         )
 
         vehicle_options = [
@@ -3896,8 +3915,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             <div class="card">
                 <h2>Підключені Gmail: {count}</h2>
                 <div class="alert alert-ok">
-                    Усі підключені пошти автоматично перевіряються
-                    кожні {auto_sync_minutes} хвилин.
+                    {gmail_auto_sync_text}
                 </div>
                 <div class="detail-grid" style="margin:14px 0">
                     {accounts}
@@ -3913,6 +3931,12 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             """.format(
                 count=len(gmail_integrations),
                 auto_sync_minutes=GMAIL_AUTO_SYNC_MINUTES,
+                gmail_auto_sync_text=finance_text(
+                    f"Усі підключені пошти автоматично перевіряються кожні {GMAIL_AUTO_SYNC_MINUTES} хвилин.",
+                    f"Wszystkie podłączone skrzynki są automatycznie sprawdzane co {GMAIL_AUTO_SYNC_MINUTES} minut.",
+                    f"All connected mailboxes are automatically checked every {GMAIL_AUTO_SYNC_MINUTES} minutes.",
+                    f"Alle verbundenen Postfächer werden automatisch alle {GMAIL_AUTO_SYNC_MINUTES} Minuten überprüft."
+                ),
                 accounts="".join(gmail_account_rows)
             )
         elif gmail_oauth_ready():
