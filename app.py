@@ -1738,21 +1738,37 @@ for _lang in ("pl", "en", "de"):
         GLOBAL_UI_TRANSLATIONS.get(_lang, {}).pop(_unsafe, None)
 
 
-def translate_full_app_body(language, body):
+def translate_full_app_body(language, body, preserve_scripts=False):
     if language == "uk":
         return body
     mapping = GLOBAL_UI_TRANSLATIONS.get(language)
     if not mapping:
         return body
-    for source, target in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
-        body = body.replace(source, target)
-    return body
+
+    def apply_mapping(fragment):
+        for source, target in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
+            fragment = fragment.replace(source, target)
+        return fragment
+
+    if not preserve_scripts:
+        return apply_mapping(body)
+
+    # GPS JavaScript is shared by every language. Never translate source code
+    # inside <script> blocks; only translate the visible HTML around it.
+    parts = re.split(r'(<script\b[^>]*>.*?</script>)', body, flags=re.IGNORECASE | re.DOTALL)
+    return ''.join(part if re.match(r'<script\b', part, flags=re.IGNORECASE) else apply_mapping(part) for part in parts)
+
+
+def replace_visible_gps_text(body, source, target):
+    """Replace GPS UI text without ever modifying JavaScript source."""
+    parts = re.split(r'(<script\b[^>]*>.*?</script>)', body, flags=re.IGNORECASE | re.DOTALL)
+    return ''.join(part if re.match(r'<script\b', part, flags=re.IGNORECASE) else part.replace(source, target) for part in parts)
 
 def page(title, body, active=""):
     role = current_role()
     language = current_language()
     visible_title = translate_full_app_body(language, translate_title(language, title))
-    body = translate_full_app_body(language, body)
+    body = translate_full_app_body(language, body, preserve_scripts=(active == "gps"))
     page_class = "page-gps" if active == "gps" else ""
     branding = get_company_branding(
         COMPANY_ID,
@@ -7997,7 +8013,7 @@ def gps():
             " хв": " min"
         }
         for source_text, target_text in gps_pl_replacements.items():
-            body = body.replace(source_text, target_text)
+            body = replace_visible_gps_text(body, source_text, target_text)
 
 
     # GPS / route-planning localization. Keep all dynamic route text in the
@@ -8088,7 +8104,7 @@ def gps():
     if lang in gps_extra_translations:
         # Replace longer phrases first so short words cannot damage them.
         for source_text, target_text in sorted(gps_extra_translations[lang].items(), key=lambda item: len(item[0]), reverse=True):
-            body = body.replace(source_text, target_text)
+            body = replace_visible_gps_text(body, source_text, target_text)
 
     # Translate text that is created later by JavaScript (route results,
     # toll explanations, tachograph summaries, popups). Static replacements
