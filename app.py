@@ -107,7 +107,6 @@ ROLE_ENDPOINTS = {
         "geocode_search",
         "route_calculate",
         "delivery_stop_status",
-        "delivery_route_storage",
         "tachograph"
     },
     "driver": {
@@ -6934,13 +6933,21 @@ def gps():
             const finalDistance = Number(data.distance_m || 0);
             const finalDuration = Number(data.duration_s || 0);
 
-            const nextDeliveryLabel = gpsUiLanguage === 'en'
-                ? 'To next delivery:'
-                : 'До наступної вигрузки:';
-            const finalDeliveryLabel = gpsUiLanguage === 'en'
-                ? 'To final delivery:'
-                : 'До останньої вигрузки:';
-            const distanceUnit = gpsUiLanguage === 'en' ? ' km · ' : ' км · ';
+            const nextDeliveryLabel = gpsUiLanguage === 'pl'
+                ? 'Do następnego rozładunku:'
+                : gpsUiLanguage === 'en'
+                    ? 'To next delivery:'
+                    : gpsUiLanguage === 'de'
+                        ? 'Bis zur nächsten Entladung:'
+                        : 'До наступної вигрузки:';
+            const finalDeliveryLabel = gpsUiLanguage === 'pl'
+                ? 'Do ostatniego rozładunku:'
+                : gpsUiLanguage === 'en'
+                    ? 'To final delivery:'
+                    : gpsUiLanguage === 'de'
+                        ? 'Bis zur letzten Entladung:'
+                        : 'До останньої вигрузки:';
+            const distanceUnit = gpsUiLanguage === 'uk' ? ' км · ' : ' km · ';
             let extra = '<hr style="margin:7px 0">' +
                 '<strong>' + nextDeliveryLabel + '</strong> ' +
                 (nextDistance / 1000).toFixed(1) + distanceUnit +
