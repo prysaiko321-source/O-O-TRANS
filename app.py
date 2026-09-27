@@ -5741,15 +5741,68 @@ def gps():
             const data = await response.json();
             if (!response.ok || !data.ok || !Array.isArray(data.vehicles)) return;
             for (const fresh of data.vehicles) {{
-                const vehicle = vehicles.find(function(item) {{ return item.id === fresh.id; }});
-                const marker = vehicleMarkersById[fresh.id];
-                if (!vehicle || !marker) continue;
-                Object.assign(vehicle, fresh);
-                marker.setLatLng([fresh.latitude, fresh.longitude]);
-                marker.setIcon(liveVehicleIcon(vehicle));
+                let vehicle = vehicles.find(function(item) {{ return item.id === fresh.id; }});
+
+                // Якщо сторінка відкрилась у момент, коли Navirec тимчасово не
+                // повернув координати, початкового маркера ще немає. Живе
+                // оновлення повинно вміти СТВОРИТИ машину, а не лише рухати
+                // вже існуючий маркер.
+                if (!vehicle) {{
+                    vehicle = Object.assign({{}}, fresh);
+                    vehicles.push(vehicle);
+
+                    if (vehicleSelect) {{
+                        const placeholder = Array.from(vehicleSelect.options).find(function(option) {{
+                            return !option.value;
+                        }});
+                        if (placeholder) placeholder.remove();
+
+                        const optionExists = Array.from(vehicleSelect.options).some(function(option) {{
+                            return option.value === vehicle.id;
+                        }});
+                        if (!optionExists) {{
+                            const option = document.createElement('option');
+                            option.value = vehicle.id;
+                            option.textContent = vehicle.name;
+                            vehicleSelect.appendChild(option);
+                        }}
+                    }}
+                }} else {{
+                    Object.assign(vehicle, fresh);
+                }}
+
+                let marker = vehicleMarkersById[fresh.id];
+                if (!marker) {{
+                    marker = L.marker(
+                        [vehicle.latitude, vehicle.longitude],
+                        {{icon: liveVehicleIcon(vehicle)}}
+                    ).addTo(map);
+                    vehicleMarkersById[vehicle.id] = marker;
+
+                    const numberLabel = document.createElement('span');
+                    numberLabel.textContent = vehicle.plate || vehicle.name;
+                    marker.bindTooltip(numberLabel, {{
+                        permanent: true, direction: 'top', offset: [0, -4],
+                        opacity: 1, className: 'vehicle-number-label'
+                    }});
+                    marker.bindPopup(liveVehiclePopup(vehicle));
+                    marker.on('click', function() {{
+                        if (vehicleSelect && vehicleSelect.value !== vehicle.id) {{
+                            vehicleSelect.value = vehicle.id;
+                            vehicleSelect.dispatchEvent(new Event('change'));
+                        }} else {{
+                            restoreDeliveryRouteForVehicle(vehicle.id);
+                        }}
+                    }});
+                }} else {{
+                    marker.setLatLng([fresh.latitude, fresh.longitude]);
+                    marker.setIcon(liveVehicleIcon(vehicle));
+                }}
+
                 const basePopup = liveVehiclePopup(vehicle);
                 vehiclePopupBaseById[vehicle.id] = basePopup;
                 marker.setPopupContent(basePopup);
+
                 if (typeof activeDeliveryRoute !== 'undefined' && activeDeliveryRoute && activeDeliveryRoute.vehicle_id === vehicle.id) {{
                     await refreshDeliveryStopStatuses(vehicle, activeDeliveryRoute);
                 }}
@@ -5988,6 +6041,10 @@ def gps():
         option.selected = true;
         vehicleSelect.appendChild(option);
     }}
+
+    // Не чекаємо першого 15-секундного таймера. Після повної ініціалізації
+    // елементів карти одразу просимо свіжий стан машин.
+    window.setTimeout(refreshLiveVehiclePositions, 250);
 
     function setToolbarExpanded(expanded) {{
         toolbarContent.hidden = !expanded;
