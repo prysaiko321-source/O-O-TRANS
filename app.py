@@ -7682,6 +7682,52 @@ def gps():
             !deliveryStopsInput.value.trim();
     }}
 
+    // ВІДНОВЛЕННЯ СПІЛЬНОГО МАРШРУТУ ПІСЛЯ REDEPLOY RENDER.
+    // На безкоштовному Render файл у /tmp може очиститися при новому deploy.
+    // Тому директор, у якого є актуальна локальна копія маршруту, автоматично
+    // публікує її назад на сервер. Водій і логіст після цього читають той самий маршрут.
+    async function republishDirectorLocalRoutes() {{
+        if (gpsUserRole !== 'director') return;
+        const prefix = 'tranviq_delivery_route_';
+        const candidates = [];
+        try {{
+            for (let i = 0; i < localStorage.length; i += 1) {{
+                const key = localStorage.key(i);
+                if (!key || !key.startsWith(prefix)) continue;
+                const raw = localStorage.getItem(key);
+                if (!raw) continue;
+                const saved = JSON.parse(raw);
+                if (!saved || !saved.vehicle_id || !saved.delivery_route || !saved.route_data) continue;
+                candidates.push(saved);
+            }}
+        }} catch (error) {{
+            return;
+        }}
+        for (const saved of candidates) {{
+            try {{
+                const response = await fetch(
+                    '/api/delivery-route/' + encodeURIComponent(saved.vehicle_id) + '?restore=' + Date.now(),
+                    {{cache: 'no-store'}}
+                );
+                let serverSaved = null;
+                if (response.ok) {{
+                    const data = await response.json();
+                    serverSaved = data && data.route ? data.route : null;
+                }}
+                const localTime = Date.parse(saved.saved_at || '') || 0;
+                const serverTime = Date.parse((serverSaved && serverSaved.saved_at) || '') || 0;
+                if (!serverSaved || localTime >= serverTime) {{
+                    await saveDeliveryRouteForVehicle(saved);
+                }}
+            }} catch (error) {{}}
+        }}
+    }}
+
+    if (gpsUserRole === 'director') {{
+        window.setTimeout(republishDirectorLocalRoutes, 1200);
+        window.setInterval(republishDirectorLocalRoutes, 10000);
+    }}
+
     // ЖИВА СИНХРОНІЗАЦІЯ КАРТИ ЛОГІСТА МІЖ БРАУЗЕРАМИ/ПРИСТРОЯМИ.
     // Перевіряємо всі активні маршрути, а не тільки випадково вибране авто.
     // Після нового deploy серверний /tmp може бути порожнім, тому локальна
