@@ -3831,7 +3831,7 @@ def driver_dashboard():
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-       .driver-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:18px 10px;border-radius:16px;font-weight:900;cursor:pointer;min-height:76px;font-size:16px}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}.driver-msg{display:none}.driver-msg-list{display:grid;gap:8px;max-height:46vh;overflow:auto;margin:12px 0}.driver-msg-item{padding:10px 12px;border:1px solid #d8e1e5;border-radius:12px;background:#fff}.driver-msg-item.mine{background:#e7f5ff}.driver-msg-meta{font-size:11px;color:#68757d;margin-bottom:4px}.driver-msg-compose{display:grid;gap:8px}.driver-msg-compose select,.driver-msg-compose textarea{width:100%;box-sizing:border-box;border:1px solid #adb5bd;border-radius:10px;padding:10px;font-size:16px}.driver-msg-send{border:0;border-radius:11px;padding:12px;background:#0b7285;color:#fff;font-weight:900;cursor:pointer}.driver-unread{display:inline-flex;min-width:20px;height:20px;padding:0 5px;align-items:center;justify-content:center;border-radius:999px;background:#c92a2a;color:#fff;font-size:11px;margin-left:5px}
+       .driver-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:18px 10px;border-radius:16px;font-weight:900;cursor:pointer;min-height:76px;font-size:16px}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}.driver-msg{display:none}.driver-msg-list{display:grid;gap:8px;max-height:46vh;overflow:auto;margin:12px 0}.driver-msg-item{padding:10px 12px;border:1px solid #d8e1e5;border-radius:12px;background:#fff}.driver-msg-item.mine{background:#e7f5ff}.driver-msg-meta{font-size:11px;color:#68757d;margin-bottom:4px}.driver-msg-compose{display:grid;gap:8px}.driver-msg-compose select,.driver-msg-compose textarea{width:100%;box-sizing:border-box;border:1px solid #adb5bd;border-radius:10px;padding:10px;font-size:16px}.driver-msg-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px}.driver-msg-voice,.driver-msg-send{border:0;border-radius:11px;padding:12px;color:#fff;font-weight:900;cursor:pointer}.driver-msg-voice{background:#7048e8}.driver-msg-voice.listening{background:#c2255c}.driver-msg-send{background:#0b7285}.driver-msg-heard{display:none;padding:10px;border:1px solid #d8e1e5;border-radius:10px;background:#f8f9fa}.driver-msg-heard.show{display:block}.driver-msg-heard-label{font-size:11px;font-weight:900;color:#68757d;text-transform:uppercase;margin-bottom:4px}.driver-unread{display:inline-flex;min-width:20px;height:20px;padding:0 5px;align-items:center;justify-content:center;border-radius:999px;background:#c92a2a;color:#fff;font-size:11px;margin-left:5px}
       #driverMapPane{display:none}.driver-map{height:58vh;min-height:390px;border-radius:16px;overflow:hidden;border:1px solid #ced4da}.driver-map-note{font-size:12px;color:#68757d;margin:8px 0}.driver-vehicle-card{font-size:13px;line-height:1.35}.driver-vehicle-card strong{font-size:15px}.driver-to-vehicle{display:inline-block;margin-top:8px;padding:8px 10px;border-radius:9px;background:#0b7285;color:white!important;text-decoration:none;font-weight:900}
       .driver-shell{max-width:760px;margin:0 auto;padding-bottom:90px}
       .driver-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
@@ -3915,8 +3915,9 @@ def driver_dashboard():
               <option value="vehicle:cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb">Kierowca DX 9034F</option>
               <option value="vehicle:f016af91-dee6-4e72-9f86-4b2e27a253c1">Kierowca DX 5405A</option>
             </select>
-            <textarea id="driverMsgText" rows="3" placeholder="Napisz wiadomość…"></textarea>
-            <button id="driverMsgSend" class="driver-msg-send" type="button">WYŚLIJ</button>
+            <textarea id="driverMsgText" rows="3" placeholder="Napisz wiadomość albo użyj mikrofonu…"></textarea>
+            <div id="driverMsgHeard" class="driver-msg-heard"><div class="driver-msg-heard-label">USŁYSZAŁEM</div><div id="driverMsgTranscript">—</div></div>
+            <div class="driver-msg-actions"><button id="driverMsgMic" class="driver-msg-voice" type="button">🎙 MÓW</button><button id="driverMsgSend" class="driver-msg-send" type="button">WYŚLIJ</button></div>
           </div>
           <div id="driverMsgStatus" class="driver-small" style="margin-top:8px"></div>
           <div id="driverMsgList" class="driver-msg-list"></div>
@@ -3954,6 +3955,9 @@ def driver_dashboard():
       const msgPane=document.getElementById('driverMsgPane');
       const msgRecipient=document.getElementById('driverMsgRecipient');
       const msgText=document.getElementById('driverMsgText');
+      const msgMic=document.getElementById('driverMsgMic');
+      const msgHeard=document.getElementById('driverMsgHeard');
+      const msgTranscript=document.getElementById('driverMsgTranscript');
       const msgSend=document.getElementById('driverMsgSend');
       const msgList=document.getElementById('driverMsgList');
       const msgStatus=document.getElementById('driverMsgStatus');
@@ -4006,6 +4010,31 @@ def driver_dashboard():
         try{const r=await fetch('/api/messages',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)return;const items=d.messages||[];let fresh=[];items.forEach(function(m){if(!knownMessageIds.has(m.id)&&m.recipient==='vehicle:'+ownVehicleId)fresh.push(m);knownMessageIds.add(m.id);});renderMessages(items);if(fresh.length&&msgPane.style.display==='none')beep();const unread=items.filter(function(m){return m.recipient==='vehicle:'+ownVehicleId && !(m.read_by||[]).includes('vehicle:'+ownVehicleId);});unreadBadge.textContent=unread.length;unreadBadge.style.display=unread.length?'inline-flex':'none';if(markRead&&unread.length){await fetch('/api/messages/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:unread.map(x=>x.id)})});unreadBadge.style.display='none';}}
         catch(e){}
       }
+      function startMessageVoice(){
+        if(!msgRecipient.value){msgStatus.textContent='Najpierw wybierz odbiorcę.';return;}
+        const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+        if(!SR){msgStatus.textContent='Ta przeglądarka nie obsługuje rozpoznawania mowy. Spróbuj w Chrome na telefonie.';return;}
+        const rec=new SR();
+        // For now use Ukrainian recognition for the SH test driver. Later this value
+        // will come from the individual language setting of each user profile.
+        rec.lang='uk-UA'; rec.interimResults=true; rec.continuous=false;
+        msgMic.classList.add('listening'); msgMic.textContent='🔴 SŁUCHAM…';
+        msgHeard.classList.add('show'); msgTranscript.textContent='…'; msgStatus.textContent='Rozpoznaję wiadomość…';
+        rec.onresult=function(e){
+          let text='';
+          for(let i=e.resultIndex;i<e.results.length;i++){text+=e.results[i][0].transcript;}
+          text=String(text||'').trim();
+          msgTranscript.textContent=text||'…';
+          // Dictation never sends automatically. Put the transcript into the editable
+          // text box so the driver can visually verify/correct it before WYŚLIJ.
+          if(text) msgText.value=text;
+          if(e.results[e.results.length-1].isFinal) msgStatus.textContent='Sprawdź tekst. Wiadomość nie została jeszcze wysłana.';
+        };
+        rec.onerror=function(e){msgStatus.textContent='Błąd mikrofonu/rozpoznawania: '+(e.error||'nieznany');};
+        rec.onend=function(){msgMic.classList.remove('listening');msgMic.textContent='🎙 MÓW';};
+        try{rec.start();}catch(e){msgStatus.textContent='Nie udało się uruchomić mikrofonu.';}
+      }
+      msgMic.addEventListener('click',startMessageVoice);
       msgSend.addEventListener('click',async function(){const recipient=msgRecipient.value;const text=msgText.value.trim();if(!recipient||!text){msgStatus.textContent='Wybierz odbiorcę i wpisz wiadomość.';return;}msgSend.disabled=true;msgStatus.textContent='Wysyłanie…';try{const r=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipient:recipient,text:text})});const d=await r.json();if(!r.ok||!d.ok)throw new Error('send');msgText.value='';msgStatus.textContent='Wysłano.';await loadMessages(false);}catch(e){msgStatus.textContent='Nie udało się wysłać wiadomości.';}finally{msgSend.disabled=false;}});
       msgTab.addEventListener('click',openMessagesTab);
       document.addEventListener('pointerdown',function(){audioUnlocked=true;},{once:true});
