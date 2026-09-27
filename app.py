@@ -124,6 +124,7 @@ ROLE_ENDPOINTS = {
     "driver": {
         "driver_dashboard",
         "delivery_route_storage",
+        "delivery_routes_list",
         "delivery_stop_status",
         "road_payments"
     }
@@ -3654,10 +3655,34 @@ def driver_dashboard():
           const r=await fetch('/api/delivery-route/'+encodeURIComponent(vehicleId)+'?driver_sync='+Date.now(),{cache:'no-store'});
           if(!r.ok) throw new Error('HTTP '+r.status);
           const data=await r.json();
-          const candidate=data.route||null;
+          let candidate=data.route||null;
+
+          // Fallback dla kierowcy: jeżeli bezpośredni odczyt dla pojazdu
+          // nie zwrócił trasy, sprawdź wspólną listę aktywnych tras.
+          // Chroni to przed starszymi zapisami, które mogły zostać
+          // zapisane pod inną postacią identyfikatora pojazdu.
+          if(!candidate){
+            try{
+              const allResponse=await fetch('/api/delivery-routes?driver_sync='+Date.now(),{cache:'no-store'});
+              if(allResponse.ok){
+                const allData=await allResponse.json();
+                const routes=(allData&&allData.routes)||{};
+                candidate=routes[vehicleId]||null;
+                if(!candidate){
+                  Object.keys(routes).some(function(key){
+                    const item=routes[key];
+                    if(item && String(item.vehicle_id||'')===String(vehicleId)){ candidate=item; return true; }
+                    return false;
+                  });
+                }
+              }
+            }catch(ignore){}
+          }
+
           const s=stamp(candidate);
           if(s!==lastStamp){ savedRoute=candidate; lastStamp=s; render(); }
-          live.textContent='● online'; live.style.color='#087f5b';
+          live.textContent=candidate?'● online':'● online · brak trasy na serwerze';
+          live.style.color=candidate?'#087f5b':'#b26a00';
         }catch(e){ live.textContent='● brak synchronizacji'; live.style.color='#c92a2a'; }
         finally{busy=false;}
       }
