@@ -4208,6 +4208,28 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
       function iqCurrentStop(){
         const route=savedRoute&&savedRoute.delivery_route; const stops=route&&Array.isArray(route.stops)?route.stops:[]; const idx=currentIndex(stops); return idx>=0?stops[idx]:null;
       }
+      function iqStopPlan(unloading){
+        const route=savedRoute&&savedRoute.delivery_route;
+        const stops=route&&Array.isArray(route.stops)?route.stops:[];
+        const start=currentIndex(stops);
+        if(start<0) return null;
+        let target=start;
+        if(unloading){
+          const next=stops.findIndex(function(s,i){
+            return i>=start && String(s.stop_type||'').toLowerCase()==='unloading' &&
+              String(s.manual_status||'').toLowerCase()!=='completed';
+          });
+          if(next>=0) target=next;
+        }
+        return {stop:stops[target],via:stops.slice(start,target)};
+      }
+      function iqCoordinates(latitude,longitude){
+        // Number(null) and Number('') both equal zero. Neither means a GPS fix.
+        if(latitude==null||longitude==null||String(latitude).trim()===''||String(longitude).trim()==='') return null;
+        const lat=Number(latitude),lon=Number(longitude);
+        if(!Number.isFinite(lat)||!Number.isFinite(lon)||Math.abs(lat)>90||Math.abs(lon)>180||(lat===0&&lon===0)) return null;
+        return {latitude:lat,longitude:lon};
+      }
       function iqFormatDriveTime(seconds){
         const n=Number(seconds); if(!Number.isFinite(n)||n<0) return 'brak danych';
         const mins=Math.max(1,Math.round(n/60)),h=Math.floor(mins/60),m=mins%60;
@@ -4220,8 +4242,9 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const d=new Date(Date.now()+n*1000);
         return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
       }
-      async function iqNextStopEstimate(){
-        const stop=iqCurrentStop();
+      async function iqNextStopEstimate(unloading){
+        const plan=iqStopPlan(Boolean(unloading));
+        const stop=plan&&plan.stop;
         iqAction.innerHTML='';
         if(!stop||!stop.address){iqResult.textContent='Brak aktywnego następnego punktu trasy.';return;}
         iqResult.textContent='Sprawdzam aktualną pozycję pojazdu i trasę do następnego punktu…';
@@ -4235,40 +4258,41 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             const plate=String(__PLATE_JSON__||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();
             own=vehicles.find(function(v){const x=String(v.plate||v.name||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();return plate&&x.includes(plate);});
           }
-          const lat=Number(own&&own.latitude),lon=Number(own&&own.longitude);
-          if(!Number.isFinite(lat)||!Number.isFinite(lon)) throw new Error('gps');
+          const origin=iqCoordinates(own&&own.latitude,own&&own.longitude);
+          if(!origin) throw new Error('gps');
 
-          // The delivery planner already saved exact coordinates for every stop.
-          // Use them first instead of geocoding the same address again. This keeps
-          // driver IQ consistent with the route that director/dispatcher approved.
-          let dlat=Number(stop.latitude),dlon=Number(stop.longitude);
-          let destinationSource='saved_stop_coordinates';
-          if(!Number.isFinite(dlat)||!Number.isFinite(dlon)){
-            destinationSource='geocoded_address';
-            const geoResp=await fetch('/api/geocode?mode=address&purpose=delivery&consent=addresses_only&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon)+'&q='+encodeURIComponent(stop.address),{cache:'no-store'});
+          async function pointFor(routeStop){
+            const saved=iqCoordinates(routeStop.latitude,routeStop.longitude);
+            if(saved) return saved;
+            const geoResp=await fetch('/api/geocode?mode=address&purpose=delivery&consent=addresses_only&lat='+encodeURIComponent(origin.latitude)+'&lon='+encodeURIComponent(origin.longitude)+'&q='+encodeURIComponent(routeStop.address),{cache:'no-store'});
+            if(!geoResp.ok) throw new Error('geocode');
             const geo=await geoResp.json();
-            if(!geoResp.ok||!Array.isArray(geo.results)||!geo.results.length) throw new Error('geocode');
-            const dest=geo.results[0];
-            dlat=Number(dest.latitude);dlon=Number(dest.longitude);
-            if(!Number.isFinite(dlat)||!Number.isFinite(dlon)) throw new Error('geocode');
+            const results=Array.isArray(geo.results)?geo.results:[];
+            const resolved=results.length?iqCoordinates(results[0].latitude,results[0].longitude):null;
+            if(!resolved) throw new Error('geocode');
+            return resolved;
           }
-
-          const routeResp=await fetch('/api/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({origin:{latitude:lat,longitude:lon},destination:{latitude:dlat,longitude:dlon},avoid_tolls:false})});
+          const waypoints=[];
+          for(const viaStop of plan.via) waypoints.push(await pointFor(viaStop));
+          const destination=await pointFor(stop);
+          const routeResp=await fetch('/api/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({origin:origin,destination:destination,waypoints:waypoints,avoid_tolls:false})});
+          if(!routeResp.ok) throw new Error('route');
           const route=await routeResp.json();
-          if(!routeResp.ok) throw new Error(route.error||'route');
+          if(route.distance_m==null||route.duration_s==null) throw new Error('route');
           const km=Number(route.distance_m)/1000,secs=Number(route.duration_s);
-          if(!Number.isFinite(km)||!Number.isFinite(secs)) throw new Error('route');
+          if(!Number.isFinite(km)||km<0||!Number.isFinite(secs)||secs<0) throw new Error('route');
           const eta=iqFormatEta(secs);
           const windowText=(stop.window_start&&stop.window_end)?(' Okno punktu: '+stop.window_start+'–'+stop.window_end+'.'):'';
-          iqResult.textContent='Następny punkt: '+stop.address+'. Zostało '+km.toFixed(1)+' km, około '+iqFormatDriveTime(secs)+(eta?'. Przewidywany przyjazd: '+eta:'')+'.'+windowText;
+          iqResult.textContent=(unloading?'Następny rozładunek: ':'Następny punkt: ')+stop.address+'. Zostało '+km.toFixed(1)+' km, około '+iqFormatDriveTime(secs)+(eta?'. Przewidywany przyjazd: '+eta:'')+'.'+windowText;
           const a=document.createElement('a');a.href=googleMapsUrl(stop.address);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
         }catch(e){
           const reason=String((e&&e.message)||e||'unknown');
-          let detail='routing';
-          if(reason==='gps') detail='GPS pojazdu';
-          else if(reason==='geocode') detail='współrzędne następnego punktu';
-          else if(reason) detail=reason;
-          iqResult.textContent='Nie udało się teraz policzyć drogi do następnego punktu. Etap: '+detail+'.';
+          iqResult.textContent=reason==='gps'
+            ? 'Nie ma aktualnych współrzędnych GPS tego pojazdu. Sprawdź pozycję i spróbuj ponownie.'
+            : (reason==='geocode'
+              ? 'Nie udało się ustalić współrzędnych punktu trasy. Sprawdź adres.'
+              : 'Serwis tras chwilowo nie obliczył drogi. Możesz otworzyć nawigację do punktu.');
+          const a=document.createElement('a');a.href=googleMapsUrl(stop.address);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
           console.error('TRANVIQ IQ ETA error:',e);
         }
       }
@@ -4276,13 +4300,13 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const raw=String(text||''); const q=raw.toLowerCase(); iqAction.innerHTML='';
         const stop=iqCurrentStop();
         const has=function(parts){return parts.some(function(x){return q.includes(x);});};
-        const vehicle=(q.match(/d\s*x\s*f|д\s*х\s*ф|dxef|deixef/i)?'DXF':(q.match(/d\s*x\s*a|д\s*х\s*а|dxa/i)?'DXA':(q.match(/s\s*h|ш\s*х|sh/i)?'SH':null)));
+        const vehicle=(q.match(/d\\s*x\\s*f|д\\s*х\\s*ф|dxef|deixef/i)?'DXF':(q.match(/d\\s*x\\s*a|д\\s*х\\s*а|dxa/i)?'DXA':(q.match(/s\\s*h|ш\\s*х|sh/i)?'SH':null)));
         const navWord=has(['навіг','навига','nawig','prowadź','веди','їхати до','їхать до','дорогу до']);
         const tachoWord=has(['тахо','tach','часу','час ','час?','їхати','ехать','jazd','пау','przerw','відпоч','odpocz']);
         const nextPointWord=has(['наступ','następ','вигруз','вигруж','вивантаж','вивантажк','розвантаж','розгруз','rozład','достав','punkt','точк']);
         const distanceTimeWord=has(['скільки','скiльки','ile','далеко','zosta','залиш','лишил','ще їх','ще їхати','час','czas','кілом','kilometr','км','godzin','хвилин','minut','коли буду','kiedy będę','доїх','dojad']);
         const asksNextEta=(nextPointWord&&distanceTimeWord) || (has(['скільки','ile','далеко','залиш','zosta'])&&has(['вигруз','вивантаж','розвантаж','rozład','точк','punkt']));
-        if(asksNextEta){iqResult.textContent='IQ zrozumiał: odległość i czas do następnego punktu. Obliczam…';iqNextStopEstimate();return;}
+        if(asksNextEta){iqResult.textContent='IQ zrozumiał: odległość i czas do następnego punktu. Obliczam…';iqNextStopEstimate(has(['вигруз','вигруж','вивантаж','розвантаж','розгруз','rozład']));return;}
         if(vehicle && (navWord || has(['до '+vehicle.toLowerCase(),'do '+vehicle.toLowerCase()]))){
           iqResult.textContent='IQ zrozumiał: nawigować do pojazdu '+vehicle+'.';
           const target=Object.values(fleetMarkers).find(function(m){return m&&m._tranviqVehicle===vehicle;});
@@ -4384,6 +4408,10 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "Sprawdzam aktualną pozycję pojazdu i trasę do następnego punktu…": "Перевіряю актуальну GPS-позицію машини та маршрут до наступної точки…",
             "Brak aktywnego następnego punktu trasy.": "Немає активної наступної точки маршруту.",
             "Nie udało się teraz policzyć drogi do następnego punktu z aktualnej pozycji GPS. Spróbuj ponownie za chwilę.": "Зараз не вдалося розрахувати дорогу до наступної точки з актуальної GPS-позиції. Спробуй ще раз за хвилину.",
+            "Nie ma aktualnych współrzędnych GPS tego pojazdu. Sprawdź pozycję i spróbuj ponownie.": "Немає актуальних GPS-координат цієї машини. Перевір позицію та спробуй ще раз.",
+            "Nie udało się ustalić współrzędnych punktu trasy. Sprawdź adres.": "Не вдалося визначити координати точки маршруту. Перевір адресу.",
+            "Serwis tras chwilowo nie obliczył drogi. Możesz otworzyć nawigację do punktu.": "Сервіс маршрутів зараз не розрахував дорогу. Можеш відкрити навігацію до точки.",
+            "Następny rozładunek:": "Наступна вигрузка:",
             "Następny punkt:": "Наступна точка:", "Zostało": "Залишилось", "około": "приблизно", "Przewidywany przyjazd:": "Орієнтовне прибуття:", "Okno punktu:": "Часове вікно:",
             "godz.": "год", "min": "хв", "brak danych": "немає даних", "Brak aktywnego następnego punktu.": "Немає активної наступної точки.",
             "IQ zrozumiał: następny adres.": "IQ зрозумів: наступна адреса.", "IQ zrozumiał: nawigacja do następnego punktu.": "IQ зрозумів: навігація до наступної точки.",
