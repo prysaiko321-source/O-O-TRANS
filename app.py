@@ -4249,16 +4249,10 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         if(!stop||!stop.address){iqResult.textContent='Brak aktywnego następnego punktu trasy.';return;}
         iqResult.textContent='Sprawdzam aktualną pozycję pojazdu i trasę do następnego punktu…';
         try{
-          const statesResp=await fetch('/api/live-vehicle-states?iq_eta='+Date.now(),{cache:'no-store'});
+          const statesResp=await fetch('/api/driver-gps/'+encodeURIComponent(ownVehicleId)+'?iq_eta='+Date.now(),{cache:'no-store'});
           if(!statesResp.ok) throw new Error('gps');
-          const states=await statesResp.json();
-          const vehicles=Array.isArray(states.vehicles)?states.vehicles:[];
-          let own=vehicles.find(function(v){return String(v.id||'')===String(ownVehicleId||vehicleId);});
-          if(!own){
-            const plate=String(__PLATE_JSON__||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();
-            own=vehicles.find(function(v){const x=String(v.plate||v.name||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();return plate&&x.includes(plate);});
-          }
-          const origin=iqCoordinates(own&&own.latitude,own&&own.longitude);
+          const own=await statesResp.json();
+          const origin=iqCoordinates(own.latitude,own.longitude);
           if(!origin) throw new Error('gps');
 
           async function pointFor(routeStop){
@@ -6056,6 +6050,24 @@ def api_live_vehicle_states():
         vehicles = [item for item in vehicles if item.get("id") == own_id]
 
     return jsonify({"ok": True, "vehicles": vehicles})
+
+
+@app.route("/api/driver-gps/<vehicle_id>")
+def api_driver_gps(vehicle_id):
+    """Return Navirec coordinates for the exact vehicle selected by driver IQ."""
+    vehicle = vehicle_by_id(vehicle_id)
+    if not vehicle:
+        return jsonify({"ok": False, "error": "vehicle_not_found"}), 404
+    if current_role() == "driver" and vehicle_id != VEHICLES[0]["id"]:
+        return jsonify({"ok": False, "error": "vehicle_not_allowed"}), 403
+    state = state_for_vehicle(vehicle_id)
+    if not state:
+        return jsonify({"ok": False, "error": "state_unavailable"}), 503
+    latitude, longitude = extract_coordinates(state.get("location"))
+    if latitude is None or longitude is None:
+        return jsonify({"ok": False, "error": "coordinates_unavailable"}), 503
+    return jsonify({"ok": True, "vehicle_id": vehicle_id,
+                    "latitude": latitude, "longitude": longitude})
 
 
 @app.route("/gps")
