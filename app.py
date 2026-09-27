@@ -108,6 +108,7 @@ ROLE_ENDPOINTS = {
         "route_calculate",
         "delivery_stop_status",
         "delivery_route_storage",
+        "delivery_routes_list",
         "api_live_vehicle_states",
         "tachograph",
         "road_payments"
@@ -1062,10 +1063,13 @@ def vehicle_day_summary():
     })
 
 
-DELIVERY_ROUTES_FILE = os.environ.get(
-    "DELIVERY_ROUTES_FILE",
-    "/tmp/tranviq_delivery_routes.json"
-)
+_delivery_routes_env = os.environ.get("DELIVERY_ROUTES_FILE", "").strip()
+if _delivery_routes_env:
+    DELIVERY_ROUTES_FILE = _delivery_routes_env
+elif os.path.isdir("/var/data") and os.access("/var/data", os.W_OK):
+    DELIVERY_ROUTES_FILE = "/var/data/tranviq_delivery_routes.json"
+else:
+    DELIVERY_ROUTES_FILE = "/tmp/tranviq_delivery_routes.json"
 DELIVERY_ROUTES_LOCK = threading.Lock()
 
 
@@ -1086,6 +1090,24 @@ def _write_delivery_routes(data):
     with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False)
     os.replace(temporary, DELIVERY_ROUTES_FILE)
+
+
+@app.route("/api/delivery-routes", methods=["GET"])
+def delivery_routes_list():
+    """Return all saved active routes for dispatcher live synchronization."""
+    with DELIVERY_ROUTES_LOCK:
+        routes = _load_delivery_routes()
+    valid = {}
+    for vehicle_id, saved in routes.items():
+        normalized = normalize_vehicle_id(vehicle_id)
+        if (
+            vehicle_by_id(normalized)
+            and isinstance(saved, dict)
+            and isinstance(saved.get("delivery_route"), dict)
+            and isinstance(saved.get("route_data"), dict)
+        ):
+            valid[normalized] = saved
+    return jsonify({"routes": valid})
 
 
 @app.route("/api/delivery-route/<vehicle_id>", methods=["GET", "PUT", "DELETE"])
@@ -5586,6 +5608,7 @@ def gps():
             ['\\u0414\\u043b\\u044f \\u043d\\u0430\\u0441\\u0442\\u0443\\u043f\\u043d\\u043e\\u0433\\u043e \\u0440\\u0435\\u0439\\u0441\\u0443 \\u043f\\u043e\\u0442\\u0440\\u0456\\u0431\\u0435\\u043d \\u0434\\u043e\\u0431\\u043e\\u0432\\u0438\\u0439 \\u0432\\u0456\\u0434\\u043f\\u043e\\u0447\\u0438\\u043d\\u043e\\u043a.', 'Przed następną trasą wymagany jest odpoczynek dobowy.'],
             ['\\u043a\\u0435\\u0440\\u0443\\u0432\\u0430\\u043d\\u043d\\u044f.', 'jazdy.'],
             ['\\u041c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0443\\u0437\\u0433\\u043e\\u0434\\u0436\\u0435\\u043d\\u043e \\u0437 \\u0430\\u043a\\u0442\\u0443\\u0430\\u043b\\u044c\\u043d\\u0438\\u043c \\u0442\\u0430\\u0445\\u043e\\u0433\\u0440\\u0430\\u0444\\u043e\\u043c.', 'Trasa jest zgodna z aktualnymi danymi tachografu.'],
+            ['\\u0414\\u043e \\u0432\\u0438\\u0457\\u0437\\u0434\\u0443 \\u0432\\u0440\\u0430\\u0445\\u043e\\u0432\\u0430\\u043d\\u043e \\u0441\\u0442\\u043e\\u044f\\u043d\\u043a\\u0443 \\u0437 \\u0432\\u0438\\u043c\\u043a\\u043d\\u0435\\u043d\\u0438\\u043c \\u0437\\u0430\\u043f\\u0430\\u043b\\u044e\\u0432\\u0430\\u043d\\u043d\\u044f\\u043c \\u044f\\u043a \\u0440\\u043e\\u0437\\u0440\\u0430\\u0445\\u0443\\u043d\\u043a\\u043e\\u0432\\u0443 \\u043f\\u0430\\u0443\\u0437\\u0443. \\u041f\\u0456\\u0441\\u043b\\u044f \\u0437\\u0430\\u043f\\u0443\\u0441\\u043a\\u0443 \\u0437\\u0432\\u0456\\u0440\\u0438\\u0442\\u0438 \\u0437 \\u0442\\u0430\\u0445\\u043e\\u0433\\u0440\\u0430\\u0444\\u043e\\u043c.', 'Do wyjazdu postój z wyłączonym zapłonem został uwzględniony jako szacunkowa przerwa. Po uruchomieniu pojazdu należy zweryfikować ją z danymi tachografu.'],
             ['\\u0431\\u0435\\u0437 \\u0447\\u0430\\u0441\\u043e\\u0432\\u043e\\u0433\\u043e \\u0432\\u0456\\u043a\\u043d\\u0430', 'bez okna czasowego'],
             ['\\u0432\\u0438\\u0457\\u0437\\u0434', 'wyjazd'],
             ['\\u0432\\u0456\\u0434 \\u043f\\u043e\\u043f\\u0435\\u0440\\u0435\\u0434\\u043d\\u044c\\u043e\\u0457 \\u0442\\u043e\\u0447\\u043a\\u0438', 'od poprzedniego punktu'],
@@ -5767,16 +5790,9 @@ def gps():
                             vehicleSelect.appendChild(option);
                         }}
 
-                        // If GPS arrived after the page had already opened, the
-                        // selector could stay empty even though markers were now
-                        // visible. Select the first live vehicle automatically so
-                        // the dispatcher route synchronizer has a vehicle id and
-                        // can restore its saved route without any click/F5.
-                        if (!vehicleSelect.value) {{
-                            vehicleSelect.value = vehicle.id;
-                            vehicleSelect.dispatchEvent(new Event('change'));
-                            window.setTimeout(syncSelectedDeliveryRouteFromServer, 250);
-                        }}
+                        // Nie wybieramy tutaj pierwszego auta w ciemno.
+                        // Po pobraniu wszystkich pozycji wybierzemy pojazd,
+                        // który naprawdę ma najnowszą aktywną trasę.
                     }}
                 }} else {{
                     Object.assign(vehicle, fresh);
@@ -5816,6 +5832,14 @@ def gps():
 
                 if (typeof activeDeliveryRoute !== 'undefined' && activeDeliveryRoute && activeDeliveryRoute.vehicle_id === vehicle.id) {{
                     await refreshDeliveryStopStatuses(vehicle, activeDeliveryRoute);
+                }}
+            }}
+
+            if (vehicles.length && typeof selectAndRestoreBestActiveRoute === 'function') {{
+                const restored = await selectAndRestoreBestActiveRoute(false);
+                if (!restored && vehicleSelect && !vehicleSelect.value) {{
+                    vehicleSelect.value = vehicles[0].id;
+                    vehicleSelect.dispatchEvent(new Event('change'));
                 }}
             }}
         }} catch (error) {{
@@ -7452,11 +7476,12 @@ def gps():
     }}
 
     // ЖИВА СИНХРОНІЗАЦІЯ КАРТИ ЛОГІСТА МІЖ БРАУЗЕРАМИ/ПРИСТРОЯМИ.
-    // Кожні 10 секунд читаємо саме серверну копію маршруту вибраного авто.
-    // Якщо водій/інший користувач змінив маршрут, карта логіста перемальовується
-    // автоматично без F5.
+    // Перевіряємо всі активні маршрути, а не тільки випадково вибране авто.
+    // Після нового deploy серверний /tmp може бути порожнім, тому локальна
+    // копія браузера використовується як резерв і повертається на сервер.
     const lastServerRouteStampByVehicle = {{}};
     let deliveryRouteSyncBusy = false;
+    let lastBestRouteCheckAt = 0;
 
     async function fetchServerDeliveryRoute(vehicleId) {{
         if (!vehicleId) return null;
@@ -7475,10 +7500,24 @@ def gps():
         return candidate;
     }}
 
+    async function fetchAllServerDeliveryRoutes() {{
+        try {{
+            const response = await fetch(
+                '/api/delivery-routes?sync=' + Date.now(),
+                {{cache: 'no-store'}}
+            );
+            if (!response.ok) return {{}};
+            const data = await response.json();
+            return data && data.routes && typeof data.routes === 'object'
+                ? data.routes
+                : {{}};
+        }} catch (error) {{
+            return {{}};
+        }}
+    }}
+
     function serverRouteStamp(saved) {{
         if (!saved) return '';
-        // Compare the actual route payload, not only saved_at/counts.
-        // This catches changed order, statuses, coordinates and route geometry.
         try {{
             return JSON.stringify({{
                 vehicle_id: saved.vehicle_id || '',
@@ -7493,20 +7532,115 @@ def gps():
         }}
     }}
 
+    function savedRouteTimestamp(saved) {{
+        if (!saved || !saved.saved_at) return 0;
+        const value = Date.parse(saved.saved_at);
+        return Number.isFinite(value) ? value : 0;
+    }}
+
+    function localDeliveryRoutesForVisibleVehicles() {{
+        const routes = {{}};
+        vehicles.forEach(function(vehicle) {{
+            try {{
+                const raw = localStorage.getItem(
+                    deliveryRouteStorageKey(vehicle.id)
+                );
+                if (!raw) return;
+                const saved = JSON.parse(raw);
+                if (saved && saved.vehicle_id === vehicle.id &&
+                        saved.delivery_route && saved.route_data) {{
+                    routes[vehicle.id] = saved;
+                }}
+            }} catch (error) {{}}
+        }});
+        return routes;
+    }}
+
+    function newestRouteCandidate(serverRoutes, localRoutes) {{
+        let best = null;
+        function consider(saved, source) {{
+            if (!saved || !saved.vehicle_id ||
+                    !saved.delivery_route || !saved.route_data) return;
+            if (!vehicles.some(function(vehicle) {{
+                return vehicle.id === saved.vehicle_id;
+            }})) return;
+            const candidate = {{
+                saved: saved,
+                source: source,
+                time: savedRouteTimestamp(saved)
+            }};
+            if (!best || candidate.time > best.time) best = candidate;
+        }}
+        Object.keys(serverRoutes || {{}}).forEach(function(vehicleId) {{
+            consider(serverRoutes[vehicleId], 'server');
+        }});
+        Object.keys(localRoutes || {{}}).forEach(function(vehicleId) {{
+            const localSaved = localRoutes[vehicleId];
+            const serverSaved = (serverRoutes || {{}})[vehicleId];
+            if (!serverSaved ||
+                    savedRouteTimestamp(localSaved) > savedRouteTimestamp(serverSaved)) {{
+                consider(localSaved, 'local');
+            }}
+        }});
+        return best;
+    }}
+
+    async function selectAndRestoreBestActiveRoute(force) {{
+        if (!vehicleSelect || !vehicles.length) return false;
+        const now = Date.now();
+        if (!force && now - lastBestRouteCheckAt < 1500) {{
+            return Boolean(activeDeliveryRoute);
+        }}
+        lastBestRouteCheckAt = now;
+
+        const serverRoutes = await fetchAllServerDeliveryRoutes();
+        const localRoutes = localDeliveryRoutesForVisibleVehicles();
+        const best = newestRouteCandidate(serverRoutes, localRoutes);
+        if (!best) return false;
+
+        const saved = best.saved;
+        const vehicleId = saved.vehicle_id;
+
+        if (best.source === 'local') {{
+            try {{
+                await saveDeliveryRouteForVehicle(saved);
+            }} catch (error) {{
+                // Lokalna kopia nadal pozwala odtworzyć trasę na tym urządzeniu.
+            }}
+        }}
+
+        if (vehicleSelect.value !== vehicleId) {{
+            vehicleSelect.value = vehicleId;
+            updateFuelConsumption();
+        }}
+
+        const stamp = serverRouteStamp(saved);
+        const currentStamp = lastServerRouteStampByVehicle[vehicleId] || '';
+        const activeVehicleId = activeDeliveryRoute
+            ? activeDeliveryRoute.vehicle_id
+            : '';
+        if (force || activeVehicleId !== vehicleId || stamp !== currentStamp) {{
+            lastServerRouteStampByVehicle[vehicleId] = stamp;
+            await restoreDeliveryRouteForVehicle(vehicleId, saved);
+        }}
+        return true;
+    }}
+
     async function syncSelectedDeliveryRouteFromServer() {{
         if (deliveryRouteSyncBusy || document.hidden || !vehicleSelect) return;
-        const vehicleId = vehicleSelect.value;
-        if (!vehicleId) return;
         deliveryRouteSyncBusy = true;
         try {{
+            const restored = await selectAndRestoreBestActiveRoute(true);
+            if (restored) return;
+
+            const vehicleId = vehicleSelect.value;
+            if (!vehicleId) return;
             const serverSaved = await fetchServerDeliveryRoute(vehicleId);
             if (!serverSaved) return;
             const stamp = serverRouteStamp(serverSaved);
             const currentStamp = lastServerRouteStampByVehicle[vehicleId] || '';
             if (stamp !== currentStamp) {{
                 lastServerRouteStampByVehicle[vehicleId] = stamp;
-                serverSaved.delivery_route._server_saved_at =
-                    String(serverSaved.saved_at || '');
                 await restoreDeliveryRouteForVehicle(vehicleId, serverSaved);
             }}
         }} catch (error) {{
@@ -7517,6 +7651,7 @@ def gps():
     }}
 
     window.setInterval(syncSelectedDeliveryRouteFromServer, 10000);
+    window.setTimeout(syncSelectedDeliveryRouteFromServer, 1200);
     document.addEventListener('visibilitychange', function() {{
         if (!document.hidden) syncSelectedDeliveryRouteFromServer();
     }});
