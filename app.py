@@ -107,6 +107,8 @@ ROLE_ENDPOINTS = {
         "geocode_search",
         "route_calculate",
         "delivery_stop_status",
+        "delivery_route_storage",
+        "api_live_vehicle_states",
         "tachograph",
         "road_payments"
     },
@@ -3452,6 +3454,11 @@ def director_dashboard():
 
 @app.route("/dispatcher")
 def dispatcher_dashboard():
+    # The dispatcher home is the live operational GPS/route map.
+    return redirect(url_for("gps"))
+
+
+def _legacy_dispatcher_dashboard():
     lang = current_language()
     vehicle_labels = {
         "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
@@ -7402,9 +7409,20 @@ def gps():
 
     function serverRouteStamp(saved) {{
         if (!saved) return '';
-        return String(saved.saved_at || '') + '|' +
-            String((saved.input_text || '').length) + '|' +
-            String((saved.delivery_route && saved.delivery_route.stops || []).length);
+        // Compare the actual route payload, not only saved_at/counts.
+        // This catches changed order, statuses, coordinates and route geometry.
+        try {{
+            return JSON.stringify({{
+                vehicle_id: saved.vehicle_id || '',
+                input_text: saved.input_text || '',
+                service_minutes: saved.service_minutes || 0,
+                daily_rest_hours: saved.daily_rest_hours || 0,
+                delivery_route: saved.delivery_route || null,
+                route_data: saved.route_data || null
+            }});
+        }} catch (error) {{
+            return String(saved.saved_at || '') + '|' + Date.now();
+        }}
     }}
 
     async function syncSelectedDeliveryRouteFromServer() {{
@@ -7417,13 +7435,7 @@ def gps():
             if (!serverSaved) return;
             const stamp = serverRouteStamp(serverSaved);
             const currentStamp = lastServerRouteStampByVehicle[vehicleId] || '';
-            const activeStamp = activeDeliveryRoute &&
-                activeDeliveryRoute.vehicle_id === vehicleId
-                ? String(activeDeliveryRoute._server_saved_at || '')
-                : '';
-
-            if (stamp !== currentStamp &&
-                    String(serverSaved.saved_at || '') !== activeStamp) {{
+            if (stamp !== currentStamp) {{
                 lastServerRouteStampByVehicle[vehicleId] = stamp;
                 serverSaved.delivery_route._server_saved_at =
                     String(serverSaved.saved_at || '');
