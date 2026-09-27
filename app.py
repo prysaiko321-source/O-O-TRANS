@@ -6119,6 +6119,7 @@ def gps():
         marker.bindPopup(basePopup);
         marker.on('click', function() {{
             if (vehicleSelect && vehicleSelect.value !== vehicle.id) {{
+                rememberManualVehicleSelection(vehicle.id);
                 vehicleSelect.value = vehicle.id;
                 vehicleSelect.dispatchEvent(new Event('change'));
             }} else {{
@@ -6225,6 +6226,7 @@ def gps():
                     marker.bindPopup(liveVehiclePopup(vehicle));
                     marker.on('click', function() {{
                         if (vehicleSelect && vehicleSelect.value !== vehicle.id) {{
+                            rememberManualVehicleSelection(vehicle.id);
                             vehicleSelect.value = vehicle.id;
                             vehicleSelect.dispatchEvent(new Event('change'));
                         }} else {{
@@ -6294,6 +6296,32 @@ def gps():
     const vehicleSelect = document.getElementById(
         'route-vehicle-select'
     );
+    // Ręczny wybór pojazdu ma zawsze pierwszeństwo przed automatyczną
+    // synchronizacją tras/GPS. Zapamiętujemy go w tej przeglądarce.
+    let manualSelectedVehicleId = '';
+    try {{
+        manualSelectedVehicleId = localStorage.getItem(
+            'tranviq_manual_selected_vehicle'
+        ) || '';
+    }} catch (error) {{
+        manualSelectedVehicleId = '';
+    }}
+
+    function rememberManualVehicleSelection(vehicleId) {{
+        manualSelectedVehicleId = vehicleId || '';
+        try {{
+            if (manualSelectedVehicleId) {{
+                localStorage.setItem(
+                    'tranviq_manual_selected_vehicle',
+                    manualSelectedVehicleId
+                );
+            }} else {{
+                localStorage.removeItem('tranviq_manual_selected_vehicle');
+            }}
+        }} catch (error) {{
+            // localStorage może być niedostępny w trybie prywatnym.
+        }}
+    }}
     const cityInput = document.getElementById('city-search');
     const cityResults = document.getElementById(
         'city-search-results'
@@ -6563,8 +6591,19 @@ def gps():
         // Браузер може блокувати localStorage у приватному режимі.
     }}
 
+    if (manualSelectedVehicleId &&
+            Array.from(vehicleSelect.options).some(function(option) {{
+                return option.value === manualSelectedVehicleId;
+            }})) {{
+        vehicleSelect.value = manualSelectedVehicleId;
+    }}
     updateFuelConsumption();
-    vehicleSelect.addEventListener('change', function() {{
+    vehicleSelect.addEventListener('change', function(event) {{
+        // Zmiana wykonana ręcznie w selektorze blokuje automatyczne
+        // przeskakiwanie na pojazd z najnowszą trasą.
+        if (event && event.isTrusted) {{
+            rememberManualVehicleSelection(vehicleSelect.value);
+        }}
         updateFuelConsumption();
         restoreDeliveryRouteForVehicle(vehicleSelect.value);
     }});
@@ -8066,6 +8105,37 @@ def gps():
             return Boolean(activeDeliveryRoute);
         }}
         lastBestRouteCheckAt = now;
+
+        // Jeśli użytkownik ręcznie wybrał pojazd, synchronizacja może
+        // odświeżać jego trasę, ale NIE może zmienić wybranego pojazdu.
+        if (manualSelectedVehicleId &&
+                vehicles.some(function(item) {{ return item.id === manualSelectedVehicleId; }})) {{
+            if (vehicleSelect.value !== manualSelectedVehicleId) {{
+                vehicleSelect.value = manualSelectedVehicleId;
+                updateFuelConsumption();
+            }}
+            const manualServerSaved = await fetchServerDeliveryRoute(
+                manualSelectedVehicleId
+            );
+            if (manualServerSaved) {{
+                const manualStamp = serverRouteStamp(manualServerSaved);
+                const manualCurrentStamp =
+                    lastServerRouteStampByVehicle[manualSelectedVehicleId] || '';
+                const manualActiveVehicleId = activeDeliveryRoute
+                    ? activeDeliveryRoute.vehicle_id
+                    : '';
+                if (force || manualActiveVehicleId !== manualSelectedVehicleId ||
+                        manualStamp !== manualCurrentStamp) {{
+                    lastServerRouteStampByVehicle[manualSelectedVehicleId] = manualStamp;
+                    await restoreDeliveryRouteForVehicle(
+                        manualSelectedVehicleId,
+                        manualServerSaved
+                    );
+                }}
+            }}
+            // Nawet jeśli wybrany pojazd nie ma jeszcze trasy, zostaje wybrany.
+            return true;
+        }}
 
         const serverRoutes = await fetchAllServerDeliveryRoutes();
         // Для логіста сервер є єдиним джерелом активного маршруту.
