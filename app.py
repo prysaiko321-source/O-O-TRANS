@@ -4263,9 +4263,10 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const vehicle=(q.match(/d\s*x\s*f|д\s*х\s*ф|dxef|deixef/i)?'DXF':(q.match(/d\s*x\s*a|д\s*х\s*а|dxa/i)?'DXA':(q.match(/s\s*h|ш\s*х|sh/i)?'SH':null)));
         const navWord=has(['навіг','навига','nawig','prowadź','веди','їхати до','їхать до','дорогу до']);
         const tachoWord=has(['тахо','tach','часу','час ','час?','їхати','ехать','jazd','пау','przerw','відпоч','odpocz']);
-        const nextPointWord=has(['наступ','następ','вигруз','вивантаж','розвантаж','rozład','достав','punkt']);
-        const distanceTimeWord=has(['скільки','ile','далеко','zosta','залиш','час','czas','кілом','kilometr','км','godzin','хвилин','minut','коли буду','kiedy będę']);
-        if(nextPointWord && distanceTimeWord){iqNextStopEstimate();return;}
+        const nextPointWord=has(['наступ','następ','вигруз','вигруж','вивантаж','вивантажк','розвантаж','розгруз','rozład','достав','punkt','точк']);
+        const distanceTimeWord=has(['скільки','скiльки','ile','далеко','zosta','залиш','лишил','ще їх','ще їхати','час','czas','кілом','kilometr','км','godzin','хвилин','minut','коли буду','kiedy będę','доїх','dojad']);
+        const asksNextEta=(nextPointWord&&distanceTimeWord) || (has(['скільки','ile','далеко','залиш','zosta'])&&has(['вигруз','вивантаж','розвантаж','rozład','точк','punkt']));
+        if(asksNextEta){iqResult.textContent='IQ zrozumiał: odległość i czas do następnego punktu. Obliczam…';iqNextStopEstimate();return;}
         if(vehicle && (navWord || has(['до '+vehicle.toLowerCase(),'do '+vehicle.toLowerCase()]))){
           iqResult.textContent='IQ zrozumiał: nawigować do pojazdu '+vehicle+'.';
           const target=Object.values(fleetMarkers).find(function(m){return m&&m._tranviqVehicle===vehicle;});
@@ -4286,10 +4287,22 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
         if(!SR){iqResult.textContent='Ta przeglądarka nie obsługuje rozpoznawania mowy. Spróbuj w Chrome na telefonie.';return;}
         const rec=new SR(); rec.lang='uk-UA'; rec.interimResults=true; rec.continuous=false;
+        let fullText=''; let interpreted=false;
         micBtn.classList.add('listening'); micBtn.textContent='🔴 SŁUCHAM…'; transcriptBox.textContent='…'; iqResult.textContent='Rozpoznaję mowę…'; iqAction.innerHTML='';
-        rec.onresult=function(e){let text='';for(let i=e.resultIndex;i<e.results.length;i++){text+=e.results[i][0].transcript;}transcriptBox.textContent=text||'…';if(e.results[e.results.length-1].isFinal)iqInterpret(text);};
+        rec.onresult=function(e){
+          let all='';
+          for(let i=0;i<e.results.length;i++){all+=String(e.results[i][0].transcript||'')+' ';}
+          fullText=all.trim();
+          transcriptBox.textContent=fullText||'…';
+          const last=e.results[e.results.length-1];
+          if(last&&last.isFinal&&fullText){interpreted=true;iqResult.textContent='IQ analizuje polecenie…';iqInterpret(fullText);}
+        };
         rec.onerror=function(e){iqResult.textContent='Błąd mikrofonu/rozpoznawania: '+(e.error||'nieznany');};
-        rec.onend=function(){micBtn.classList.remove('listening');micBtn.textContent='🎙 NACIŚNIJ I MÓW';};
+        rec.onend=function(){
+          micBtn.classList.remove('listening');micBtn.textContent='🎙 NACIŚNIJ I MÓW';
+          if(!interpreted&&fullText){interpreted=true;iqResult.textContent='IQ analizuje polecenie…';iqInterpret(fullText);}
+          else if(!fullText&&iqResult.textContent==='Rozpoznaję mowę…'){iqResult.textContent='Nie usłyszałem polecenia. Spróbuj jeszcze raz.';}
+        };
         try{rec.start();}catch(e){iqResult.textContent='Nie udało się uruchomić mikrofonu.';}
       }
       micBtn.addEventListener('click',startDriverVoice);
