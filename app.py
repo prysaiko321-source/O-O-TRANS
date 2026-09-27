@@ -104,6 +104,7 @@ ROLE_HOME_ENDPOINTS = {
 ROLE_ENDPOINTS = {
     "dispatcher": {
         "gps",
+        "api_live_vehicle_states",
         "geocode_search",
         "route_calculate",
         "delivery_stop_status",
@@ -5098,8 +5099,10 @@ def route_calculate():
 @app.route("/api/live-vehicle-states")
 def api_live_vehicle_states():
     """Fresh Navirec positions for the live GPS map."""
+    # Keep this endpoint deliberately lightweight. It is polled by the map
+    # every 15 seconds, so do not fetch tachograph/driver data or historical
+    # fuel-consumption totals here. Those values are loaded by their own views.
     states = get_vehicle_states()
-    snapshots = build_tachograph_snapshots(states)
     vehicles = []
 
     for vehicle in VEHICLES:
@@ -5120,9 +5123,8 @@ def api_live_vehicle_states():
             "activity": get_activity(state),
             "activity_started_at": state.get("activity_started_at"),
             "fuel": safe_float(state.get("fuel_level")),
-            "fuel_consumption": get_vehicle_average_consumption(vehicle["id"]),
+            "updated_at": state.get("time") or state.get("updated_at") or state.get("received_at"),
         }
-        item.update(snapshots.get(vehicle["id"], {}))
         vehicles.append(item)
 
     return jsonify({"ok": True, "vehicles": vehicles})
@@ -5743,9 +5745,6 @@ def gps():
                 const basePopup = liveVehiclePopup(vehicle);
                 vehiclePopupBaseById[vehicle.id] = basePopup;
                 marker.setPopupContent(basePopup);
-                if (typeof activeDeliveryRoute !== 'undefined' && activeDeliveryRoute && activeDeliveryRoute.vehicle_id === vehicle.id) {{
-                    await refreshDeliveryStopStatuses(vehicle, activeDeliveryRoute);
-                }}
             }}
         }} catch (error) {{
             // Тимчасова помилка Navirec не повинна зупиняти живу карту.
@@ -5754,6 +5753,8 @@ def gps():
         }}
     }}
 
+    // Refresh immediately on page open; do not wait for the first 15-second interval.
+    refreshLiveVehiclePositions();
     setInterval(refreshLiveVehiclePositions, 15000);
     document.addEventListener('visibilitychange', function() {{
         if (!document.hidden) refreshLiveVehiclePositions();
