@@ -115,6 +115,8 @@ ROLE_ENDPOINTS = {
     },
     "driver": {
         "driver_dashboard",
+        "delivery_route_storage",
+        "delivery_stop_status",
         "road_payments"
     }
 }
@@ -3510,28 +3512,153 @@ def _legacy_dispatcher_dashboard():
 
 @app.route("/driver")
 def driver_dashboard():
-    lang = current_language()
-    vehicle_labels = {
-        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
-        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
-        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
-        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
-    }.get(lang, {})
+    # First live driver pilot: SH 9203G.  The route itself remains the same
+    # shared server route used by director and dispatcher.
+    driver_vehicle = VEHICLES[0]
+    vehicle_id = driver_vehicle["id"]
+    vehicle_name = driver_vehicle["name"]
+    vehicle_plate = driver_vehicle.get("plate") or vehicle_name
 
     body = """
-    <div class="card">
-        <h2>Мої рейси</h2>
-        <p>
-            Тут водій отримуватиме роботу, змінюватиме статус рейсу
-            та завантажуватиме CMR, фотографії й скани документів.
-        </p>
-        <p class="small">
-            Інформація інших водіїв, логіста та директора недоступна.
-        </p>
+    <style>
+      .driver-shell{max-width:760px;margin:0 auto;padding-bottom:90px}
+      .driver-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
+      .driver-plate{font-size:20px;font-weight:900}
+      .driver-live{font-size:12px;font-weight:800;color:#087f5b}
+      .driver-next{border:2px solid #0b7285;border-radius:16px;padding:16px;background:#f8fdff;margin:12px 0}
+      .driver-kicker{font-size:12px;font-weight:900;text-transform:uppercase;color:#5c6b73;margin-bottom:6px}
+      .driver-address{font-size:22px;line-height:1.2;font-weight:900;margin:5px 0 8px}
+      .driver-window{font-size:15px;font-weight:800;margin-bottom:12px}
+      .driver-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+      .driver-btn{display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:12px;border:0;font-size:16px;font-weight:900;text-decoration:none;cursor:pointer}
+      .driver-nav{background:#0b7285;color:white}.driver-done{background:#2f9e44;color:white}.driver-done:disabled{opacity:.45}
+      .driver-list{display:grid;gap:8px;margin-top:12px}.driver-stop{border:1px solid #d8e1e5;border-radius:12px;padding:11px;background:white;display:grid;grid-template-columns:36px 1fr;gap:9px}
+      .driver-stop.current{border:2px solid #f59f00;background:#fff9db}.driver-stop.completed{opacity:.65;background:#f1f3f5}
+      .driver-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e9ecef;font-weight:900}.driver-stop.current .driver-num{background:#f59f00;color:white}.driver-stop.completed .driver-num{background:#2f9e44;color:white}
+      .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}
+      @media(max-width:520px){.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}}
+    </style>
+    <div class="driver-shell">
+      <div class="card">
+        <div class="driver-head">
+          <div><div class="driver-kicker">KIEROWCA · TRASA NA ŻYWO</div><div class="driver-plate">__PLATE__</div></div>
+          <div id="driverLive" class="driver-live">● synchronizacja</div>
+        </div>
+        <div class="driver-small">Trasa wspólna z dyrektorem i logistykiem. Zmiany pojawią się automatycznie.</div>
+      </div>
+
+      <div id="driverNext" class="driver-next" style="display:none">
+        <div class="driver-kicker">NASTĘPNY PUNKT</div>
+        <div id="driverNextAddress" class="driver-address"></div>
+        <div id="driverNextWindow" class="driver-window"></div>
+        <div class="driver-actions">
+          <a id="driverNavigate" class="driver-btn driver-nav" href="#" target="_blank" rel="noopener">🧭 NAWIGUJ</a>
+          <button id="driverComplete" class="driver-btn driver-done" type="button">✓ ZAKOŃCZONO</button>
+        </div>
+      </div>
+
+      <div id="driverEmpty" class="driver-empty">Czekam na aktywną trasę dla __PLATE__…</div>
+      <div id="driverStops" class="driver-list"></div>
     </div>
-    """
+
+    <script>
+    (function(){
+      const vehicleId = __VEHICLE_ID__;
+      const live = document.getElementById('driverLive');
+      const nextBox = document.getElementById('driverNext');
+      const emptyBox = document.getElementById('driverEmpty');
+      const nextAddress = document.getElementById('driverNextAddress');
+      const nextWindow = document.getElementById('driverNextWindow');
+      const navigate = document.getElementById('driverNavigate');
+      const complete = document.getElementById('driverComplete');
+      const stopsBox = document.getElementById('driverStops');
+      let savedRoute = null;
+      let lastStamp = '';
+      let busy = false;
+
+      function esc(value){
+        return String(value == null ? '' : value)
+          .replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;')
+          .replace(/"/g,'&quot;').replace(/'/g,'&#39;');
+      }
+      function stamp(route){
+        if(!route) return '';
+        try{return JSON.stringify({input_text:route.input_text||'',saved_at:route.saved_at||'',delivery_route:route.delivery_route||null});}
+        catch(e){return String(Date.now());}
+      }
+      function googleMapsUrl(address){
+        return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address) + '&travelmode=driving';
+      }
+      function currentIndex(stops){
+        const idx = stops.findIndex(s => (s.manual_status||'') !== 'completed');
+        return idx < 0 ? -1 : idx;
+      }
+      function render(){
+        const route = savedRoute && savedRoute.delivery_route;
+        const stops = route && Array.isArray(route.stops) ? route.stops : [];
+        if(!stops.length){
+          nextBox.style.display='none'; emptyBox.style.display='block'; stopsBox.innerHTML=''; return;
+        }
+        emptyBox.style.display='none';
+        const idx=currentIndex(stops);
+        if(idx >= 0){
+          const stop=stops[idx];
+          nextBox.style.display='block';
+          nextAddress.textContent=stop.address||'';
+          nextWindow.textContent=(stop.window_start&&stop.window_end) ? ('Okno: '+stop.window_start+'–'+stop.window_end) : 'Bez okna czasowego';
+          navigate.href=googleMapsUrl(stop.address||'');
+          complete.disabled=false;
+        }else{
+          nextBox.style.display='block'; nextAddress.textContent='Trasa zakończona'; nextWindow.textContent='Wszystkie punkty wykonane.'; navigate.href='#'; complete.disabled=true;
+        }
+        stopsBox.innerHTML=stops.map(function(stop,i){
+          const done=(stop.manual_status||'')==='completed';
+          const current=i===idx;
+          const cls=done?' completed':(current?' current':'');
+          const time=(stop.window_start&&stop.window_end)?(stop.window_start+'–'+stop.window_end):'bez okna';
+          return '<div class="driver-stop'+cls+'"><div class="driver-num">'+(done?'✓':(i+1))+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+(current?' · NASTĘPNY':'')+'</div></div></div>';
+        }).join('');
+      }
+      async function loadRoute(){
+        if(busy) return; busy=true;
+        try{
+          const r=await fetch('/api/delivery-route/'+encodeURIComponent(vehicleId)+'?driver_sync='+Date.now(),{cache:'no-store'});
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          const data=await r.json();
+          const candidate=data.route||null;
+          const s=stamp(candidate);
+          if(s!==lastStamp){ savedRoute=candidate; lastStamp=s; render(); }
+          live.textContent='● online'; live.style.color='#087f5b';
+        }catch(e){ live.textContent='● brak synchronizacji'; live.style.color='#c92a2a'; }
+        finally{busy=false;}
+      }
+      async function finishCurrent(){
+        if(!savedRoute || !savedRoute.delivery_route || !Array.isArray(savedRoute.delivery_route.stops)) return;
+        const stops=savedRoute.delivery_route.stops;
+        const idx=currentIndex(stops); if(idx<0) return;
+        complete.disabled=true; complete.textContent='Zapisywanie…';
+        stops[idx].manual_status='completed';
+        savedRoute.saved_at=new Date().toISOString();
+        try{
+          const r=await fetch('/api/delivery-route/'+encodeURIComponent(vehicleId),{
+            method:'PUT',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({route:savedRoute})
+          });
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          lastStamp=stamp(savedRoute); render();
+        }catch(e){
+          stops[idx].manual_status='pending';
+          alert('Nie udało się zapisać wykonania punktu. Spróbuj ponownie.'); render();
+        }finally{complete.textContent='✓ ZAKOŃCZONO'; complete.disabled=false;}
+      }
+      complete.addEventListener('click',finishCurrent);
+      loadRoute();
+      window.setInterval(loadRoute,5000);
+    })();
+    </script>
+    """.replace("__VEHICLE_ID__", json.dumps(vehicle_id)).replace("__PLATE__", html.escape(vehicle_plate))
+
     return page(
-        "Кабінет водія",
+        "Kierowca · " + vehicle_plate,
         body,
         "driver"
     )
