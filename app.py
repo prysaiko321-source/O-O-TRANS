@@ -5838,6 +5838,15 @@ def gps():
                     >
                         Прорахувати всі доставки
                     </button>
+                    <button
+                        type="button"
+                        id="queue-delivery-route-button"
+                        onclick="buildNextDeliveryRoute()"
+                        class="secondary-button"
+                        style="margin-top:7px;width:100%;"
+                    >
+                        + Додати як наступний маршрут
+                    </button>
                     <div class="gps-delivery-privacy">
                         Для карти використовуються лише адреси й часові
                         вікна. Імена та телефони не передаються.
@@ -6325,6 +6334,9 @@ def gps():
     );
     const buildDeliveryRouteButton = document.getElementById(
         'build-delivery-route-button'
+    );
+    const queueDeliveryRouteButton = document.getElementById(
+        'queue-delivery-route-button'
     );
     const deliveryMapConsent = document.getElementById(
         'delivery-map-consent'
@@ -8530,7 +8542,33 @@ def gps():
         }}
     }}
 
+    let deliveryRouteSaveMode = 'active';
+
+    async function queueDeliveryRouteForVehicle(savedRoute) {{
+        const response = await fetch(
+            '/api/delivery-route/' + encodeURIComponent(savedRoute.vehicle_id) + '/queue',
+            {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{route: savedRoute}})
+            }}
+        );
+        const data = await response.json();
+        if (!response.ok) {{
+            throw new Error(data.error || 'Не вдалося додати наступний маршрут.');
+        }}
+        return data;
+    }}
+
+    function buildNextDeliveryRoute() {{
+        deliveryRouteSaveMode = 'queue';
+        buildDeliveryRoute();
+    }}
+    window.buildNextDeliveryRoute = buildNextDeliveryRoute;
+
     async function buildDeliveryRoute() {{
+        const requestedSaveMode = deliveryRouteSaveMode;
+        deliveryRouteSaveMode = 'active';
         if (!deliveryMapConsent.checked) {{
             measureResult.textContent =
                 'Потрібне підтвердження передачі адрес карті.';
@@ -8565,6 +8603,7 @@ def gps():
         measureMode = false;
         measureButton.classList.remove('active');
         buildDeliveryRouteButton.disabled = true;
+        if (queueDeliveryRouteButton) queueDeliveryRouteButton.disabled = true;
         buildDeliveryRouteButton.textContent =
             'Готую ' + parsedStops.length + ' точок...';
         measureResult.textContent =
@@ -8654,10 +8693,12 @@ def gps():
             // localStorage записується всередині функції ДО запиту на сервер.
             // Навіть якщо сервер тимчасово недоступний, Reload має відновити
             // останній маршрут із цього браузера.
-            try {{
-                await saveDeliveryRouteForVehicle(earlySavedRoute);
-            }} catch (saveError) {{
-                console.warn('Маршрут збережено локально; серверний запис не вдався.', saveError);
+            if (requestedSaveMode === 'active') {{
+                try {{
+                    await saveDeliveryRouteForVehicle(earlySavedRoute);
+                }} catch (saveError) {{
+                    console.warn('Маршрут збережено локально; серверний запис не вдався.', saveError);
+                }}
             }}
 
             buildDeliveryRouteButton.textContent =
@@ -8826,9 +8867,7 @@ def gps():
 
             measureResult.innerHTML = localizeSavedRouteSummary(measureResult.innerHTML);
 
-            buildDeliveryRouteButton.textContent =
-                'Зберігаю активний маршрут...';
-            await saveDeliveryRouteForVehicle({{
+            const completedSavedRoute = {{
                 vehicle_id: vehicle.id,
                 delivery_route: deliveryRoute,
                 route_data: routeData,
@@ -8838,7 +8877,22 @@ def gps():
                 vehicle_profile: vehicleProfile,
                 summary_html: measureResult.innerHTML,
                 saved_at: new Date().toISOString()
-            }});
+            }};
+            if (requestedSaveMode === 'queue') {{
+                buildDeliveryRouteButton.textContent = 'Додаю наступний маршрут...';
+                await queueDeliveryRouteForVehicle(completedSavedRoute);
+                measureResult.innerHTML +=
+                    '<div style="margin-top:10px;padding:10px;border:1px solid #9cc7a5;' +
+                    'border-radius:8px;background:#f1fff4;font-weight:800;">' +
+                    (gpsUiLanguage === 'pl'
+                        ? '✓ Dodano jako następną trasę. Aktualna trasa nie została zastąpiona.'
+                        : '✓ Додано як наступний маршрут. Поточний маршрут не замінено.') +
+                    '</div>';
+            }} else {{
+                buildDeliveryRouteButton.textContent =
+                    'Зберігаю активний маршрут...';
+                await saveDeliveryRouteForVehicle(completedSavedRoute);
+            }}
         }} catch (error) {{
             measureResult.textContent =
                 error.message ||
@@ -8847,6 +8901,10 @@ def gps():
             buildDeliveryRouteButton.disabled =
                 !deliveryMapConsent.checked ||
                 !deliveryStopsInput.value.trim();
+            if (queueDeliveryRouteButton) {{
+                queueDeliveryRouteButton.disabled =
+                    !deliveryMapConsent.checked || !deliveryStopsInput.value.trim();
+            }}
             buildDeliveryRouteButton.textContent =
                 'Прорахувати всі доставки';
         }}
