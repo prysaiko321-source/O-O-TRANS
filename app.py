@@ -2019,6 +2019,17 @@ for _lang in ("pl", "en", "de"):
         GLOBAL_UI_TRANSLATIONS.get(_lang, {}).pop(_unsafe, None)
 
 
+# Route queue button: one canonical Ukrainian source string, translated by selected UI language.
+GLOBAL_UI_TRANSLATIONS.setdefault("pl", {}).update({
+    "+ Додати як наступний маршрут": "+ Dodaj jako następną trasę",
+})
+GLOBAL_UI_TRANSLATIONS.setdefault("en", {}).update({
+    "+ Додати як наступний маршрут": "+ Add as next route",
+})
+GLOBAL_UI_TRANSLATIONS.setdefault("de", {}).update({
+    "+ Додати як наступний маршрут": "+ Als nächste Route hinzufügen",
+})
+
 def translate_full_app_body(language, body, preserve_scripts=False):
     if language == "uk":
         return body
