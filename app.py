@@ -126,6 +126,8 @@ ROLE_ENDPOINTS = {
         "delivery_route_storage",
         "delivery_routes_list",
         "delivery_stop_status",
+        "api_live_vehicle_states",
+        "driver_fleet_visibility",
         "road_payments"
     }
 }
@@ -1103,6 +1105,80 @@ def _write_delivery_routes(data):
     os.replace(temporary, DELIVERY_ROUTES_FILE)
 
 
+DRIVER_SETTINGS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_driver_settings.json")
+DRIVER_SETTINGS_LOCK = threading.Lock()
+
+
+def _load_driver_settings():
+    try:
+        with open(DRIVER_SETTINGS_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _write_driver_settings(data):
+    folder = os.path.dirname(DRIVER_SETTINGS_FILE)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    temporary = DRIVER_SETTINGS_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False)
+    os.replace(temporary, DRIVER_SETTINGS_FILE)
+
+
+def driver_can_see_other_vehicles():
+    with DRIVER_SETTINGS_LOCK:
+        settings = _load_driver_settings()
+    return bool(settings.get("show_other_vehicles", False))
+
+
+@app.route("/api/driver-fleet-visibility", methods=["GET", "PUT"])
+def driver_fleet_visibility():
+    if request.method == "GET":
+        return jsonify({"ok": True, "show_other_vehicles": driver_can_see_other_vehicles()})
+    if current_role() != "director":
+        return jsonify({"ok": False, "error": "director_only"}), 403
+    payload = request.get_json(silent=True) or {}
+    enabled = bool(payload.get("show_other_vehicles"))
+    with DRIVER_SETTINGS_LOCK:
+        settings = _load_driver_settings()
+        settings["show_other_vehicles"] = enabled
+        _write_driver_settings(settings)
+    return jsonify({"ok": True, "show_other_vehicles": enabled})
+
+
+@app.route("/driver-settings")
+def driver_settings():
+    if current_role() != "director":
+        return redirect(role_home_url())
+    enabled = driver_can_see_other_vehicles()
+    body = f"""
+    <div class="card" style="max-width:760px;margin:0 auto">
+      <h2>Ustawienia kierowców</h2>
+      <p>Kontrola widoczności GPS innych pojazdów dla kierowcy testowego SH 9203G.</p>
+      <label style="display:flex;align-items:center;gap:12px;font-size:18px;font-weight:800;margin:20px 0">
+        <input id="fleetVisibility" type="checkbox" {'checked' if enabled else ''} style="width:24px;height:24px">
+        Kierowca SH może widzieć inne pojazdy
+      </label>
+      <div id="fleetVisibilityStatus" class="small">Zmiana działa automatycznie na telefonie kierowcy.</div>
+    </div>
+    <script>
+    document.getElementById('fleetVisibility').addEventListener('change', async function() {{
+      const status=document.getElementById('fleetVisibilityStatus');
+      status.textContent='Zapisywanie…';
+      try {{
+        const r=await fetch('/api/driver-fleet-visibility', {{method:'PUT',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{show_other_vehicles:this.checked}})}});
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        status.textContent=this.checked?'WŁĄCZONE — kierowca widzi inne pojazdy.':'WYŁĄCZONE — kierowca widzi tylko swój pojazd.';
+      }} catch(e) {{ this.checked=!this.checked; status.textContent='Nie udało się zapisać ustawienia.'; }}
+    }});
+    </script>
+    """
+    return page("Ustawienia kierowców", body, "driver_settings")
+
+
 @app.route("/api/delivery-routes", methods=["GET"])
 def delivery_routes_list():
     """Return all saved active routes for dispatcher live synchronization."""
@@ -2041,6 +2117,7 @@ document.addEventListener('DOMContentLoaded', function () {{
                 road_payments_label
             ),
             ("branding", "/settings/branding", t("branding")),
+            ("driver_settings", "/driver-settings", "🚐 Kierowcy"),
             ("health", "/health", t("health"))
         ]
     else:
@@ -3550,7 +3627,11 @@ def driver_dashboard():
     vehicle_plate = driver_vehicle.get("plate") or vehicle_name
 
     body = """
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
+    <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
+      .driver-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:12px;border-radius:12px;font-weight:900;cursor:pointer}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}
+      #driverMapPane{display:none}.driver-map{height:58vh;min-height:390px;border-radius:16px;overflow:hidden;border:1px solid #ced4da}.driver-map-note{font-size:12px;color:#68757d;margin:8px 0}.driver-vehicle-card{font-size:13px;line-height:1.35}.driver-vehicle-card strong{font-size:15px}.driver-to-vehicle{display:inline-block;margin-top:8px;padding:8px 10px;border-radius:9px;background:#0b7285;color:white!important;text-decoration:none;font-weight:900}
       .driver-shell{max-width:760px;margin:0 auto;padding-bottom:90px}
       .driver-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
       .driver-plate{font-size:20px;font-weight:900}
@@ -3577,6 +3658,8 @@ def driver_dashboard():
         <div class="driver-small">Trasa wspólna z dyrektorem i logistykiem. Zmiany pojawią się automatycznie.</div>
       </div>
 
+      <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">TRASA</button><button id="driverMapTab" class="driver-tab" type="button">MAPA GPS</button></div>
+      <div id="driverRoutePane">
       <div id="driverNext" class="driver-next" style="display:none">
         <div class="driver-kicker">NASTĘPNY PUNKT</div>
         <div id="driverNextAddress" class="driver-address"></div>
@@ -3589,6 +3672,11 @@ def driver_dashboard():
 
       <div id="driverEmpty" class="driver-empty">Czekam na aktywną trasę dla __PLATE__…</div>
       <div id="driverStops" class="driver-list"></div>
+      </div>
+      <div id="driverMapPane">
+        <div class="driver-map-note" id="driverMapNote">Ładowanie pozycji GPS…</div>
+        <div id="driverFleetMap" class="driver-map"></div>
+      </div>
     </div>
 
     <script>
@@ -3605,6 +3693,30 @@ def driver_dashboard():
       let savedRoute = null;
       let lastStamp = '';
       let busy = false;
+      const ownVehicleId = vehicleId;
+      const routePane=document.getElementById('driverRoutePane');
+      const mapPane=document.getElementById('driverMapPane');
+      const routeTab=document.getElementById('driverRouteTab');
+      const mapTab=document.getElementById('driverMapTab');
+      const mapNote=document.getElementById('driverMapNote');
+      let fleetMap=null;
+      let fleetMarkers={};
+      function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';routeTab.classList.add('active');mapTab.classList.remove('active');}
+      function openMapTab(){routePane.style.display='none';mapPane.style.display='block';routeTab.classList.remove('active');mapTab.classList.add('active');if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
+      routeTab.addEventListener('click',openRouteTab);mapTab.addEventListener('click',openMapTab);
+      function navToCoords(lat,lon){return 'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(lat+','+lon)+'&travelmode=driving';}
+      async function loadFleet(){
+        if(!fleetMap) return;
+        try{
+          const r=await fetch('/api/live-vehicle-states?driver_map='+Date.now(),{cache:'no-store'});if(!r.ok) throw new Error('HTTP '+r.status);
+          const data=await r.json();const vehicles=Array.isArray(data.vehicles)?data.vehicles:[];const alive={};const bounds=[];
+          vehicles.forEach(function(v){const lat=Number(v.latitude),lon=Number(v.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;alive[v.id]=true;bounds.push([lat,lon]);const label=esc(v.plate||v.name||'Pojazd');const age=v.activity||'';const popup='<div class="driver-vehicle-card"><strong>'+label+'</strong><br>'+esc(age)+(v.id===ownVehicleId?'<br>Twój pojazd':'')+'<br><a class="driver-to-vehicle" target="_blank" rel="noopener" href="'+navToCoords(lat,lon)+'">🧭 NAWIGUJ DO POJAZDU</a></div>';if(!fleetMarkers[v.id]){fleetMarkers[v.id]=L.marker([lat,lon]).addTo(fleetMap);}else{fleetMarkers[v.id].setLatLng([lat,lon]);}fleetMarkers[v.id].bindPopup(popup);});
+          Object.keys(fleetMarkers).forEach(function(id){if(!alive[id]){fleetMap.removeLayer(fleetMarkers[id]);delete fleetMarkers[id];}});
+          if(bounds.length && !fleetMap._driverFitted){fleetMap.fitBounds(bounds,{padding:[30,30],maxZoom:11});fleetMap._driverFitted=true;}
+          const vis=await fetch('/api/driver-fleet-visibility?ts='+Date.now(),{cache:'no-store'}).then(x=>x.ok?x.json():null).catch(()=>null);
+          mapNote.textContent=(vis&&vis.show_other_vehicles)?'Widzisz pojazdy firmy. Dotknij pojazdu i wybierz NAWIGUJ DO POJAZDU.':'Widoczność innych pojazdów jest wyłączona przez dyrektora.';
+        }catch(e){mapNote.textContent='Nie udało się pobrać aktualnych pozycji GPS.';}
+      }
 
       function esc(value){
         return String(value == null ? '' : value)
@@ -3707,6 +3819,7 @@ def driver_dashboard():
       complete.addEventListener('click',finishCurrent);
       loadRoute();
       window.setInterval(loadRoute,5000);
+      window.setInterval(function(){if(mapPane.style.display!=='none')loadFleet();},10000);
     })();
     </script>
     """.replace("__VEHICLE_ID__", json.dumps(vehicle_id)).replace("__PLATE__", escape(vehicle_plate))
@@ -5334,6 +5447,10 @@ def api_live_vehicle_states():
         }
         item.update(snapshots.get(vehicle["id"], {}))
         vehicles.append(item)
+
+    if current_role() == "driver" and not driver_can_see_other_vehicles():
+        own_id = VEHICLES[0]["id"]
+        vehicles = [item for item in vehicles if item.get("id") == own_id]
 
     return jsonify({"ok": True, "vehicles": vehicles})
 
