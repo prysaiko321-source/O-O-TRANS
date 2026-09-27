@@ -129,6 +129,8 @@ ROLE_ENDPOINTS = {
         "delivery_stop_status",
         "api_live_vehicle_states",
         "driver_fleet_visibility",
+        "geocode_search",
+        "route_calculate",
         "road_payments"
     }
 }
@@ -4018,7 +4020,7 @@ def driver_dashboard():
         const rec=new SR();
         // For now use Ukrainian recognition for the SH test driver. Later this value
         // will come from the individual language setting of each user profile.
-        rec.lang='uk-UA'; rec.interimResults=true; rec.continuous=false;
+        rec.lang=__SPEECH_LANG__; rec.interimResults=true; rec.continuous=false;
         msgMic.classList.add('listening'); msgMic.textContent='🔴 SŁUCHAM…';
         msgHeard.classList.add('show'); msgTranscript.textContent='…'; msgStatus.textContent='Rozpoznaję wiadomość…';
         rec.onresult=function(e){
@@ -4230,7 +4232,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           const vehicles=Array.isArray(states.vehicles)?states.vehicles:[];
           let own=vehicles.find(function(v){return String(v.id||'')===String(ownVehicleId||vehicleId);});
           if(!own){
-            const plate=String(vehiclePlate||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();
+            const plate=String(__PLATE_JSON__||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();
             own=vehicles.find(function(v){const x=String(v.plate||v.name||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();return plate&&x.includes(plate);});
           }
           const lat=Number(own&&own.latitude),lon=Number(own&&own.longitude);
@@ -4331,10 +4333,60 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
       window.setInterval(function(){if(mapPane.style.display!=='none')loadFleet();if(tachoPane.style.display!=='none'||iqPane.style.display!=='none')loadTacho();},10000);
     })();
     </script>
-    """.replace("__VEHICLE_ID__", json.dumps(vehicle_id)).replace("__PLATE__", escape(vehicle_plate))
+    """.replace("__VEHICLE_ID__", json.dumps(vehicle_id)).replace("__PLATE__", escape(vehicle_plate)).replace("__PLATE_JSON__", json.dumps(vehicle_plate))
 
+    # Driver UI has its own complete language layer because this page contains
+    # both visible HTML and runtime JavaScript messages. Never mix languages.
+    driver_lang = current_language()
+    speech_lang = {"uk": "uk-UA", "pl": "pl-PL", "en": "en-US", "de": "de-DE"}.get(driver_lang, "uk-UA")
+    body = body.replace("__SPEECH_LANG__", json.dumps(speech_lang))
+    driver_ui = {
+        "uk": {
+            "KIEROWCA · TRASA NA ŻYWO": "ВОДІЙ · МАРШРУТ НАЖИВО",
+            "● synchronizacja": "● синхронізація",
+            "Trasa wspólna z dyrektorem i logistykiem. Zmiany pojawią się automatycznie.": "Спільний маршрут із директором і логістом. Зміни з’являються автоматично.",
+            "🗺️ TRASA": "🗺️ МАРШРУТ", "⏱️ TACHOGRAF": "⏱️ ТАХОГРАФ", "💬 WIADOMOŚCI": "💬 ПОВІДОМЛЕННЯ",
+            "TWOJE ZLECENIA": "ТВОЇ РЕЙСИ", "📍 MAPA GPS POJAZDÓW": "📍 GPS-КАРТА МАШИН",
+            "NASTĘPNY PUNKT": "НАСТУПНА ТОЧКА", "🧭 NAWIGUJ": "🧭 НАВІГУВАТИ", "✓ ZAKOŃCZONO": "✓ ВИКОНАНО",
+            "Czekam na aktywną trasę dla": "Очікую активний маршрут для", "Ładowanie pozycji GPS…": "Завантажую GPS-позиції…",
+            "TACHOGRAF · SH 9203G": "ТАХОГРАФ · SH 9203G", "Pobieranie danych z tachografu…": "Отримую дані тахографа…",
+            "Do następnej przerwy": "До наступної перерви", "Jazda dzienna — pozostało": "Денне водіння — залишилось",
+            "Bieżący okres jazdy — pozostało": "Поточний період водіння — залишилось", "Do odpoczynku dobowego": "До добового відпочинку",
+            "Jazda tygodniowa — pozostało": "Тижневе водіння — залишилось", "Karta kierowcy": "Картка водія",
+            "IQ pokazuje wyłącznie potwierdzone dane Navirec. Brakujące wartości nie są zgadywane.": "IQ показує лише підтверджені дані Navirec. Відсутні значення не вгадуються.",
+            "IQ · ASYSTENT GŁOSOWY": "IQ · ГОЛОСОВИЙ ПОМІЧНИК", "🎙 NACIŚNIJ I MÓW": "🎙 НАТИСНИ І ГОВОРИ", "🔴 SŁUCHAM…": "🔴 СЛУХАЮ…",
+            "USŁYSZAŁEM": "Я ПОЧУВ", "IQ ZROZUMIAŁ": "IQ ЗРОЗУМІВ", "Najpierw naciśnij mikrofon i powiedz polecenie.": "Натисни мікрофон і скажи команду.",
+            "Test:": "Тест:", "WIADOMOŚCI · TRANVIQ": "ПОВІДОМЛЕННЯ · TRANVIQ", "Wybierz odbiorcę…": "Вибери одержувача…",
+            "Dyrektor": "Директор", "Logistyk": "Логіст", "Kierowca DX": "Водій DX", "Napisz wiadomość albo użyj mikrofonu…": "Напиши повідомлення або скористайся мікрофоном…",
+            "🎙 MÓW": "🎙 ГОВОРИТИ", "✕ WYCZYŚĆ": "✕ ОЧИСТИТИ", "WYŚLIJ": "ВІДПРАВИТИ",
+            "Najpierw wybierz odbiorcę.": "Спочатку вибери одержувача.", "Rozpoznaję wiadomość…": "Розпізнаю повідомлення…",
+            "Sprawdź tekst. Wiadomość nie została jeszcze wysłana.": "Перевір текст. Повідомлення ще не відправлено.",
+            "Wybierz odbiorcę i wpisz wiadomość.": "Вибери одержувача і введи повідомлення.", "Wysyłanie…": "Відправляю…", "Wysłano.": "Відправлено.",
+            "Nie udało się wysłać wiadomości.": "Не вдалося відправити повідомлення.", "Rozpoznaję mowę…": "Розпізнаю мову…",
+            "IQ analizuje polecenie…": "IQ аналізує команду…", "Nie usłyszałem polecenia. Spróbuj jeszcze raz.": "Я не почув команди. Спробуй ще раз.",
+            "Nie udało się uruchomić mikrofonu.": "Не вдалося запустити мікрофон.", "Błąd mikrofonu/rozpoznawania:": "Помилка мікрофона/розпізнавання:",
+            "Ta przeglądarka nie obsługuje rozpoznawania mowy. Spróbuj w Chrome na telefonie.": "Цей браузер не підтримує розпізнавання мови. Спробуй Chrome на телефоні.",
+            "IQ zrozumiał: odległość i czas do następnego punktu. Obliczam…": "IQ зрозумів: відстань і час до наступної точки. Розраховую…",
+            "Sprawdzam aktualną pozycję pojazdu i trasę do następnego punktu…": "Перевіряю актуальну GPS-позицію машини та маршрут до наступної точки…",
+            "Brak aktywnego następnego punktu trasy.": "Немає активної наступної точки маршруту.",
+            "Nie udało się teraz policzyć drogi do następnego punktu z aktualnej pozycji GPS. Spróbuj ponownie za chwilę.": "Зараз не вдалося розрахувати дорогу до наступної точки з актуальної GPS-позиції. Спробуй ще раз за хвилину.",
+            "Następny punkt:": "Наступна точка:", "Zostało": "Залишилось", "około": "приблизно", "Przewidywany przyjazd:": "Орієнтовне прибуття:", "Okno punktu:": "Часове вікно:",
+            "godz.": "год", "min": "хв", "brak danych": "немає даних", "Brak aktywnego następnego punktu.": "Немає активної наступної точки.",
+            "IQ zrozumiał: następny adres.": "IQ зрозумів: наступна адреса.", "IQ zrozumiał: nawigacja do następnego punktu.": "IQ зрозумів: навігація до наступної точки.",
+            "Nie ma jeszcze następnej trasy.": "Наступного рейсу ще немає.", "POKAŻ TRASĘ 2": "ПОКАЗАТИ РЕЙС 2", "POBIERZ GPS": "ОНОВИТИ GPS",
+            "Pobiorę najnowszą pozycję GPS.": "Отримаю найсвіжішу GPS-позицію.", "IQ zrozumiał: nawigować do pojazdu": "IQ зрозумів: навігувати до машини",
+            "Nie mam pewności, jakie polecenie robocze miałeś na myśli. Niczego nie wykonałem.": "Не впевнений, яку робочу команду ти мав на увазі. Нічого не виконано.",
+            "Spróbuj:": "Спробуй:", "Zapisywanie…": "Зберігаю…", "Nie udało się zapisać wykonania punktu. Spróbuj ponownie.": "Не вдалося зберегти виконання точки. Спробуй ще раз."
+        },
+        "en": {"KIEROWCA · TRASA NA ŻYWO":"DRIVER · LIVE ROUTE","🗺️ TRASA":"🗺️ ROUTE","⏱️ TACHOGRAF":"⏱️ TACHOGRAPH","💬 WIADOMOŚCI":"💬 MESSAGES","🎙 NACIŚNIJ I MÓW":"🎙 TAP AND SPEAK","USŁYSZAŁEM":"I HEARD","IQ ZROZUMIAŁ":"IQ UNDERSTOOD","🧭 NAWIGUJ":"🧭 NAVIGATE"},
+        "de": {"KIEROWCA · TRASA NA ŻYWO":"FAHRER · LIVE-ROUTE","🗺️ TRASA":"🗺️ ROUTE","⏱️ TACHOGRAF":"⏱️ TACHOGRAF","💬 WIADOMOŚCI":"💬 NACHRICHTEN","🎙 NACIŚNIJ I MÓW":"🎙 DRÜCKEN UND SPRECHEN","USŁYSZAŁEM":"ICH HABE GEHÖRT","IQ ZROZUMIAŁ":"IQ HAT VERSTANDEN","🧭 NAWIGUJ":"🧭 NAVIGIEREN"}
+    }.get(driver_lang, {})
+    for source, target in sorted(driver_ui.items(), key=lambda item: len(item[0]), reverse=True):
+        body = body.replace(source, target)
+
+    driver_title = {"uk": "Водій", "pl": "Kierowca", "en": "Driver", "de": "Fahrer"}.get(driver_lang, "Водій")
     return page(
-        "Kierowca · " + vehicle_plate,
+        driver_title + " · " + vehicle_plate,
         body,
         "driver"
     )
