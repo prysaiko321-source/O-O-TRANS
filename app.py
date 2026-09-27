@@ -7,6 +7,7 @@ import secrets
 import base64
 import time
 import threading
+import uuid
 from datetime import datetime, timezone, timedelta
 from html import escape
 from zoneinfo import ZoneInfo
@@ -3674,6 +3675,128 @@ def _legacy_dispatcher_dashboard():
     )
 
 
+
+# Lightweight internal TRANVIQ messenger. Stored beside route data so it survives
+# normal page refreshes and can use Render persistent disk when /var/data is mounted.
+MESSAGES_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_messages.json")
+MESSAGES_LOCK = threading.Lock()
+
+
+def _load_messages():
+    try:
+        with open(MESSAGES_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, list) else []
+    except (OSError, ValueError, TypeError):
+        return []
+
+
+def _write_messages(items):
+    folder = os.path.dirname(MESSAGES_FILE)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    temporary = MESSAGES_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(items[-2000:], handle, ensure_ascii=False)
+    os.replace(temporary, MESSAGES_FILE)
+
+
+def _message_identity():
+    role = current_role()
+    if role == "driver":
+        # Pilot driver account is bound to SH 9203G.
+        v = VEHICLES[0]
+        return "vehicle:" + str(v["id"]), v.get("plate") or v.get("name") or "SH"
+    if role == "dispatcher":
+        return "role:dispatcher", "Logistyk"
+    if role == "director":
+        return "role:director", "Dyrektor"
+    return "", ""
+
+
+@app.route("/api/messages/recipients")
+def message_recipients():
+    if not current_role():
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    recipients = [
+        {"id": "role:director", "label": "Dyrektor", "kind": "role"},
+        {"id": "role:dispatcher", "label": "Logistyk", "kind": "role"},
+    ]
+    for vehicle in VEHICLES:
+        recipients.append({
+            "id": "vehicle:" + str(vehicle["id"]),
+            "label": vehicle.get("plate") or vehicle.get("name") or str(vehicle["id"]),
+            "kind": "driver",
+        })
+    return jsonify({"ok": True, "recipients": recipients})
+
+
+@app.route("/api/messages", methods=["GET", "POST"])
+def internal_messages():
+    sender_id, sender_label = _message_identity()
+    if not sender_id:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    if request.method == "POST":
+        payload = request.get_json(silent=True) or {}
+        recipient = str(payload.get("recipient") or "").strip()
+        text = str(payload.get("text") or "").strip()
+        if not recipient or not text:
+            return jsonify({"ok": False, "error": "recipient_and_text_required"}), 400
+        allowed = {"role:director", "role:dispatcher"}
+        allowed.update("vehicle:" + str(v["id"]) for v in VEHICLES)
+        if recipient not in allowed:
+            return jsonify({"ok": False, "error": "bad_recipient"}), 400
+        item = {
+            "id": uuid.uuid4().hex,
+            "sender": sender_id,
+            "sender_label": sender_label,
+            "recipient": recipient,
+            "text": text,
+            "created_at": datetime.now(timezone.utc).isoformat(),
+            "read_by": [sender_id],
+        }
+        with MESSAGES_LOCK:
+            items = _load_messages()
+            items.append(item)
+            _write_messages(items)
+        return jsonify({"ok": True, "message": item})
+
+    after = str(request.args.get("after") or "").strip()
+    with MESSAGES_LOCK:
+        items = _load_messages()
+    visible = []
+    for item in items:
+        if item.get("sender") == sender_id or item.get("recipient") == sender_id:
+            if after and str(item.get("created_at") or "") <= after:
+                continue
+            visible.append(item)
+    return jsonify({"ok": True, "messages": visible[-200:]})
+
+
+@app.route("/api/messages/read", methods=["POST"])
+def internal_messages_read():
+    identity, _ = _message_identity()
+    if not identity:
+        return jsonify({"ok": False, "error": "unauthorized"}), 401
+    payload = request.get_json(silent=True) or {}
+    ids = {str(x) for x in (payload.get("ids") or [])}
+    if not ids:
+        return jsonify({"ok": True})
+    with MESSAGES_LOCK:
+        items = _load_messages()
+        changed = False
+        for item in items:
+            if item.get("id") in ids and item.get("recipient") == identity:
+                read_by = item.get("read_by") if isinstance(item.get("read_by"), list) else []
+                if identity not in read_by:
+                    read_by.append(identity)
+                    item["read_by"] = read_by
+                    changed = True
+        if changed:
+            _write_messages(items)
+    return jsonify({"ok": True})
+
+
 @app.route("/api/driver-tachograph/<vehicle_id>")
 def driver_tachograph_api(vehicle_id):
     """Operational tachograph snapshot for the logged-in driver UI.
@@ -3708,7 +3831,7 @@ def driver_dashboard():
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-      .driver-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:12px;border-radius:12px;font-weight:900;cursor:pointer}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}
+       .driver-tabs{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:18px 10px;border-radius:16px;font-weight:900;cursor:pointer;min-height:76px;font-size:16px}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}.driver-msg{display:none}.driver-msg-list{display:grid;gap:8px;max-height:46vh;overflow:auto;margin:12px 0}.driver-msg-item{padding:10px 12px;border:1px solid #d8e1e5;border-radius:12px;background:#fff}.driver-msg-item.mine{background:#e7f5ff}.driver-msg-meta{font-size:11px;color:#68757d;margin-bottom:4px}.driver-msg-compose{display:grid;gap:8px}.driver-msg-compose select,.driver-msg-compose textarea{width:100%;box-sizing:border-box;border:1px solid #adb5bd;border-radius:10px;padding:10px;font-size:16px}.driver-msg-send{border:0;border-radius:11px;padding:12px;background:#0b7285;color:#fff;font-weight:900;cursor:pointer}.driver-unread{display:inline-flex;min-width:20px;height:20px;padding:0 5px;align-items:center;justify-content:center;border-radius:999px;background:#c92a2a;color:#fff;font-size:11px;margin-left:5px}
       #driverMapPane{display:none}.driver-map{height:58vh;min-height:390px;border-radius:16px;overflow:hidden;border:1px solid #ced4da}.driver-map-note{font-size:12px;color:#68757d;margin:8px 0}.driver-vehicle-card{font-size:13px;line-height:1.35}.driver-vehicle-card strong{font-size:15px}.driver-to-vehicle{display:inline-block;margin-top:8px;padding:8px 10px;border-radius:9px;background:#0b7285;color:white!important;text-decoration:none;font-weight:900}
       .driver-shell{max-width:760px;margin:0 auto;padding-bottom:90px}
       .driver-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
@@ -3737,9 +3860,9 @@ def driver_dashboard():
         <div class="driver-small">Trasa wspólna z dyrektorem i logistykiem. Zmiany pojawią się automatycznie.</div>
       </div>
 
-      <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">TRASA</button><button id="driverMapTab" class="driver-tab" type="button">MAPA GPS</button><button id="driverTachoTab" class="driver-tab" type="button">TACHOGRAF</button><button id="driverIqTab" class="driver-tab" type="button">🎙 IQ</button></div>
+      <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">🗺️ TRASA</button><button id="driverTachoTab" class="driver-tab" type="button">⏱️ TACHOGRAF</button><button id="driverIqTab" class="driver-tab" type="button">🎙️ IQ</button><button id="driverMsgTab" class="driver-tab" type="button">💬 WIADOMOŚCI <span id="driverUnread" class="driver-unread" style="display:none">0</span></button></div>
       <div id="driverRoutePane">
-      <div class="card" style="margin:10px 0"><div class="driver-kicker">TWOJE ZLECENIA</div><div id="driverJobs" class="driver-jobs"></div></div>
+      <div class="card" style="margin:10px 0"><div class="driver-kicker">TWOJE ZLECENIA</div><div id="driverJobs" class="driver-jobs"></div></div><div class="card" style="margin:10px 0"><button id="driverMapTab" class="driver-btn driver-nav" type="button" style="width:100%">📍 MAPA GPS POJAZDÓW</button></div>
       <div id="driverNext" class="driver-next" style="display:none">
         <div class="driver-kicker">NASTĘPNY PUNKT</div>
         <div id="driverNextAddress" class="driver-address"></div>
@@ -3781,6 +3904,18 @@ def driver_dashboard():
           <div class="driver-small" style="margin-top:10px">Test: „Jaki jest następny adres?”, „Nawiguj do DXF”, „Ile mam czasu do pauzy?”, „Ile mogę jeszcze dzisiaj jechać?”.</div>
         </div>
       </div>
+      <div id="driverMsgPane" class="driver-msg">
+        <div class="card">
+          <div class="driver-kicker">WIADOMOŚCI · TRANVIQ</div>
+          <div class="driver-msg-compose">
+            <select id="driverMsgRecipient"><option value="">Wybierz odbiorcę…</option></select>
+            <textarea id="driverMsgText" rows="3" placeholder="Napisz wiadomość…"></textarea>
+            <button id="driverMsgSend" class="driver-msg-send" type="button">WYŚLIJ</button>
+          </div>
+          <div id="driverMsgStatus" class="driver-small" style="margin-top:8px"></div>
+          <div id="driverMsgList" class="driver-msg-list"></div>
+        </div>
+      </div>
     </div>
 
     <script>
@@ -3809,6 +3944,17 @@ def driver_dashboard():
       const iqPane=document.getElementById('driverIqPane');
       const tachoTab=document.getElementById('driverTachoTab');
       const tachoPane=document.getElementById('driverTachoPane');
+      const msgTab=document.getElementById('driverMsgTab');
+      const msgPane=document.getElementById('driverMsgPane');
+      const msgRecipient=document.getElementById('driverMsgRecipient');
+      const msgText=document.getElementById('driverMsgText');
+      const msgSend=document.getElementById('driverMsgSend');
+      const msgList=document.getElementById('driverMsgList');
+      const msgStatus=document.getElementById('driverMsgStatus');
+      const unreadBadge=document.getElementById('driverUnread');
+      let messageCursor='';
+      let knownMessageIds=new Set();
+      let audioUnlocked=false;
       const tachoStatus=document.getElementById('driverTachoStatus');
       let latestTacho=null;
       const micBtn=document.getElementById('driverMic');
@@ -3819,7 +3965,30 @@ def driver_dashboard():
       let fleetMap=null;
       let fleetMarkers={};
       function setActiveTab(which){[routeTab,mapTab,tachoTab,iqTab].forEach(function(x){x.classList.remove('active');});which.classList.add('active');}
-      function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(routeTab);}
+      
+      function hideDriverPanes(){
+        routePane.style.display='none'; mapPane.style.display='none'; tachoPane.style.display='none'; iqPane.style.display='none'; msgPane.style.display='none';
+        [routeTab,mapTab,tachoTab,iqTab,msgTab].forEach(function(x){if(x)x.classList.remove('active');});
+      }
+      function openMessagesTab(){hideDriverPanes();msgPane.style.display='block';msgTab.classList.add('active');loadMessages(true);}
+      function beep(){
+        try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const c=new C();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=880;g.gain.value=.06;o.start();o.stop(c.currentTime+.16);}catch(e){}
+      }
+      async function loadRecipients(){
+        try{const r=await fetch('/api/messages/recipients',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)return;msgRecipient.innerHTML='<option value="">Wybierz odbiorcę…</option>';(d.recipients||[]).forEach(function(x){if(x.id==='vehicle:'+ownVehicleId)return;const o=document.createElement('option');o.value=x.id;o.textContent=x.label;msgRecipient.appendChild(o);});}catch(e){}
+      }
+      function renderMessages(items){
+        msgList.innerHTML='';(items||[]).forEach(function(m){const d=document.createElement('div');d.className='driver-msg-item '+(m.sender==='vehicle:'+ownVehicleId?'mine':'');const meta=document.createElement('div');meta.className='driver-msg-meta';meta.textContent=(m.sender_label||m.sender)+' · '+String(m.created_at||'').replace('T',' ').slice(0,16);const txt=document.createElement('div');txt.textContent=m.text||'';d.appendChild(meta);d.appendChild(txt);msgList.appendChild(d);});msgList.scrollTop=msgList.scrollHeight;
+      }
+      async function loadMessages(markRead){
+        try{const r=await fetch('/api/messages',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)return;const items=d.messages||[];let fresh=[];items.forEach(function(m){if(!knownMessageIds.has(m.id)&&m.recipient==='vehicle:'+ownVehicleId)fresh.push(m);knownMessageIds.add(m.id);});renderMessages(items);if(fresh.length&&msgPane.style.display==='none')beep();const unread=items.filter(function(m){return m.recipient==='vehicle:'+ownVehicleId && !(m.read_by||[]).includes('vehicle:'+ownVehicleId);});unreadBadge.textContent=unread.length;unreadBadge.style.display=unread.length?'inline-flex':'none';if(markRead&&unread.length){await fetch('/api/messages/read',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({ids:unread.map(x=>x.id)})});unreadBadge.style.display='none';}}
+        catch(e){}
+      }
+      msgSend.addEventListener('click',async function(){const recipient=msgRecipient.value;const text=msgText.value.trim();if(!recipient||!text){msgStatus.textContent='Wybierz odbiorcę i wpisz wiadomość.';return;}msgSend.disabled=true;msgStatus.textContent='Wysyłanie…';try{const r=await fetch('/api/messages',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({recipient:recipient,text:text})});const d=await r.json();if(!r.ok||!d.ok)throw new Error('send');msgText.value='';msgStatus.textContent='Wysłano.';await loadMessages(false);}catch(e){msgStatus.textContent='Nie udało się wysłać wiadomości.';}finally{msgSend.disabled=false;}});
+      msgTab.addEventListener('click',openMessagesTab);
+      document.addEventListener('pointerdown',function(){audioUnlocked=true;},{once:true});
+      loadRecipients();loadMessages(false);setInterval(function(){loadMessages(msgPane.style.display!=='none');},5000);
+function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(routeTab);}
       function openMapTab(){routePane.style.display='none';mapPane.style.display='block';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(mapTab);if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
       function openTachoTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='block';iqPane.style.display='none';setActiveTab(tachoTab);loadTacho();}
       function openIqTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='block';setActiveTab(iqTab);loadTacho();}
