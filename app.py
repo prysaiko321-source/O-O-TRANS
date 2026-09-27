@@ -7851,7 +7851,7 @@ def gps():
         // Старий localStorage у браузері логіста не має права "воскресити"
         // маршрут минулого тижня і тим більше записати його назад на сервер.
         const localRoutes = gpsUserRole === 'dispatcher'
-            ? {}
+            ? {{}}
             : localDeliveryRoutesForVisibleVehicles();
         const best = newestRouteCandidate(serverRoutes, localRoutes);
         if (!best) return false;
