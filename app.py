@@ -4198,7 +4198,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         }catch(e){latestTacho=null;tachoStatus.textContent='Nie udało się pobrać danych tachografu.';}
       }
       function iqTachoAnswer(kind){
-        const t=latestTacho; if(!t){iqResult.textContent='Nie mam teraz potwierdzonych danych tachografu SH. Niczego nie zgaduję.';return;}
+        const t=latestTacho; if(!t){iqResult.textContent='Nie mam teraz aktualnych danych tachografu lub karty kierowcy. GPS pojazdu działa, ale bez danych tachografu nie podam dokładnego pozostałego czasu jazdy.';return;}
         if(kind==='break'){const v=fmtSeconds(t.time_until_break_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał czasu do następnej przerwy.':'Do następnej wymaganej przerwy pozostało '+v+'.';return;}
         if(kind==='daily'){const v=fmtSeconds(t.remaining_daily_driving_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał pozostałego dziennego czasu jazdy.':'Pozostały dzienny czas jazdy: '+v+'.';return;}
         if(kind==='rest'){const v=fmtSeconds(t.time_until_daily_rest_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał czasu do odpoczynku dobowego.':'Do odpoczynku dobowego pozostało '+v+'.';return;}
@@ -4238,12 +4238,20 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           const lat=Number(own&&own.latitude),lon=Number(own&&own.longitude);
           if(!Number.isFinite(lat)||!Number.isFinite(lon)) throw new Error('gps');
 
-          const geoResp=await fetch('/api/geocode?mode=address&purpose=delivery&consent=addresses_only&q='+encodeURIComponent(stop.address),{cache:'no-store'});
-          const geo=await geoResp.json();
-          if(!geoResp.ok||!Array.isArray(geo.results)||!geo.results.length) throw new Error('geocode');
-          const dest=geo.results[0];
-          const dlat=Number(dest.latitude),dlon=Number(dest.longitude);
-          if(!Number.isFinite(dlat)||!Number.isFinite(dlon)) throw new Error('geocode');
+          // The delivery planner already saved exact coordinates for every stop.
+          // Use them first instead of geocoding the same address again. This keeps
+          // driver IQ consistent with the route that director/dispatcher approved.
+          let dlat=Number(stop.latitude),dlon=Number(stop.longitude);
+          let destinationSource='saved_stop_coordinates';
+          if(!Number.isFinite(dlat)||!Number.isFinite(dlon)){
+            destinationSource='geocoded_address';
+            const geoResp=await fetch('/api/geocode?mode=address&purpose=delivery&consent=addresses_only&lat='+encodeURIComponent(lat)+'&lon='+encodeURIComponent(lon)+'&q='+encodeURIComponent(stop.address),{cache:'no-store'});
+            const geo=await geoResp.json();
+            if(!geoResp.ok||!Array.isArray(geo.results)||!geo.results.length) throw new Error('geocode');
+            const dest=geo.results[0];
+            dlat=Number(dest.latitude);dlon=Number(dest.longitude);
+            if(!Number.isFinite(dlat)||!Number.isFinite(dlon)) throw new Error('geocode');
+          }
 
           const routeResp=await fetch('/api/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({origin:{latitude:lat,longitude:lon},destination:{latitude:dlat,longitude:dlon},avoid_tolls:false})});
           const route=await routeResp.json();
@@ -4255,7 +4263,13 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           iqResult.textContent='Następny punkt: '+stop.address+'. Zostało '+km.toFixed(1)+' km, około '+iqFormatDriveTime(secs)+(eta?'. Przewidywany przyjazd: '+eta:'')+'.'+windowText;
           const a=document.createElement('a');a.href=googleMapsUrl(stop.address);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
         }catch(e){
-          iqResult.textContent='Nie udało się teraz policzyć drogi do następnego punktu z aktualnej pozycji GPS. Spróbuj ponownie za chwilę.';
+          const reason=String((e&&e.message)||e||'unknown');
+          let detail='routing';
+          if(reason==='gps') detail='GPS pojazdu';
+          else if(reason==='geocode') detail='współrzędne następnego punktu';
+          else if(reason) detail=reason;
+          iqResult.textContent='Nie udało się teraz policzyć drogi do następnego punktu. Etap: '+detail+'.';
+          console.error('TRANVIQ IQ ETA error:',e);
         }
       }
       function iqInterpret(text){
