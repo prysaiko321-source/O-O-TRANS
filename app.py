@@ -3684,7 +3684,7 @@ def driver_dashboard():
       window.setInterval(loadRoute,5000);
     })();
     </script>
-    """.replace("__VEHICLE_ID__", json.dumps(vehicle_id)).replace("__PLATE__", html.escape(vehicle_plate))
+    """.replace("__VEHICLE_ID__", json.dumps(vehicle_id)).replace("__PLATE__", escape(vehicle_plate))
 
     return page(
         "Kierowca · " + vehicle_plate,
