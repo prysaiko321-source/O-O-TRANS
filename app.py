@@ -4206,6 +4206,56 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
       function iqCurrentStop(){
         const route=savedRoute&&savedRoute.delivery_route; const stops=route&&Array.isArray(route.stops)?route.stops:[]; const idx=currentIndex(stops); return idx>=0?stops[idx]:null;
       }
+      function iqFormatDriveTime(seconds){
+        const n=Number(seconds); if(!Number.isFinite(n)||n<0) return 'brak danych';
+        const mins=Math.max(1,Math.round(n/60)),h=Math.floor(mins/60),m=mins%60;
+        if(h&&m) return h+' godz. '+m+' min';
+        if(h) return h+' godz.';
+        return m+' min';
+      }
+      function iqFormatEta(seconds){
+        const n=Number(seconds); if(!Number.isFinite(n)||n<0) return '';
+        const d=new Date(Date.now()+n*1000);
+        return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+      }
+      async function iqNextStopEstimate(){
+        const stop=iqCurrentStop();
+        iqAction.innerHTML='';
+        if(!stop||!stop.address){iqResult.textContent='Brak aktywnego następnego punktu trasy.';return;}
+        iqResult.textContent='Sprawdzam aktualną pozycję pojazdu i trasę do następnego punktu…';
+        try{
+          const statesResp=await fetch('/api/live-vehicle-states?iq_eta='+Date.now(),{cache:'no-store'});
+          if(!statesResp.ok) throw new Error('gps');
+          const states=await statesResp.json();
+          const vehicles=Array.isArray(states.vehicles)?states.vehicles:[];
+          let own=vehicles.find(function(v){return String(v.id||'')===String(ownVehicleId||vehicleId);});
+          if(!own){
+            const plate=String(vehiclePlate||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();
+            own=vehicles.find(function(v){const x=String(v.plate||v.name||'').replace(/[^A-Z0-9]/gi,'').toUpperCase();return plate&&x.includes(plate);});
+          }
+          const lat=Number(own&&own.latitude),lon=Number(own&&own.longitude);
+          if(!Number.isFinite(lat)||!Number.isFinite(lon)) throw new Error('gps');
+
+          const geoResp=await fetch('/api/geocode?mode=address&purpose=delivery&consent=addresses_only&q='+encodeURIComponent(stop.address),{cache:'no-store'});
+          const geo=await geoResp.json();
+          if(!geoResp.ok||!Array.isArray(geo.results)||!geo.results.length) throw new Error('geocode');
+          const dest=geo.results[0];
+          const dlat=Number(dest.latitude),dlon=Number(dest.longitude);
+          if(!Number.isFinite(dlat)||!Number.isFinite(dlon)) throw new Error('geocode');
+
+          const routeResp=await fetch('/api/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({origin:{latitude:lat,longitude:lon},destination:{latitude:dlat,longitude:dlon},avoid_tolls:false})});
+          const route=await routeResp.json();
+          if(!routeResp.ok) throw new Error(route.error||'route');
+          const km=Number(route.distance_m)/1000,secs=Number(route.duration_s);
+          if(!Number.isFinite(km)||!Number.isFinite(secs)) throw new Error('route');
+          const eta=iqFormatEta(secs);
+          const windowText=(stop.window_start&&stop.window_end)?(' Okno punktu: '+stop.window_start+'–'+stop.window_end+'.'):'';
+          iqResult.textContent='Następny punkt: '+stop.address+'. Zostało '+km.toFixed(1)+' km, około '+iqFormatDriveTime(secs)+(eta?'. Przewidywany przyjazd: '+eta:'')+'.'+windowText;
+          const a=document.createElement('a');a.href=googleMapsUrl(stop.address);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
+        }catch(e){
+          iqResult.textContent='Nie udało się teraz policzyć drogi do następnego punktu z aktualnej pozycji GPS. Spróbuj ponownie za chwilę.';
+        }
+      }
       function iqInterpret(text){
         const raw=String(text||''); const q=raw.toLowerCase(); iqAction.innerHTML='';
         const stop=iqCurrentStop();
@@ -4213,6 +4263,9 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const vehicle=(q.match(/d\s*x\s*f|д\s*х\s*ф|dxef|deixef/i)?'DXF':(q.match(/d\s*x\s*a|д\s*х\s*а|dxa/i)?'DXA':(q.match(/s\s*h|ш\s*х|sh/i)?'SH':null)));
         const navWord=has(['навіг','навига','nawig','prowadź','веди','їхати до','їхать до','дорогу до']);
         const tachoWord=has(['тахо','tach','часу','час ','час?','їхати','ехать','jazd','пау','przerw','відпоч','odpocz']);
+        const nextPointWord=has(['наступ','następ','вигруз','вивантаж','розвантаж','rozład','достав','punkt']);
+        const distanceTimeWord=has(['скільки','ile','далеко','zosta','залиш','час','czas','кілом','kilometr','км','godzin','хвилин','minut','коли буду','kiedy będę']);
+        if(nextPointWord && distanceTimeWord){iqNextStopEstimate();return;}
         if(vehicle && (navWord || has(['до '+vehicle.toLowerCase(),'do '+vehicle.toLowerCase()]))){
           iqResult.textContent='IQ zrozumiał: nawigować do pojazdu '+vehicle+'.';
           const target=Object.values(fleetMarkers).find(function(m){return m&&m._tranviqVehicle===vehicle;});
