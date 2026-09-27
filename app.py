@@ -3674,6 +3674,27 @@ def _legacy_dispatcher_dashboard():
     )
 
 
+@app.route("/api/driver-tachograph/<vehicle_id>")
+def driver_tachograph_api(vehicle_id):
+    """Operational tachograph snapshot for the logged-in driver UI.
+
+    Returns only time/status values already exposed by the shared tachograph
+    calculation. Missing Navirec values stay null; the UI must never invent them.
+    """
+    vehicle_id = normalize_api_id(vehicle_id) or str(vehicle_id)
+    states_result = get_last_vehicle_states_result()
+    snapshots = build_tachograph_snapshots(states_result.get("items", []))
+    snapshot = snapshots.get(vehicle_id)
+    if snapshot is None:
+        return jsonify({"ok": False, "vehicle_id": vehicle_id, "tachograph": None}), 404
+    return jsonify({
+        "ok": True,
+        "vehicle_id": vehicle_id,
+        "tachograph": snapshot,
+        "source_ok": bool(states_result.get("ok")),
+    })
+
+
 @app.route("/driver")
 def driver_dashboard():
     # First live driver pilot: SH 9203G.  The route itself remains the same
@@ -3687,7 +3708,7 @@ def driver_dashboard():
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-      .driver-tabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:12px;border-radius:12px;font-weight:900;cursor:pointer}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}
+      .driver-tabs{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:12px;border-radius:12px;font-weight:900;cursor:pointer}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}
       #driverMapPane{display:none}.driver-map{height:58vh;min-height:390px;border-radius:16px;overflow:hidden;border:1px solid #ced4da}.driver-map-note{font-size:12px;color:#68757d;margin:8px 0}.driver-vehicle-card{font-size:13px;line-height:1.35}.driver-vehicle-card strong{font-size:15px}.driver-to-vehicle{display:inline-block;margin-top:8px;padding:8px 10px;border-radius:9px;background:#0b7285;color:white!important;text-decoration:none;font-weight:900}
       .driver-shell{max-width:760px;margin:0 auto;padding-bottom:90px}
       .driver-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
@@ -3704,7 +3725,8 @@ def driver_dashboard():
       .driver-stop.current{border:2px solid #f59f00;background:#fff9db}.driver-stop.completed{opacity:.65;background:#f1f3f5}
       .driver-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e9ecef;font-weight:900}.driver-stop.current .driver-num{background:#f59f00;color:white}.driver-stop.completed .driver-num{background:#2f9e44;color:white}
       .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-open{margin-top:8px;border:0;border-radius:9px;padding:8px 11px;background:#e7f5ff;font-weight:900;cursor:pointer}.driver-iq{display:none}.driver-iq-card{border:2px solid #7048e8;border-radius:16px;padding:16px;background:#f8f7ff}.driver-mic{width:100%;min-height:68px;border:0;border-radius:14px;background:#7048e8;color:#fff;font-size:20px;font-weight:900;cursor:pointer}.driver-mic.listening{background:#c2255c}.driver-iq-box{margin-top:12px;padding:12px;border-radius:12px;background:#fff;border:1px solid #ddd}.driver-iq-label{font-size:12px;font-weight:900;color:#68757d;text-transform:uppercase;margin-bottom:5px}.driver-iq-text{font-size:17px;font-weight:800;min-height:24px}.driver-iq-action{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}.driver-iq-action a,.driver-iq-action button{border:0;border-radius:10px;padding:10px 12px;background:#0b7285;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}
-      @media(max-width:520px){.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}}
+      .driver-tacho{display:none}.driver-tacho-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.driver-tacho-item{border:1px solid #d8e1e5;border-radius:12px;padding:12px;background:#fff}.driver-tacho-value{font-size:20px;font-weight:900;margin-top:4px}.driver-tacho-warn{margin-top:10px;padding:10px;border-radius:10px;background:#fff3bf;font-weight:800}.driver-tacho-ok{margin-top:10px;padding:10px;border-radius:10px;background:#d3f9d8;font-weight:800}
+      @media(max-width:520px){.driver-tabs{grid-template-columns:1fr 1fr}.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}.driver-tacho-grid{grid-template-columns:1fr}}
     </style>
     <div class="driver-shell">
       <div class="card">
@@ -3715,7 +3737,7 @@ def driver_dashboard():
         <div class="driver-small">Trasa wspólna z dyrektorem i logistykiem. Zmiany pojawią się automatycznie.</div>
       </div>
 
-      <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">TRASA</button><button id="driverMapTab" class="driver-tab" type="button">MAPA GPS</button><button id="driverIqTab" class="driver-tab" type="button">🎙 IQ</button></div>
+      <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">TRASA</button><button id="driverMapTab" class="driver-tab" type="button">MAPA GPS</button><button id="driverTachoTab" class="driver-tab" type="button">TACHOGRAF</button><button id="driverIqTab" class="driver-tab" type="button">🎙 IQ</button></div>
       <div id="driverRoutePane">
       <div class="card" style="margin:10px 0"><div class="driver-kicker">TWOJE ZLECENIA</div><div id="driverJobs" class="driver-jobs"></div></div>
       <div id="driverNext" class="driver-next" style="display:none">
@@ -3735,13 +3757,28 @@ def driver_dashboard():
         <div class="driver-map-note" id="driverMapNote">Ładowanie pozycji GPS…</div>
         <div id="driverFleetMap" class="driver-map"></div>
       </div>
+      <div id="driverTachoPane" class="driver-tacho">
+        <div class="card">
+          <div class="driver-kicker">TACHOGRAF · SH 9203G</div>
+          <div id="driverTachoStatus" class="driver-small">Pobieranie danych z tachografu…</div>
+          <div class="driver-tacho-grid" style="margin-top:10px">
+            <div class="driver-tacho-item"><div class="driver-small">Do następnej przerwy</div><div id="tachoBreak" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Jazda dzienna — pozostało</div><div id="tachoDaily" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Bieżący okres jazdy — pozostało</div><div id="tachoCurrent" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Do odpoczynku dobowego</div><div id="tachoRest" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Jazda tygodniowa — pozostało</div><div id="tachoWeekly" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Karta kierowcy</div><div id="tachoCard" class="driver-tacho-value">—</div></div>
+          </div>
+          <div id="driverTachoNotice" class="driver-tacho-warn">IQ pokazuje wyłącznie potwierdzone dane Navirec. Brakujące wartości nie są zgadywane.</div>
+        </div>
+      </div>
       <div id="driverIqPane" class="driver-iq">
         <div class="driver-iq-card">
           <div class="driver-kicker">IQ · ASYSTENT GŁOSOWY</div>
           <button id="driverMic" class="driver-mic" type="button">🎙 NACIŚNIJ I MÓW</button>
           <div class="driver-iq-box"><div class="driver-iq-label">USŁYSZAŁEM</div><div id="driverTranscript" class="driver-iq-text">—</div></div>
           <div class="driver-iq-box"><div class="driver-iq-label">IQ ZROZUMIAŁ</div><div id="driverIqResult" class="driver-iq-text">Najpierw naciśnij mikrofon i powiedz polecenie.</div><div id="driverIqAction" class="driver-iq-action"></div></div>
-          <div class="driver-small" style="margin-top:10px">Test: „Jaki jest następny adres?”, „Nawiguj do następnego punktu”, „Pokaż następną trasę”.</div>
+          <div class="driver-small" style="margin-top:10px">Test: „Jaki jest następny adres?”, „Nawiguj do DXF”, „Ile mam czasu do pauzy?”, „Ile mogę jeszcze dzisiaj jechać?”.</div>
         </div>
       </div>
     </div>
@@ -3770,6 +3807,10 @@ def driver_dashboard():
       const mapTab=document.getElementById('driverMapTab');
       const iqTab=document.getElementById('driverIqTab');
       const iqPane=document.getElementById('driverIqPane');
+      const tachoTab=document.getElementById('driverTachoTab');
+      const tachoPane=document.getElementById('driverTachoPane');
+      const tachoStatus=document.getElementById('driverTachoStatus');
+      let latestTacho=null;
       const micBtn=document.getElementById('driverMic');
       const transcriptBox=document.getElementById('driverTranscript');
       const iqResult=document.getElementById('driverIqResult');
@@ -3777,21 +3818,24 @@ def driver_dashboard():
       const mapNote=document.getElementById('driverMapNote');
       let fleetMap=null;
       let fleetMarkers={};
-      function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';iqPane.style.display='none';routeTab.classList.add('active');mapTab.classList.remove('active');iqTab.classList.remove('active');}
-      function openMapTab(){routePane.style.display='none';mapPane.style.display='block';iqPane.style.display='none';routeTab.classList.remove('active');mapTab.classList.add('active');iqTab.classList.remove('active');if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
-      function openIqTab(){routePane.style.display='none';mapPane.style.display='none';iqPane.style.display='block';routeTab.classList.remove('active');mapTab.classList.remove('active');iqTab.classList.add('active');}
+      function setActiveTab(which){[routeTab,mapTab,tachoTab,iqTab].forEach(function(x){x.classList.remove('active');});which.classList.add('active');}
+      function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(routeTab);}
+      function openMapTab(){routePane.style.display='none';mapPane.style.display='block';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(mapTab);if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
+      function openTachoTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='block';iqPane.style.display='none';setActiveTab(tachoTab);loadTacho();}
+      function openIqTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='block';setActiveTab(iqTab);loadTacho();}
       routeTab.addEventListener('click',function(){history.replaceState(null,'',location.pathname);openRouteTab();});
       mapTab.addEventListener('click',function(){history.replaceState(null,'','#gps');openMapTab();});
+      tachoTab.addEventListener('click',function(){history.replaceState(null,'','#tachograf');openTachoTab();});
       iqTab.addEventListener('click',function(){history.replaceState(null,'','#iq');openIqTab();});
-      if(location.hash==='#gps'){openMapTab();}else if(location.hash==='#iq'){openIqTab();}
-      window.addEventListener('hashchange',function(){if(location.hash==='#gps')openMapTab();else if(location.hash==='#iq')openIqTab();else openRouteTab();});
+      if(location.hash==='#gps'){openMapTab();}else if(location.hash==='#tachograf'){openTachoTab();}else if(location.hash==='#iq'){openIqTab();}
+      window.addEventListener('hashchange',function(){if(location.hash==='#gps')openMapTab();else if(location.hash==='#tachograf')openTachoTab();else if(location.hash==='#iq')openIqTab();else openRouteTab();});
       function navToCoords(lat,lon){return 'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(lat+','+lon)+'&travelmode=driving';}
       async function loadFleet(){
         if(!fleetMap) return;
         try{
           const r=await fetch('/api/live-vehicle-states?driver_map='+Date.now(),{cache:'no-store'});if(!r.ok) throw new Error('HTTP '+r.status);
           const data=await r.json();const vehicles=Array.isArray(data.vehicles)?data.vehicles:[];const alive={};const bounds=[];
-          vehicles.forEach(function(v){const lat=Number(v.latitude),lon=Number(v.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;alive[v.id]=true;bounds.push([lat,lon]);const label=esc(v.plate||v.name||'Pojazd');const age=v.activity||'';const popup='<div class="driver-vehicle-card"><strong>'+label+'</strong><br>'+esc(age)+(v.id===ownVehicleId?'<br>Twój pojazd':'')+'<br><a class="driver-to-vehicle" target="_blank" rel="noopener" href="'+navToCoords(lat,lon)+'">🧭 NAWIGUJ DO POJAZDU</a></div>';if(!fleetMarkers[v.id]){fleetMarkers[v.id]=L.marker([lat,lon]).addTo(fleetMap);}else{fleetMarkers[v.id].setLatLng([lat,lon]);}fleetMarkers[v.id].bindPopup(popup);});
+          vehicles.forEach(function(v){const lat=Number(v.latitude),lon=Number(v.longitude);if(!Number.isFinite(lat)||!Number.isFinite(lon))return;alive[v.id]=true;bounds.push([lat,lon]);const label=esc(v.plate||v.name||'Pojazd');const age=v.activity||'';const popup='<div class="driver-vehicle-card"><strong>'+label+'</strong><br>'+esc(age)+(v.id===ownVehicleId?'<br>Twój pojazd':'')+'<br><a class="driver-to-vehicle" target="_blank" rel="noopener" href="'+navToCoords(lat,lon)+'">🧭 NAWIGUJ DO POJAZDU</a></div>';if(!fleetMarkers[v.id]){fleetMarkers[v.id]=L.marker([lat,lon]).addTo(fleetMap);}else{fleetMarkers[v.id].setLatLng([lat,lon]);}fleetMarkers[v.id]._tranviqVehicle=String(v.name||v.plate||'').toUpperCase().includes('DXF')?'DXF':(String(v.name||v.plate||'').toUpperCase().includes('DXA')?'DXA':(String(v.name||v.plate||'').toUpperCase().includes('SH')?'SH':''));fleetMarkers[v.id].bindPopup(popup);});
           Object.keys(fleetMarkers).forEach(function(id){if(!alive[id]){fleetMap.removeLayer(fleetMarkers[id]);delete fleetMarkers[id];}});
           if(bounds.length && !fleetMap._driverFitted){fleetMap.fitBounds(bounds,{padding:[30,30],maxZoom:11});fleetMap._driverFitted=true;}
           const vis=await fetch('/api/driver-fleet-visibility?ts='+Date.now(),{cache:'no-store'}).then(x=>x.ok?x.json():null).catch(()=>null);
@@ -3907,16 +3951,61 @@ def driver_dashboard():
         }catch(e){ live.textContent='● brak synchronizacji'; live.style.color='#c92a2a'; }
         finally{busy=false;}
       }
+      function fmtSeconds(value){
+        const n=Number(value); if(!Number.isFinite(n)||n<0) return 'brak danych';
+        const total=Math.round(n/60),h=Math.floor(total/60),m=total%60;
+        return (h?h+' godz. ':'')+m+' min';
+      }
+      function setTachoText(id,value){const el=document.getElementById(id);if(el)el.textContent=value;}
+      async function loadTacho(){
+        try{
+          const r=await fetch('/api/driver-tachograph/'+encodeURIComponent(vehicleId)+'?ts='+Date.now(),{cache:'no-store'});
+          if(!r.ok) throw new Error('HTTP '+r.status);
+          const data=await r.json(); latestTacho=data.tachograph||null;
+          const t=latestTacho||{};
+          setTachoText('tachoBreak',fmtSeconds(t.time_until_break_s));
+          setTachoText('tachoDaily',fmtSeconds(t.remaining_daily_driving_s));
+          setTachoText('tachoCurrent',fmtSeconds(t.remaining_current_driving_s));
+          setTachoText('tachoRest',fmtSeconds(t.time_until_daily_rest_s));
+          setTachoText('tachoWeekly',fmtSeconds(t.remaining_weekly_driving_s));
+          setTachoText('tachoCard',t.card_present?'włożona':'brak / brak danych');
+          const age=Number(t.age_seconds);
+          tachoStatus.textContent=(Number.isFinite(age)?('Ostatnie dane: '+Math.round(age/60)+' min temu'):'Dane Navirec pobrane')+(t.driver_name?' · '+t.driver_name:'');
+        }catch(e){latestTacho=null;tachoStatus.textContent='Nie udało się pobrać danych tachografu.';}
+      }
+      function iqTachoAnswer(kind){
+        const t=latestTacho; if(!t){iqResult.textContent='Nie mam teraz potwierdzonych danych tachografu SH. Niczego nie zgaduję.';return;}
+        if(kind==='break'){const v=fmtSeconds(t.time_until_break_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał czasu do następnej przerwy.':'Do następnej wymaganej przerwy pozostało '+v+'.';return;}
+        if(kind==='daily'){const v=fmtSeconds(t.remaining_daily_driving_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał pozostałego dziennego czasu jazdy.':'Pozostały dzienny czas jazdy: '+v+'.';return;}
+        if(kind==='rest'){const v=fmtSeconds(t.time_until_daily_rest_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał czasu do odpoczynku dobowego.':'Do odpoczynku dobowego pozostało '+v+'.';return;}
+        const vals=[]; if(fmtSeconds(t.remaining_daily_driving_s)!=='brak danych') vals.push('jazda dzienna '+fmtSeconds(t.remaining_daily_driving_s)); if(fmtSeconds(t.time_until_break_s)!=='brak danych') vals.push('do przerwy '+fmtSeconds(t.time_until_break_s)); if(fmtSeconds(t.time_until_daily_rest_s)!=='brak danych') vals.push('do odpoczynku dobowego '+fmtSeconds(t.time_until_daily_rest_s));
+        iqResult.textContent=vals.length?('Tachograf SH: '+vals.join(', ')+'.'):'Navirec nie podał jeszcze wartości czasu, które mogę bezpiecznie odczytać.';
+      }
       function iqCurrentStop(){
         const route=savedRoute&&savedRoute.delivery_route; const stops=route&&Array.isArray(route.stops)?route.stops:[]; const idx=currentIndex(stops); return idx>=0?stops[idx]:null;
       }
       function iqInterpret(text){
-        const q=String(text||'').toLowerCase(); iqAction.innerHTML='';
+        const raw=String(text||''); const q=raw.toLowerCase(); iqAction.innerHTML='';
         const stop=iqCurrentStop();
-        if((q.includes('наступн')||q.includes('następn')) && (q.includes('адрес')||q.includes('adres'))){iqResult.textContent=stop?('Następny adres: '+(stop.address||'')):'Brak aktywnego następnego punktu.';return;}
-        if((q.includes('навіг')||q.includes('nawig')) && (q.includes('наступ')||q.includes('następ'))){if(!stop){iqResult.textContent='Brak aktywnego następnego punktu.';return;}iqResult.textContent='Rozumiem: nawigacja do następnego punktu.';const a=document.createElement('a');a.href=googleMapsUrl(stop.address||'');a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);return;}
-        if((q.includes('наступн')||q.includes('następn')) && (q.includes('рейс')||q.includes('маршрут')||q.includes('tras'))){if(routeQueue.length){iqResult.textContent='Następna trasa: '+routeSummary(routeQueue[0]);const b=document.createElement('button');b.type='button';b.textContent='POKAŻ TRASĘ 2';b.onclick=function(){previewRoute=routeQueue[0];openRouteTab();renderPreview();};iqAction.appendChild(b);}else iqResult.textContent='Nie ma jeszcze następnej trasy.';return;}
-        iqResult.textContent='Usłyszałem tekst, ale jeszcze nie rozpoznaję tego polecenia. Niczego nie zmieniłem.';
+        const has=function(parts){return parts.some(function(x){return q.includes(x);});};
+        const vehicle=(q.match(/d\s*x\s*f|д\s*х\s*ф|dxef|deixef/i)?'DXF':(q.match(/d\s*x\s*a|д\s*х\s*а|dxa/i)?'DXA':(q.match(/s\s*h|ш\s*х|sh/i)?'SH':null)));
+        const navWord=has(['навіг','навига','nawig','prowadź','веди','їхати до','їхать до','дорогу до']);
+        const tachoWord=has(['тахо','tach','часу','час ','час?','їхати','ехать','jazd','пау','przerw','відпоч','odpocz']);
+        if(vehicle && (navWord || has(['до '+vehicle.toLowerCase(),'do '+vehicle.toLowerCase()]))){
+          iqResult.textContent='IQ zrozumiał: nawigować do pojazdu '+vehicle+'.';
+          const target=Object.values(fleetMarkers).find(function(m){return m&&m._tranviqVehicle===vehicle;});
+          if(target){const p=target.getLatLng();const a=document.createElement('a');a.href=navToCoords(p.lat,p.lng);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ DO '+vehicle;iqAction.appendChild(a);}
+          else{const b=document.createElement('button');b.type='button';b.textContent='POBIERZ GPS '+vehicle;b.onclick=async function(){await loadFleet();iqInterpret(raw);};iqAction.appendChild(b);iqResult.textContent+=' Pobiorę najnowszą pozycję GPS.';}
+          return;
+        }
+        if(tachoWord && has(['пау','przerw'])){iqTachoAnswer('break');return;}
+        if(tachoWord && has(['відпоч','odpocz'])){iqTachoAnswer('rest');return;}
+        if(tachoWord && has(['скільки','ile','ще','jeszcze','можу','mogę','сьогодні','dzisiaj','зміні','zmian'])){iqTachoAnswer('daily');return;}
+        if(has(['тахо','tachograf'])){iqTachoAnswer('all');return;}
+        if((has(['наступн','następn'])) && has(['адрес','adres'])){iqResult.textContent=stop?('IQ zrozumiał: następny adres. '+(stop.address||'')):'Brak aktywnego następnego punktu.';return;}
+        if(navWord && has(['наступ','następ'])){if(!stop){iqResult.textContent='Brak aktywnego następnego punktu.';return;}iqResult.textContent='IQ zrozumiał: nawigacja do następnego punktu.';const a=document.createElement('a');a.href=googleMapsUrl(stop.address||'');a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);return;}
+        if(has(['наступн','następn']) && has(['рейс','маршрут','tras'])){if(routeQueue.length){iqResult.textContent='IQ zrozumiał: pokaż następną trasę. '+routeSummary(routeQueue[0]);const b=document.createElement('button');b.type='button';b.textContent='POKAŻ TRASĘ 2';b.onclick=function(){previewRoute=routeQueue[0];openRouteTab();renderPreview();};iqAction.appendChild(b);}else iqResult.textContent='Nie ma jeszcze następnej trasy.';return;}
+        iqResult.textContent='Nie mam pewności, jakie polecenie robocze miałeś na myśli. Niczego nie wykonałem. Spróbuj: „Nawiguj do DXF”, „Ile mam czasu do pauzy?” albo „Jaki jest następny adres?”.';
       }
       function startDriverVoice(){
         const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
@@ -3951,7 +4040,7 @@ def driver_dashboard():
       complete.addEventListener('click',finishCurrent);
       loadRoute();
       window.setInterval(loadRoute,5000);
-      window.setInterval(function(){if(mapPane.style.display!=='none')loadFleet();},10000);
+      window.setInterval(function(){if(mapPane.style.display!=='none')loadFleet();if(tachoPane.style.display!=='none'||iqPane.style.display!=='none')loadTacho();},10000);
     })();
     </script>
     """.replace("__VEHICLE_ID__", json.dumps(vehicle_id)).replace("__PLATE__", escape(vehicle_plate))
