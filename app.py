@@ -3908,7 +3908,13 @@ def driver_dashboard():
         <div class="card">
           <div class="driver-kicker">WIADOMOŚCI · TRANVIQ</div>
           <div class="driver-msg-compose">
-            <select id="driverMsgRecipient"><option value="">Wybierz odbiorcę…</option></select>
+            <select id="driverMsgRecipient">
+              <option value="">Wybierz odbiorcę…</option>
+              <option value="role:director">Dyrektor</option>
+              <option value="role:dispatcher">Logistyk</option>
+              <option value="vehicle:cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb">Kierowca DX 9034F</option>
+              <option value="vehicle:f016af91-dee6-4e72-9f86-4b2e27a253c1">Kierowca DX 5405A</option>
+            </select>
             <textarea id="driverMsgText" rows="3" placeholder="Napisz wiadomość…"></textarea>
             <button id="driverMsgSend" class="driver-msg-send" type="button">WYŚLIJ</button>
           </div>
@@ -3975,7 +3981,23 @@ def driver_dashboard():
         try{const C=window.AudioContext||window.webkitAudioContext;if(!C)return;const c=new C();const o=c.createOscillator();const g=c.createGain();o.connect(g);g.connect(c.destination);o.frequency.value=880;g.gain.value=.06;o.start();o.stop(c.currentTime+.16);}catch(e){}
       }
       async function loadRecipients(){
-        try{const r=await fetch('/api/messages/recipients',{cache:'no-store'});const d=await r.json();if(!r.ok||!d.ok)return;msgRecipient.innerHTML='<option value="">Wybierz odbiorcę…</option>';(d.recipients||[]).forEach(function(x){if(x.id==='vehicle:'+ownVehicleId)return;const o=document.createElement('option');o.value=x.id;o.textContent=x.label;msgRecipient.appendChild(o);});}catch(e){}
+        // The select already contains a server-rendered fallback list, so recipients
+        // are visible even if the API is temporarily unavailable.
+        try{
+          const r=await fetch('/api/messages/recipients?ts='+Date.now(),{cache:'no-store'});
+          const d=await r.json();
+          if(!r.ok||!d.ok||!Array.isArray(d.recipients)||!d.recipients.length) return;
+          const rows=d.recipients.filter(function(x){return x && x.id && x.id!=='vehicle:'+ownVehicleId;});
+          if(!rows.length) return;
+          msgRecipient.innerHTML='<option value="">Wybierz odbiorcę…</option>';
+          rows.forEach(function(x){
+            const o=document.createElement('option');o.value=x.id;
+            o.textContent=(x.kind==='driver'?'Kierowca ':'')+(x.label||x.id);
+            msgRecipient.appendChild(o);
+          });
+        }catch(e){
+          // Keep the fallback list already rendered in HTML.
+        }
       }
       function renderMessages(items){
         msgList.innerHTML='';(items||[]).forEach(function(m){const d=document.createElement('div');d.className='driver-msg-item '+(m.sender==='vehicle:'+ownVehicleId?'mine':'');const meta=document.createElement('div');meta.className='driver-msg-meta';meta.textContent=(m.sender_label||m.sender)+' · '+String(m.created_at||'').replace('T',' ').slice(0,16);const txt=document.createElement('div');txt.textContent=m.text||'';d.appendChild(meta);d.appendChild(txt);msgList.appendChild(d);});msgList.scrollTop=msgList.scrollHeight;
