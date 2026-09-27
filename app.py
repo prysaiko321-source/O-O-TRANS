@@ -104,7 +104,6 @@ ROLE_HOME_ENDPOINTS = {
 ROLE_ENDPOINTS = {
     "dispatcher": {
         "gps",
-        "api_live_vehicle_states",
         "geocode_search",
         "route_calculate",
         "delivery_stop_status",
@@ -1085,6 +1084,25 @@ def _write_delivery_routes(data):
     with open(temporary, "w", encoding="utf-8") as handle:
         json.dump(data, handle, ensure_ascii=False)
     os.replace(temporary, DELIVERY_ROUTES_FILE)
+
+
+@app.route("/api/delivery-route-latest", methods=["GET"])
+def latest_delivery_route_storage():
+    """Return the newest active vehicle route shared by all roles/browsers."""
+    with DELIVERY_ROUTES_LOCK:
+        routes = _load_delivery_routes()
+    newest = None
+    newest_ts = ""
+    for saved in routes.values():
+        if not isinstance(saved, dict):
+            continue
+        if not isinstance(saved.get("delivery_route"), dict):
+            continue
+        ts = str(saved.get("saved_at") or "")
+        if newest is None or ts > newest_ts:
+            newest = saved
+            newest_ts = ts
+    return jsonify({"route": newest})
 
 
 @app.route("/api/delivery-route/<vehicle_id>", methods=["GET", "PUT", "DELETE"])
@@ -5099,10 +5117,8 @@ def route_calculate():
 @app.route("/api/live-vehicle-states")
 def api_live_vehicle_states():
     """Fresh Navirec positions for the live GPS map."""
-    # Keep this endpoint deliberately lightweight. It is polled by the map
-    # every 15 seconds, so do not fetch tachograph/driver data or historical
-    # fuel-consumption totals here. Those values are loaded by their own views.
     states = get_vehicle_states()
+    snapshots = build_tachograph_snapshots(states)
     vehicles = []
 
     for vehicle in VEHICLES:
@@ -5123,8 +5139,9 @@ def api_live_vehicle_states():
             "activity": get_activity(state),
             "activity_started_at": state.get("activity_started_at"),
             "fuel": safe_float(state.get("fuel_level")),
-            "updated_at": state.get("time") or state.get("updated_at") or state.get("received_at"),
+            "fuel_consumption": get_vehicle_average_consumption(vehicle["id"]),
         }
+        item.update(snapshots.get(vehicle["id"], {}))
         vehicles.append(item)
 
     return jsonify({"ok": True, "vehicles": vehicles})
@@ -5745,6 +5762,9 @@ def gps():
                 const basePopup = liveVehiclePopup(vehicle);
                 vehiclePopupBaseById[vehicle.id] = basePopup;
                 marker.setPopupContent(basePopup);
+                if (typeof activeDeliveryRoute !== 'undefined' && activeDeliveryRoute && activeDeliveryRoute.vehicle_id === vehicle.id) {{
+                    await refreshDeliveryStopStatuses(vehicle, activeDeliveryRoute);
+                }}
             }}
         }} catch (error) {{
             // Тимчасова помилка Navirec не повинна зупиняти живу карту.
@@ -5753,8 +5773,6 @@ def gps():
         }}
     }}
 
-    // Refresh immediately on page open; do not wait for the first 15-second interval.
-    refreshLiveVehiclePositions();
     setInterval(refreshLiveVehiclePositions, 15000);
     document.addEventListener('visibilitychange', function() {{
         if (!document.hidden) refreshLiveVehiclePositions();
@@ -7036,21 +7054,10 @@ def gps():
     async function readSavedDeliveryRoute(vehicleId) {{
         if (!vehicleId) return null;
 
-        // Читаємо ОБИДВІ копії. Сервер не має права затерти новіший маршрут
-        // старою версією лише тому, що відповів першим після F5.
-        let localSaved = null;
-        try {{
-            const raw = localStorage.getItem(deliveryRouteStorageKey(vehicleId));
-            if (raw) {{
-                const candidate = JSON.parse(raw);
-                if (candidate && candidate.vehicle_id === vehicleId &&
-                        candidate.delivery_route && candidate.route_data) {{
-                    localSaved = candidate;
-                }}
-            }}
-        }} catch (error) {{}}
-
+        // SERVER is the shared source of truth for director/logistician/other browsers.
+        // localStorage is only a fallback when the server is temporarily unavailable.
         let serverSaved = null;
+        let serverReached = false;
         try {{
             const response = await fetch(
                 '/api/delivery-route/' + encodeURIComponent(vehicleId) +
@@ -7058,6 +7065,7 @@ def gps():
                 {{cache: 'no-store'}}
             );
             if (response.ok) {{
+                serverReached = true;
                 const data = await response.json();
                 const candidate = data.route;
                 if (candidate && candidate.vehicle_id === vehicleId &&
@@ -7067,217 +7075,56 @@ def gps():
             }}
         }} catch (error) {{}}
 
-        if (!localSaved && !serverSaved) return null;
-
-        function savedRouteTime(route) {{
-            if (!route || !route.saved_at) return 0;
-            const value = Date.parse(route.saved_at);
-            return Number.isFinite(value) ? value : 0;
-        }}
-
-        // Завжди беремо найновішу реально збережену версію маршруту.
-        const saved = (!serverSaved ||
-            (localSaved && savedRouteTime(localSaved) > savedRouteTime(serverSaved)))
-            ? localSaved
-            : serverSaved;
-
-        try {{
-            localStorage.setItem(
-                deliveryRouteStorageKey(vehicleId),
-                JSON.stringify(saved)
-            );
-        }} catch (error) {{}}
-
-        // Якщо локальна копія новіша за серверну, одразу синхронізуємо сервер.
-        if (saved === localSaved &&
-                (!serverSaved || savedRouteTime(localSaved) > savedRouteTime(serverSaved))) {{
+        if (serverReached) {{
             try {{
-                await saveDeliveryRouteForVehicle(localSaved);
-            }} catch (error) {{
-                // Для F5 локальна актуальна копія все одно залишається доступною.
-            }}
+                if (serverSaved) {{
+                    localStorage.setItem(
+                        deliveryRouteStorageKey(vehicleId),
+                        JSON.stringify(serverSaved)
+                    );
+                }} else {{
+                    localStorage.removeItem(deliveryRouteStorageKey(vehicleId));
+                }}
+            }} catch (error) {{}}
+            return serverSaved;
         }}
 
-        return saved;
-    }}
-
-    async function refreshVehicleDeliveryPopup(
-        vehicle,
-        deliveryRoute,
-        statuses
-    ) {{
-        const marker = vehicleMarkersById[vehicle.id];
-        if (!marker || !deliveryRoute || !deliveryRoute.stops ||
-                !deliveryRoute.stops.length) return;
-
-        const safeStatuses = Array.isArray(statuses) ? statuses : [];
-        let nextIndex = safeStatuses.findIndex(function(status) {{
-            return status !== 'completed';
-        }});
-        if (nextIndex < 0) nextIndex = deliveryRoute.stops.length - 1;
-
-        const remainingStops = deliveryRoute.stops.slice(nextIndex);
-        const nextStop = remainingStops[0];
-        const finalStop = remainingStops[remainingStops.length - 1];
-        if (!nextStop || !finalStop) return;
-
+        // Offline fallback only. Never push this copy back automatically,
+        // otherwise an old route from another browser can overwrite the current route.
         try {{
-            const response = await fetch('/api/route', {{
-                method: 'POST',
-                headers: {{'Content-Type': 'application/json'}},
-                body: JSON.stringify({{
-                    origin: {{
-                        latitude: vehicle.latitude,
-                        longitude: vehicle.longitude
-                    }},
-                    destination: {{
-                        latitude: finalStop.latitude,
-                        longitude: finalStop.longitude
-                    }},
-                    waypoints: remainingStops.slice(0, -1).map(function(stop) {{
-                        return {{
-                            latitude: stop.latitude,
-                            longitude: stop.longitude
-                        }};
-                    }}),
-                    avoid_tolls: false,
-                    vehicle_profile: 'van'
-                }})
-            }});
-            const data = await response.json();
-            if (!response.ok) return;
-
-            const legs = Array.isArray(data.legs) ? data.legs : [];
-            const firstLeg = legs.length ? legs[0] : null;
-            const nextDistance = firstLeg
-                ? Number(firstLeg.distance_m || 0)
-                : Number(data.distance_m || 0);
-            const nextDuration = firstLeg
-                ? Number(firstLeg.duration_s || 0)
-                : Number(data.duration_s || 0);
-            const finalDistance = Number(data.distance_m || 0);
-            const finalDuration = Number(data.duration_s || 0);
-
-            const nextDeliveryLabel = gpsUiLanguage === 'pl'
-                ? 'Do następnego rozładunku:'
-                : gpsUiLanguage === 'en'
-                    ? 'To next delivery:'
-                    : gpsUiLanguage === 'de'
-                        ? 'Bis zur nächsten Entladung:'
-                        : 'До наступної вигрузки:';
-            const finalDeliveryLabel = gpsUiLanguage === 'pl'
-                ? 'Do ostatniego rozładunku:'
-                : gpsUiLanguage === 'en'
-                    ? 'To final delivery:'
-                    : gpsUiLanguage === 'de'
-                        ? 'Bis zur letzten Entladung:'
-                        : 'До останньої вигрузки:';
-            const distanceUnit = gpsUiLanguage === 'uk' ? ' км · ' : ' km · ';
-            let extra = '<hr style="margin:7px 0">' +
-                '<strong>' + nextDeliveryLabel + '</strong> ' +
-                (nextDistance / 1000).toFixed(1) + distanceUnit +
-                formatDuration(nextDuration);
-            if (remainingStops.length > 1) {{
-                extra += '<br><strong>' + finalDeliveryLabel + '</strong> ' +
-                    (finalDistance / 1000).toFixed(1) + distanceUnit +
-                    formatDuration(finalDuration);
+            const raw = localStorage.getItem(deliveryRouteStorageKey(vehicleId));
+            if (!raw) return null;
+            const candidate = JSON.parse(raw);
+            if (candidate && candidate.vehicle_id === vehicleId &&
+                    candidate.delivery_route && candidate.route_data) {{
+                return candidate;
             }}
-            marker.setPopupContent(
-                vehiclePopupBaseById[vehicle.id] + extra
+        }} catch (error) {{}}
+        return null;
+    }}
+
+    async function selectLatestSharedDeliveryRoute() {{
+        try {{
+            const response = await fetch(
+                '/api/delivery-route-latest?_=' + Date.now(),
+                {{cache: 'no-store'}}
             );
+            if (!response.ok) return false;
+            const data = await response.json();
+            const saved = data.route;
+            if (!saved || !saved.vehicle_id) return false;
+            const exists = vehicles.some(function(item) {{
+                return item.id === saved.vehicle_id;
+            }});
+            if (!exists) return false;
+            vehicleSelect.value = saved.vehicle_id;
+            updateFuelConsumption();
+            await restoreDeliveryRouteForVehicle(saved.vehicle_id);
+            return true;
         }} catch (error) {{
-            // Відстані в popup не повинні ламати карту.
+            return false;
         }}
     }}
-
-    function deliveryStopLine(stop) {{
-        let line = stop.address;
-        if (stop.window_start && stop.window_end) {{
-            if (stop.date) {{
-                line += ' | ' + stop.date + ' | ' + stop.window_start + ' | ' + stop.window_end;
-            }} else {{
-                line += ' | ' + stop.window_start + ' | ' + stop.window_end;
-            }}
-        }}
-        return line;
-    }}
-
-    function renderDeliveryStopOrder() {{
-        if (!deliveryStopOrderList) return;
-        const stops = activeDeliveryRoute &&
-            Array.isArray(activeDeliveryRoute.stops)
-            ? activeDeliveryRoute.stops
-            : [];
-        if (!stops.length) {{
-            deliveryStopOrderList.innerHTML = '';
-            deliveryStopOrderList.style.display = 'none';
-            return;
-        }}
-        deliveryStopOrderList.style.display = 'block';
-        const rows = stops.map(function(stop, index) {{
-            const upDisabled = index === 0 ? ' disabled' : '';
-            const downDisabled = index === stops.length - 1 ? ' disabled' : '';
-            return '<div style="display:flex;align-items:center;gap:6px;' +
-                'padding:7px 8px;border-top:1px solid #e3eaee;">' +
-                '<div style="min-width:0;flex:1;font-size:12px;' +
-                'white-space:nowrap;overflow:hidden;text-overflow:ellipsis;">' +
-                '<strong>' + (index + 1) + '.</strong> ' +
-                escapeHtml(stop.address) + '</div>' +
-                '<button type="button" title="Підняти вище"' + upDisabled +
-                ' onclick="reorderActiveDeliveryStops(' + index + ', -1)"' +
-                ' style="width:34px;height:30px;">↑</button>' +
-                '<button type="button" title="Опустити нижче"' + downDisabled +
-                ' onclick="reorderActiveDeliveryStops(' + index + ', 1)"' +
-                ' style="width:34px;height:30px;">↓</button>' +
-                '<button type="button" title="Видалити точку"' +
-                ' onclick="removeActiveDeliveryStop(' + index + ')"' +
-                ' style="width:34px;height:30px;">✕</button>' +
-                '</div>';
-        }}).join('');
-        deliveryStopOrderList.innerHTML =
-            '<details style="margin:5px 0;border:1px solid #cbd8df;' +
-            'border-radius:9px;background:#fff;overflow:hidden;">' +
-            '<summary style="cursor:pointer;padding:9px 11px;' +
-            'font-size:12px;font-weight:800;">↕ ' +
-            (gpsUiLanguage === 'en' ? 'Reorder addresses' : (gpsUiLanguage === 'pl' ? 'Zmień kolejność adresów' : (gpsUiLanguage === 'de' ? 'Adressreihenfolge ändern' : 'Змінити порядок адрес'))) + ' (' +
-            stops.length + ')</summary>' + rows + '</details>';
-    }}
-
-    function reorderActiveDeliveryStops(index, direction) {{
-        if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) {{
-            return;
-        }}
-        const target = index + direction;
-        if (target < 0 || target >= activeDeliveryRoute.stops.length) return;
-
-        const stops = activeDeliveryRoute.stops.slice();
-        const moved = stops.splice(index, 1)[0];
-        stops.splice(target, 0, moved);
-        deliveryStopsInput.value = stops.map(deliveryStopLine).join('\\n');
-        activeDeliveryRoute.stops = stops;
-        renderDeliveryStopOrder();
-        buildDeliveryRoute();
-    }}
-
-    function removeActiveDeliveryStop(index) {{
-        if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) {{
-            return;
-        }}
-        const stops = activeDeliveryRoute.stops.slice();
-        if (index < 0 || index >= stops.length) return;
-        stops.splice(index, 1);
-        activeDeliveryRoute.stops = stops;
-        deliveryStopsInput.value = stops.map(deliveryStopLine).join('\\n');
-        renderDeliveryStopOrder();
-        if (stops.length) {{
-            buildDeliveryRoute();
-        }} else {{
-            deliveryStopsInput.dispatchEvent(new Event('input'));
-        }}
-    }}
-
-    window.reorderActiveDeliveryStops = reorderActiveDeliveryStops;
-    window.removeActiveDeliveryStop = removeActiveDeliveryStop;
 
     function drawDeliveryStopMarkers(deliveryRoute) {{
         deliveryRoute.stops.forEach(function(stop, index) {{
@@ -7983,9 +7830,13 @@ def gps():
                 : (schedule.has_tachograph
                     ? (polishUi ? 'Trasa jest zgodna z aktualnymi danymi tachografu.' : 'Маршрут узгоджено з актуальним тахографом.')
                     : (schedule.rest_before_start
-                        ? 'До виїзду враховано стоянку з вимкненим ' +
-                            'запалюванням як розрахункову паузу. ' +
-                            'Після запуску звірити з тахографом.'
+                        ? (gpsUiLanguage === 'pl'
+                            ? 'Do czasu wyjazdu postój z wyłączonym zapłonem został uwzględniony jako szacunkowa przerwa. Po uruchomieniu pojazdu należy zweryfikować dane z tachografem.'
+                            : (gpsUiLanguage === 'en'
+                                ? 'Until departure, the stop with the ignition switched off has been counted as an estimated break. After starting the vehicle, verify it against the tachograph data.'
+                                : (gpsUiLanguage === 'de'
+                                    ? 'Bis zur Abfahrt wurde der Stillstand bei ausgeschalteter Zündung als geschätzte Pause berücksichtigt. Nach dem Start des Fahrzeugs mit den Tachographendaten abgleichen.'
+                                    : 'До виїзду враховано стоянку з вимкненим запалюванням як розрахункову паузу. Після запуску звірити з тахографом.')))
                         : 'Маршрут розраховано, але тахограф не дав ' +
                             'повного залишку часу.'));
 
@@ -8105,11 +7956,40 @@ def gps():
         }}
     }}
 
-    window.setTimeout(function() {{
-        if (vehicleSelect.value) {{
+    window.setTimeout(async function() {{
+        const restoredLatest = await selectLatestSharedDeliveryRoute();
+        if (!restoredLatest && vehicleSelect.value) {{
             restoreDeliveryRouteForVehicle(vehicleSelect.value);
         }}
     }}, 0);
+
+    // Keep the route view synchronized between director and logistician without F5.
+    // We only redraw when the server has a newer saved_at for the currently selected vehicle.
+    let lastSharedRouteSavedAt = '';
+    window.setInterval(async function() {{
+        const vehicleId = vehicleSelect.value;
+        if (!vehicleId) return;
+        try {{
+            const response = await fetch(
+                '/api/delivery-route/' + encodeURIComponent(vehicleId) +
+                '?_=' + Date.now(),
+                {{cache: 'no-store'}}
+            );
+            if (!response.ok) return;
+            const data = await response.json();
+            const saved = data.route;
+            const savedAt = saved && saved.saved_at ? String(saved.saved_at) : '';
+            if (!savedAt) return;
+            if (!lastSharedRouteSavedAt) {{
+                lastSharedRouteSavedAt = savedAt;
+                return;
+            }}
+            if (savedAt !== lastSharedRouteSavedAt) {{
+                lastSharedRouteSavedAt = savedAt;
+                await restoreDeliveryRouteForVehicle(vehicleId);
+            }}
+        }} catch (error) {{}}
+    }}, 15000);
 
     cityInput.addEventListener('keydown', function(event) {{
         if (event.key === 'Enter') {{
