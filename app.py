@@ -5506,6 +5506,7 @@ def gps():
     const vehicles = {markers};
     const selectedId = {selected};
     const gpsUiLanguage = {ui_lang};
+    const gpsUserRole = {user_role};
     const gpsLegendMoving = document.getElementById('gps-legend-moving');
     const gpsLegendIdling = document.getElementById('gps-legend-idling');
     const gpsLegendStopped = document.getElementById('gps-legend-stopped');
@@ -5556,6 +5557,16 @@ def gps():
             ['\\u0434\\u0430\\u043d\\u0438\\u0445 \\u043f\\u0440\\u043e \\u043f\\u043b\\u0430\\u0442\\u043d\\u0456 \\u0434\\u0456\\u043b\\u044f\\u043d\\u043a\\u0438 \\u043d\\u0435\\u043c\\u0430\\u0454. \\u0426\\u0435 \\u043d\\u0435 \\u043e\\u0437\\u043d\\u0430\\u0447\\u0430\\u0454, \\u0449\\u043e \\u043c\\u0430\\u0440\\u0448\\u0440\\u0443\\u0442 \\u0431\\u0435\\u0437\\u043f\\u043b\\u0430\\u0442\\u043d\\u0438\\u0439.', 'no toll-section data is available. This does not mean the route is toll-free.'],
             [' \\u0433\\u043e\\u0434 ', ' h '], [' \\u0445\\u0432', ' min'], [' \\u043a\\u043c', ' km'], [' \\u043b \\u2248', ' l ≈']
         ];
+        const polishExtraReplacements = [
+            ['\u0414\u043e \u0432\u0438\u0457\u0437\u0434\u0443 \u0432\u0440\u0430\u0445\u043e\u0432\u0430\u043d\u043e \u0441\u0442\u043e\u044f\u043d\u043a\u0443 \u0437 \u0432\u0438\u043c\u043a\u043d\u0435\u043d\u0438\u043c \u0437\u0430\u043f\u0430\u043b\u044e\u0432\u0430\u043d\u043d\u044f\u043c \u044f\u043a \u0440\u043e\u0437\u0440\u0430\u0445\u0443\u043d\u043a\u043e\u0432\u0443 \u043f\u0430\u0443\u0437\u0443. \u041f\u0456\u0441\u043b\u044f \u0437\u0430\u043f\u0443\u0441\u043a\u0443 \u0437\u0432\u0456\u0440\u0438\u0442\u0438 \u0437 \u0442\u0430\u0445\u043e\u0433\u0440\u0430\u0444\u043e\u043c.',
+             'Do wyjazdu postój z wyłączonym zapłonem został uwzględniony jako szacunkowa przerwa. Po uruchomieniu pojazdu należy zweryfikować ją z danymi tachografu.']
+        ];
+        if (gpsUiLanguage === 'pl') {{
+            polishExtraReplacements.forEach(function(pair) {{
+                html = html.split(pair[0]).join(pair[1]);
+            }});
+        }}
+
         const germanReplacements = [
             ['\u0420\u043e\u0437\u0432\u0456\u0437\u043a\u0430', 'Ausliefertour'],
             ['\u0410\u0432\u0442\u043e\u043c\u043e\u0431\u0456\u043b\u044c:', 'Fahrzeug:'],
@@ -7165,6 +7176,21 @@ def gps():
             }}
         }} catch (error) {{}}
 
+        if (gpsUserRole === 'dispatcher') {{
+            // Логіст завжди показує тільки активну серверну версію.
+            // Локальна копія може бути застарілою і використовується лише
+            // директором як аварійний резерв під час створення маршруту.
+            if (serverSaved) {{
+                try {{
+                    localStorage.setItem(
+                        deliveryRouteStorageKey(vehicleId),
+                        JSON.stringify(serverSaved)
+                    );
+                }} catch (error) {{}}
+            }}
+            return serverSaved;
+        }}
+
         if (!localSaved && !serverSaved) return null;
 
         function savedRouteTime(route) {{
@@ -7594,7 +7620,12 @@ def gps():
         lastBestRouteCheckAt = now;
 
         const serverRoutes = await fetchAllServerDeliveryRoutes();
-        const localRoutes = localDeliveryRoutesForVisibleVehicles();
+        // Для логіста сервер є єдиним джерелом активного маршруту.
+        // Старий localStorage у браузері логіста не має права "воскресити"
+        // маршрут минулого тижня і тим більше записати його назад на сервер.
+        const localRoutes = gpsUserRole === 'dispatcher'
+            ? {}
+            : localDeliveryRoutesForVisibleVehicles();
         const best = newestRouteCandidate(serverRoutes, localRoutes);
         if (!best) return false;
 
@@ -8593,6 +8624,7 @@ def gps():
         markers=marker_json,
         selected=json.dumps(selected_id),
         ui_lang=json.dumps(current_language()),
+        user_role=json.dumps(current_role()),
         lat=center_lat,
         lon=center_lon
     )
