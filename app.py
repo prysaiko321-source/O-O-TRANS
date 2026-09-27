@@ -1179,6 +1179,42 @@ def driver_settings():
     return page("Ustawienia kierowców", body, "driver_settings")
 
 
+@app.route("/api/delivery-route/<vehicle_id>/queue", methods=["GET", "POST", "DELETE"])
+def delivery_route_queue(vehicle_id):
+    """Queue of future jobs for a vehicle. Active route stays separate."""
+    vehicle_id = normalize_vehicle_id(vehicle_id)
+    if not vehicle_by_id(vehicle_id):
+        return jsonify({"error": "Автомобіль не знайдено."}), 404
+    with DELIVERY_ROUTES_LOCK:
+        routes = _load_delivery_routes()
+        saved = routes.get(vehicle_id) or {}
+        queue = saved.get("route_queue") if isinstance(saved, dict) else []
+        if not isinstance(queue, list):
+            queue = []
+        if request.method == "GET":
+            return jsonify({"queue": queue})
+        if request.method == "DELETE":
+            if isinstance(saved, dict):
+                saved["route_queue"] = []
+                routes[vehicle_id] = saved
+                _write_delivery_routes(routes)
+            return jsonify({"ok": True, "queue": []})
+        payload = request.get_json(silent=True) or {}
+        future_route = payload.get("route")
+        if not isinstance(future_route, dict) or not isinstance(future_route.get("delivery_route"), dict):
+            return jsonify({"error": "Неправильні дані наступного рейсу."}), 400
+        future_route["vehicle_id"] = vehicle_id
+        future_route["queue_status"] = "next"
+        future_route["queued_at"] = datetime.now(timezone.utc).isoformat()
+        queue.append(future_route)
+        if not isinstance(saved, dict):
+            saved = {}
+        saved["route_queue"] = queue
+        routes[vehicle_id] = saved
+        _write_delivery_routes(routes)
+        return jsonify({"ok": True, "queue": queue})
+
+
 @app.route("/api/delivery-routes", methods=["GET"])
 def delivery_routes_list():
     """Return all saved active routes for dispatcher live synchronization."""
@@ -1224,6 +1260,9 @@ def delivery_route_storage(vehicle_id):
         if not isinstance(saved.get("delivery_route"), dict):
             return jsonify({"error": "Немає даних маршруту."}), 400
 
+        previous = routes.get(vehicle_id)
+        if isinstance(previous, dict) and isinstance(previous.get("route_queue"), list):
+            saved["route_queue"] = previous.get("route_queue", [])
         routes[vehicle_id] = saved
         _write_delivery_routes(routes)
         return jsonify({"ok": True})
@@ -3653,7 +3692,7 @@ def driver_dashboard():
       .driver-list{display:grid;gap:8px;margin-top:12px}.driver-stop{border:1px solid #d8e1e5;border-radius:12px;padding:11px;background:white;display:grid;grid-template-columns:36px 1fr;gap:9px}
       .driver-stop.current{border:2px solid #f59f00;background:#fff9db}.driver-stop.completed{opacity:.65;background:#f1f3f5}
       .driver-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e9ecef;font-weight:900}.driver-stop.current .driver-num{background:#f59f00;color:white}.driver-stop.completed .driver-num{background:#2f9e44;color:white}
-      .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}
+      .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-open{margin-top:8px;border:0;border-radius:9px;padding:8px 11px;background:#e7f5ff;font-weight:900;cursor:pointer}
       @media(max-width:520px){.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}}
     </style>
     <div class="driver-shell">
@@ -3667,6 +3706,7 @@ def driver_dashboard():
 
       <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">TRASA</button><button id="driverMapTab" class="driver-tab" type="button">MAPA GPS</button></div>
       <div id="driverRoutePane">
+      <div class="card" style="margin:10px 0"><div class="driver-kicker">TWOJE ZLECENIA</div><div id="driverJobs" class="driver-jobs"></div></div>
       <div id="driverNext" class="driver-next" style="display:none">
         <div class="driver-kicker">NASTĘPNY PUNKT</div>
         <div id="driverNextAddress" class="driver-address"></div>
@@ -3697,7 +3737,10 @@ def driver_dashboard():
       const navigate = document.getElementById('driverNavigate');
       const complete = document.getElementById('driverComplete');
       const stopsBox = document.getElementById('driverStops');
+      const jobsBox = document.getElementById('driverJobs');
       let savedRoute = null;
+      let routeQueue = [];
+      let previewRoute = null;
       let lastStamp = '';
       let busy = false;
       const ownVehicleId = vehicleId;
@@ -3745,7 +3788,31 @@ def driver_dashboard():
         const idx = stops.findIndex(s => (s.manual_status||'') !== 'completed');
         return idx < 0 ? -1 : idx;
       }
+      function routeSummary(item){
+        const r=item&&item.delivery_route; const stops=r&&Array.isArray(r.stops)?r.stops:[];
+        if(!stops.length) return 'Brak punktów';
+        const first=stops[0]&&stops[0].address||''; const last=stops[stops.length-1]&&stops[stops.length-1].address||'';
+        return first+(stops.length>1?' → '+last:'')+' · '+stops.length+' pkt.';
+      }
+      function renderJobs(){
+        if(!jobsBox) return;
+        let html='<div class="driver-job"><div class="driver-job-title">TRASA 1 · W TRAKCIE</div><div class="driver-job-meta">'+esc(savedRoute?routeSummary(savedRoute):'Brak aktywnej trasy')+'</div></div>';
+        routeQueue.forEach(function(item,i){html+='<div class="driver-job next"><div class="driver-job-title">TRASA '+(i+2)+' · NASTĘPNA</div><div class="driver-job-meta">'+esc(routeSummary(item))+'</div><button class="driver-job-open" type="button" data-q="'+i+'">PODGLĄD TRASY</button></div>';});
+        jobsBox.innerHTML=html;
+        jobsBox.querySelectorAll('[data-q]').forEach(function(btn){btn.addEventListener('click',function(){const i=Number(this.dataset.q);previewRoute=routeQueue[i]||null;renderPreview();});});
+      }
+      function renderPreview(){
+        if(!previewRoute) return;
+        const stops=previewRoute.delivery_route&&Array.isArray(previewRoute.delivery_route.stops)?previewRoute.delivery_route.stops:[];
+        if(!stops.length) return;
+        nextBox.style.display='block'; emptyBox.style.display='none';
+        nextAddress.textContent='TRASA NASTĘPNA: '+(stops[0].address||'');
+        nextWindow.textContent=(stops[0].window_start&&stops[0].window_end)?('Okno: '+stops[0].window_start+'–'+stops[0].window_end):'Podgląd następnej pracy';
+        navigate.href=googleMapsUrl(stops[0].address||''); complete.disabled=true;
+        stopsBox.innerHTML=stops.map(function(stop,i){const time=(stop.window_start&&stop.window_end)?(stop.window_start+'–'+stop.window_end):'bez okna';return '<div class="driver-stop"><div class="driver-num">'+(i+1)+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+'</div></div></div>';}).join('');
+      }
       function render(){
+        previewRoute=null; renderJobs();
         const route = savedRoute && savedRoute.delivery_route;
         const stops = route && Array.isArray(route.stops) ? route.stops : [];
         if(!stops.length){
@@ -3801,7 +3868,11 @@ def driver_dashboard():
             }catch(ignore){}
           }
 
-          const s=stamp(candidate);
+          try{
+            const qr=await fetch('/api/delivery-route/'+encodeURIComponent(vehicleId)+'/queue?ts='+Date.now(),{cache:'no-store'});
+            if(qr.ok){const qd=await qr.json();routeQueue=Array.isArray(qd.queue)?qd.queue:[];}
+          }catch(ignore){}
+          const s=stamp(candidate)+'|q:'+JSON.stringify(routeQueue.map(function(x){return x.saved_at||x.queued_at||'';}));
           if(s!==lastStamp){ savedRoute=candidate; lastStamp=s; render(); }
           live.textContent=candidate?'● online':'● online · brak trasy na serwerze';
           live.style.color=candidate?'#087f5b':'#b26a00';
