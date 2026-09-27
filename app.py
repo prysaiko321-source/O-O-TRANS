@@ -3687,7 +3687,7 @@ def driver_dashboard():
     <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css">
     <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
     <style>
-      .driver-tabs{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:12px;border-radius:12px;font-weight:900;cursor:pointer}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}
+      .driver-tabs{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin:12px 0}.driver-tab{border:1px solid #adb5bd;background:#fff;padding:12px;border-radius:12px;font-weight:900;cursor:pointer}.driver-tab.active{background:#0b7285;color:#fff;border-color:#0b7285}
       #driverMapPane{display:none}.driver-map{height:58vh;min-height:390px;border-radius:16px;overflow:hidden;border:1px solid #ced4da}.driver-map-note{font-size:12px;color:#68757d;margin:8px 0}.driver-vehicle-card{font-size:13px;line-height:1.35}.driver-vehicle-card strong{font-size:15px}.driver-to-vehicle{display:inline-block;margin-top:8px;padding:8px 10px;border-radius:9px;background:#0b7285;color:white!important;text-decoration:none;font-weight:900}
       .driver-shell{max-width:760px;margin:0 auto;padding-bottom:90px}
       .driver-head{display:flex;justify-content:space-between;gap:12px;align-items:center;margin-bottom:12px}
@@ -3703,7 +3703,7 @@ def driver_dashboard():
       .driver-list{display:grid;gap:8px;margin-top:12px}.driver-stop{border:1px solid #d8e1e5;border-radius:12px;padding:11px;background:white;display:grid;grid-template-columns:36px 1fr;gap:9px}
       .driver-stop.current{border:2px solid #f59f00;background:#fff9db}.driver-stop.completed{opacity:.65;background:#f1f3f5}
       .driver-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e9ecef;font-weight:900}.driver-stop.current .driver-num{background:#f59f00;color:white}.driver-stop.completed .driver-num{background:#2f9e44;color:white}
-      .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-open{margin-top:8px;border:0;border-radius:9px;padding:8px 11px;background:#e7f5ff;font-weight:900;cursor:pointer}
+      .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-open{margin-top:8px;border:0;border-radius:9px;padding:8px 11px;background:#e7f5ff;font-weight:900;cursor:pointer}.driver-iq{display:none}.driver-iq-card{border:2px solid #7048e8;border-radius:16px;padding:16px;background:#f8f7ff}.driver-mic{width:100%;min-height:68px;border:0;border-radius:14px;background:#7048e8;color:#fff;font-size:20px;font-weight:900;cursor:pointer}.driver-mic.listening{background:#c2255c}.driver-iq-box{margin-top:12px;padding:12px;border-radius:12px;background:#fff;border:1px solid #ddd}.driver-iq-label{font-size:12px;font-weight:900;color:#68757d;text-transform:uppercase;margin-bottom:5px}.driver-iq-text{font-size:17px;font-weight:800;min-height:24px}.driver-iq-action{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}.driver-iq-action a,.driver-iq-action button{border:0;border-radius:10px;padding:10px 12px;background:#0b7285;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}
       @media(max-width:520px){.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}}
     </style>
     <div class="driver-shell">
@@ -3715,7 +3715,7 @@ def driver_dashboard():
         <div class="driver-small">Trasa wspólna z dyrektorem i logistykiem. Zmiany pojawią się automatycznie.</div>
       </div>
 
-      <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">TRASA</button><button id="driverMapTab" class="driver-tab" type="button">MAPA GPS</button></div>
+      <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">TRASA</button><button id="driverMapTab" class="driver-tab" type="button">MAPA GPS</button><button id="driverIqTab" class="driver-tab" type="button">🎙 IQ</button></div>
       <div id="driverRoutePane">
       <div class="card" style="margin:10px 0"><div class="driver-kicker">TWOJE ZLECENIA</div><div id="driverJobs" class="driver-jobs"></div></div>
       <div id="driverNext" class="driver-next" style="display:none">
@@ -3734,6 +3734,15 @@ def driver_dashboard():
       <div id="driverMapPane">
         <div class="driver-map-note" id="driverMapNote">Ładowanie pozycji GPS…</div>
         <div id="driverFleetMap" class="driver-map"></div>
+      </div>
+      <div id="driverIqPane" class="driver-iq">
+        <div class="driver-iq-card">
+          <div class="driver-kicker">IQ · ASYSTENT GŁOSOWY</div>
+          <button id="driverMic" class="driver-mic" type="button">🎙 NACIŚNIJ I MÓW</button>
+          <div class="driver-iq-box"><div class="driver-iq-label">USŁYSZAŁEM</div><div id="driverTranscript" class="driver-iq-text">—</div></div>
+          <div class="driver-iq-box"><div class="driver-iq-label">IQ ZROZUMIAŁ</div><div id="driverIqResult" class="driver-iq-text">Najpierw naciśnij mikrofon i powiedz polecenie.</div><div id="driverIqAction" class="driver-iq-action"></div></div>
+          <div class="driver-small" style="margin-top:10px">Test: „Jaki jest następny adres?”, „Nawiguj do następnego punktu”, „Pokaż następną trasę”.</div>
+        </div>
       </div>
     </div>
 
@@ -3759,15 +3768,23 @@ def driver_dashboard():
       const mapPane=document.getElementById('driverMapPane');
       const routeTab=document.getElementById('driverRouteTab');
       const mapTab=document.getElementById('driverMapTab');
+      const iqTab=document.getElementById('driverIqTab');
+      const iqPane=document.getElementById('driverIqPane');
+      const micBtn=document.getElementById('driverMic');
+      const transcriptBox=document.getElementById('driverTranscript');
+      const iqResult=document.getElementById('driverIqResult');
+      const iqAction=document.getElementById('driverIqAction');
       const mapNote=document.getElementById('driverMapNote');
       let fleetMap=null;
       let fleetMarkers={};
-      function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';routeTab.classList.add('active');mapTab.classList.remove('active');}
-      function openMapTab(){routePane.style.display='none';mapPane.style.display='block';routeTab.classList.remove('active');mapTab.classList.add('active');if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
+      function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';iqPane.style.display='none';routeTab.classList.add('active');mapTab.classList.remove('active');iqTab.classList.remove('active');}
+      function openMapTab(){routePane.style.display='none';mapPane.style.display='block';iqPane.style.display='none';routeTab.classList.remove('active');mapTab.classList.add('active');iqTab.classList.remove('active');if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
+      function openIqTab(){routePane.style.display='none';mapPane.style.display='none';iqPane.style.display='block';routeTab.classList.remove('active');mapTab.classList.remove('active');iqTab.classList.add('active');}
       routeTab.addEventListener('click',function(){history.replaceState(null,'',location.pathname);openRouteTab();});
       mapTab.addEventListener('click',function(){history.replaceState(null,'','#gps');openMapTab();});
-      if(location.hash==='#gps'){openMapTab();}
-      window.addEventListener('hashchange',function(){if(location.hash==='#gps')openMapTab();else openRouteTab();});
+      iqTab.addEventListener('click',function(){history.replaceState(null,'','#iq');openIqTab();});
+      if(location.hash==='#gps'){openMapTab();}else if(location.hash==='#iq'){openIqTab();}
+      window.addEventListener('hashchange',function(){if(location.hash==='#gps')openMapTab();else if(location.hash==='#iq')openIqTab();else openRouteTab();});
       function navToCoords(lat,lon){return 'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(lat+','+lon)+'&travelmode=driving';}
       async function loadFleet(){
         if(!fleetMap) return;
@@ -3890,6 +3907,29 @@ def driver_dashboard():
         }catch(e){ live.textContent='● brak synchronizacji'; live.style.color='#c92a2a'; }
         finally{busy=false;}
       }
+      function iqCurrentStop(){
+        const route=savedRoute&&savedRoute.delivery_route; const stops=route&&Array.isArray(route.stops)?route.stops:[]; const idx=currentIndex(stops); return idx>=0?stops[idx]:null;
+      }
+      function iqInterpret(text){
+        const q=String(text||'').toLowerCase(); iqAction.innerHTML='';
+        const stop=iqCurrentStop();
+        if((q.includes('наступн')||q.includes('następn')) && (q.includes('адрес')||q.includes('adres'))){iqResult.textContent=stop?('Następny adres: '+(stop.address||'')):'Brak aktywnego następnego punktu.';return;}
+        if((q.includes('навіг')||q.includes('nawig')) && (q.includes('наступ')||q.includes('następ'))){if(!stop){iqResult.textContent='Brak aktywnego następnego punktu.';return;}iqResult.textContent='Rozumiem: nawigacja do następnego punktu.';const a=document.createElement('a');a.href=googleMapsUrl(stop.address||'');a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);return;}
+        if((q.includes('наступн')||q.includes('następn')) && (q.includes('рейс')||q.includes('маршрут')||q.includes('tras'))){if(routeQueue.length){iqResult.textContent='Następna trasa: '+routeSummary(routeQueue[0]);const b=document.createElement('button');b.type='button';b.textContent='POKAŻ TRASĘ 2';b.onclick=function(){previewRoute=routeQueue[0];openRouteTab();renderPreview();};iqAction.appendChild(b);}else iqResult.textContent='Nie ma jeszcze następnej trasy.';return;}
+        iqResult.textContent='Usłyszałem tekst, ale jeszcze nie rozpoznaję tego polecenia. Niczego nie zmieniłem.';
+      }
+      function startDriverVoice(){
+        const SR=window.SpeechRecognition||window.webkitSpeechRecognition;
+        if(!SR){iqResult.textContent='Ta przeglądarka nie obsługuje rozpoznawania mowy. Spróbuj w Chrome na telefonie.';return;}
+        const rec=new SR(); rec.lang='uk-UA'; rec.interimResults=true; rec.continuous=false;
+        micBtn.classList.add('listening'); micBtn.textContent='🔴 SŁUCHAM…'; transcriptBox.textContent='…'; iqResult.textContent='Rozpoznaję mowę…'; iqAction.innerHTML='';
+        rec.onresult=function(e){let text='';for(let i=e.resultIndex;i<e.results.length;i++){text+=e.results[i][0].transcript;}transcriptBox.textContent=text||'…';if(e.results[e.results.length-1].isFinal)iqInterpret(text);};
+        rec.onerror=function(e){iqResult.textContent='Błąd mikrofonu/rozpoznawania: '+(e.error||'nieznany');};
+        rec.onend=function(){micBtn.classList.remove('listening');micBtn.textContent='🎙 NACIŚNIJ I MÓW';};
+        try{rec.start();}catch(e){iqResult.textContent='Nie udało się uruchomić mikrofonu.';}
+      }
+      micBtn.addEventListener('click',startDriverVoice);
+
       async function finishCurrent(){
         if(!savedRoute || !savedRoute.delivery_route || !Array.isArray(savedRoute.delivery_route.stops)) return;
         const stops=savedRoute.delivery_route.stops;
