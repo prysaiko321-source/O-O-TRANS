@@ -7293,13 +7293,24 @@ def gps():
         }});
     }}
 
-    async function restoreDeliveryRouteForVehicle(vehicleId) {{
+    async function restoreDeliveryRouteForVehicle(vehicleId, savedOverride) {{
         removeMeasurementLayers();
         removePlannedRoute();
         activeDeliveryRoute = null;
         renderDeliveryStopOrder();
 
-        const saved = await readSavedDeliveryRoute(vehicleId);
+        // savedOverride використовується живою синхронізацією карти логіста.
+        // У цьому випадку серверна версія є авторитетною і стара localStorage
+        // копія в іншому браузері не може повернути карту назад.
+        const saved = savedOverride || await readSavedDeliveryRoute(vehicleId);
+        if (savedOverride) {{
+            try {{
+                localStorage.setItem(
+                    deliveryRouteStorageKey(vehicleId),
+                    JSON.stringify(savedOverride)
+                );
+            }} catch (error) {{}}
+        }}
         if (!saved) {{
             deliveryStopsInput.value = '';
             measureResult.textContent =
@@ -7364,6 +7375,71 @@ def gps():
             !deliveryMapConsent.checked ||
             !deliveryStopsInput.value.trim();
     }}
+
+    // ЖИВА СИНХРОНІЗАЦІЯ КАРТИ ЛОГІСТА МІЖ БРАУЗЕРАМИ/ПРИСТРОЯМИ.
+    // Кожні 10 секунд читаємо саме серверну копію маршруту вибраного авто.
+    // Якщо водій/інший користувач змінив маршрут, карта логіста перемальовується
+    // автоматично без F5.
+    const lastServerRouteStampByVehicle = {{}};
+    let deliveryRouteSyncBusy = false;
+
+    async function fetchServerDeliveryRoute(vehicleId) {{
+        if (!vehicleId) return null;
+        const response = await fetch(
+            '/api/delivery-route/' + encodeURIComponent(vehicleId) +
+            '?sync=' + Date.now(),
+            {{cache: 'no-store'}}
+        );
+        if (!response.ok) return null;
+        const data = await response.json();
+        const candidate = data.route;
+        if (!candidate || candidate.vehicle_id !== vehicleId ||
+                !candidate.delivery_route || !candidate.route_data) {{
+            return null;
+        }}
+        return candidate;
+    }}
+
+    function serverRouteStamp(saved) {{
+        if (!saved) return '';
+        return String(saved.saved_at || '') + '|' +
+            String((saved.input_text || '').length) + '|' +
+            String((saved.delivery_route && saved.delivery_route.stops || []).length);
+    }}
+
+    async function syncSelectedDeliveryRouteFromServer() {{
+        if (deliveryRouteSyncBusy || document.hidden || !vehicleSelect) return;
+        const vehicleId = vehicleSelect.value;
+        if (!vehicleId) return;
+        deliveryRouteSyncBusy = true;
+        try {{
+            const serverSaved = await fetchServerDeliveryRoute(vehicleId);
+            if (!serverSaved) return;
+            const stamp = serverRouteStamp(serverSaved);
+            const currentStamp = lastServerRouteStampByVehicle[vehicleId] || '';
+            const activeStamp = activeDeliveryRoute &&
+                activeDeliveryRoute.vehicle_id === vehicleId
+                ? String(activeDeliveryRoute._server_saved_at || '')
+                : '';
+
+            if (stamp !== currentStamp &&
+                    String(serverSaved.saved_at || '') !== activeStamp) {{
+                lastServerRouteStampByVehicle[vehicleId] = stamp;
+                serverSaved.delivery_route._server_saved_at =
+                    String(serverSaved.saved_at || '');
+                await restoreDeliveryRouteForVehicle(vehicleId, serverSaved);
+            }}
+        }} catch (error) {{
+            // Тимчасова мережна помилка не повинна ламати карту.
+        }} finally {{
+            deliveryRouteSyncBusy = false;
+        }}
+    }}
+
+    window.setInterval(syncSelectedDeliveryRouteFromServer, 10000);
+    document.addEventListener('visibilitychange', function() {{
+        if (!document.hidden) syncSelectedDeliveryRouteFromServer();
+    }});
 
     function parseDeliveryStopLines() {{
         const rawText = deliveryStopsInput.value.trim();
