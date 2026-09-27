@@ -2084,8 +2084,15 @@ document.addEventListener('DOMContentLoaded', function () {{
     }.get(language, "🛣️ Оплата доріг")
 
     if role == "driver":
+        driver_gps_label = {
+            "uk": "📍 GPS машин",
+            "pl": "📍 GPS pojazdów",
+            "en": "📍 Vehicle GPS",
+            "de": "📍 Fahrzeug-GPS",
+        }.get(language, "📍 GPS pojazdów")
         nav_items = [
             ("driver", "/driver", t("my_trips")),
+            ("driver_gps", "/driver#gps", driver_gps_label),
             (
                 "road_payments",
                 "/road-payments",
@@ -3703,7 +3710,10 @@ def driver_dashboard():
       let fleetMarkers={};
       function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';routeTab.classList.add('active');mapTab.classList.remove('active');}
       function openMapTab(){routePane.style.display='none';mapPane.style.display='block';routeTab.classList.remove('active');mapTab.classList.add('active');if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
-      routeTab.addEventListener('click',openRouteTab);mapTab.addEventListener('click',openMapTab);
+      routeTab.addEventListener('click',function(){history.replaceState(null,'',location.pathname);openRouteTab();});
+      mapTab.addEventListener('click',function(){history.replaceState(null,'','#gps');openMapTab();});
+      if(location.hash==='#gps'){openMapTab();}
+      window.addEventListener('hashchange',function(){if(location.hash==='#gps')openMapTab();else openRouteTab();});
       function navToCoords(lat,lon){return 'https://www.google.com/maps/dir/?api=1&destination='+encodeURIComponent(lat+','+lon)+'&travelmode=driving';}
       async function loadFleet(){
         if(!fleetMap) return;
