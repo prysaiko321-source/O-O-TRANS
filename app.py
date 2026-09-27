@@ -71,8 +71,16 @@ ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
 DISPATCHER_USER = os.environ.get("DISPATCHER_USER", "")
 DISPATCHER_PASSWORD = os.environ.get("DISPATCHER_PASSWORD", "")
-DRIVER_USER = os.environ.get("DRIVER_USER", "")
-DRIVER_PASSWORD = os.environ.get("DRIVER_PASSWORD", "")
+DRIVER_USER = (
+    os.environ.get("DRIVER_USER")
+    or os.environ.get("DRIVER_LOGIN")
+    or ""
+).strip()
+DRIVER_PASSWORD = (
+    os.environ.get("DRIVER_PASSWORD")
+    or os.environ.get("DRIVER_PASS")
+    or ""
+).strip()
 POLAND_TZ = ZoneInfo("Europe/Warsaw")
 
 ROLE_LABELS = {
@@ -3380,11 +3388,32 @@ def login(role):
             return redirect(role_home_url(role))
 
         if not credentials_configured:
-            error = (
-                "<p class='error'>"
-                + escape(t("login_not_configured"))
-                + "</p>"
-            )
+            # Never expose secret values. For the driver login, show which
+            # Render Environment key is missing so configuration is easy to fix.
+            if role == "driver":
+                missing = []
+                if not DRIVER_USER:
+                    missing.append("DRIVER_USER")
+                if not DRIVER_PASSWORD:
+                    missing.append("DRIVER_PASSWORD")
+                missing_text = ", ".join(missing)
+                error = (
+                    "<p class='error'>"
+                    + escape(t("login_not_configured"))
+                    + (
+                        "<br><small>Render Environment: "
+                        + escape(missing_text)
+                        + "</small>"
+                        if missing_text else ""
+                    )
+                    + "</p>"
+                )
+            else:
+                error = (
+                    "<p class='error'>"
+                    + escape(t("login_not_configured"))
+                    + "</p>"
+                )
         else:
             error = (
                 "<p class='error'>"
