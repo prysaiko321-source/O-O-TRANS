@@ -5766,6 +5766,17 @@ def gps():
                             option.textContent = vehicle.name;
                             vehicleSelect.appendChild(option);
                         }}
+
+                        // If GPS arrived after the page had already opened, the
+                        // selector could stay empty even though markers were now
+                        // visible. Select the first live vehicle automatically so
+                        // the dispatcher route synchronizer has a vehicle id and
+                        // can restore its saved route without any click/F5.
+                        if (!vehicleSelect.value) {{
+                            vehicleSelect.value = vehicle.id;
+                            vehicleSelect.dispatchEvent(new Event('change'));
+                            window.setTimeout(syncSelectedDeliveryRouteFromServer, 250);
+                        }}
                     }}
                 }} else {{
                     Object.assign(vehicle, fresh);
@@ -8127,11 +8138,12 @@ def gps():
                 : (schedule.has_tachograph
                     ? (polishUi ? 'Trasa jest zgodna z aktualnymi danymi tachografu.' : 'Маршрут узгоджено з актуальним тахографом.')
                     : (schedule.rest_before_start
-                        ? 'До виїзду враховано стоянку з вимкненим ' +
-                            'запалюванням як розрахункову паузу. ' +
-                            'Після запуску звірити з тахографом.'
-                        : 'Маршрут розраховано, але тахограф не дав ' +
-                            'повного залишку часу.'));
+                        ? (polishUi
+                            ? 'Do wyjazdu postój z wyłączonym zapłonem został uwzględniony jako szacunkowa przerwa. Po uruchomieniu pojazdu należy zweryfikować ją z danymi tachografu.'
+                            : 'До виїзду враховано стоянку з вимкненим запалюванням як розрахункову паузу. Після запуску звірити з тахографом.')
+                        : (polishUi
+                            ? 'Trasa została obliczona, ale tachograf nie podał pełnego pozostałego czasu jazdy.'
+                            : 'Маршрут розраховано, але тахограф не дав повного залишку часу.')));
 
             const stopRows = schedule.stops.map(function(stop, index) {{
                 let note = '';
