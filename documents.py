@@ -19,13 +19,22 @@ except ImportError:
 
 _LOCK = threading.RLock()
 _MAX_BYTES = 12 * 1024 * 1024
-_TYPES = {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Paragon paliwowy", "other": "Inny dokument"}
+_TYPE_LABELS = {
+    "uk": {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Паливний чек", "other": "Інший документ"},
+    "pl": {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Paragon paliwowy", "other": "Inny dokument"},
+    "en": {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Fuel receipt", "other": "Other document"},
+    "de": {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Tankbeleg", "other": "Anderes Dokument"},
+}
+_TYPES = set(_TYPE_LABELS["uk"])
 
 
 def register_document_routes(app, page, routes_file, vehicles):
     root = os.environ.get("DOCUMENTS_DIR", "").strip() or os.path.join(os.path.dirname(routes_file), "tranviq_documents")
     index_path = os.path.join(root, "index.json")
-    driver_vehicle = str(vehicles[0]["id"])
+    def driver_vehicle_id():
+        assigned = str(session.get("driver_vehicle_id") or "")
+        valid = {str(v["id"]) for v in vehicles}
+        return assigned if assigned in valid else str(vehicles[0]["id"])
     database_url = os.environ.get("DATABASE_URL", "").strip()
     use_database = bool(database_url and psycopg)
     durable_files = bool(os.environ.get("DOCUMENTS_DIR", "").strip() or os.path.realpath(root).startswith("/var/data/"))
@@ -103,9 +112,28 @@ def register_document_routes(app, page, routes_file, vehicles):
     def visible(item):
         if role() == "director":
             return True
+        if hidden_for_role(item):
+            return False
         if role() == "dispatcher":
             return item.get("type") == "cmr" or item.get("uploaded_by") == "dispatcher"
-        return role() == "driver" and item.get("vehicle_id") == driver_vehicle
+        return role() == "driver" and item.get("vehicle_id") == driver_vehicle_id()
+
+    def lang():
+        value = str(session.get("language") or "uk").lower()
+        return value if value in {"uk", "pl", "en", "de"} else "uk"
+
+    def ui():
+        strings = {
+            "uk": {"vehicle":"Автомобіль / рейс","scan":"Сканувати документ","scan_help":"Вибери тип і зроби фото документа. Перевір перед відправленням.","kind":"Тип документа","send":"Надіслати документ","sending":"Надсилання…","saved":"Документ збережено.","fixed":" Краї виправлено.","route_docs":"Документи з рейсу","loading":"Завантаження…","open":"відкрити","download":"Завантажити","empty":"Документів немає.","delete":"Видалити","delete_all":"Видалити повністю","confirm_hide":"Прибрати цей документ тільки з твого кабінету? Копія залишиться у директора.","confirm_all":"Видалити цей документ повністю з усієї системи?","deleted":"Документ видалено.","bad_vehicle":"Вибери автомобіль.","bad_type":"Невідомий тип документа.","choose_file":"Вибери файл.","too_big":"Файл перевищує 12 МБ.","bad_pdf":"PDF має містити 1–20 сторінок.","bad_file":"Не вдалося прочитати фото або PDF.","save_failed":"Не вдалося зберегти документ."},
+            "pl": {"vehicle":"Pojazd / trasa","scan":"Skanuj dokument","scan_help":"Wybierz rodzaj i zrób zdjęcie dokumentu. Sprawdź przed wysłaniem.","kind":"Rodzaj dokumentu","send":"Wyślij dokument","sending":"Wysyłanie…","saved":"Dokument zapisany.","fixed":" Krawędzie poprawione.","route_docs":"Dokumenty z trasy","loading":"Ładowanie…","open":"otwórz","download":"Pobierz","empty":"Brak dokumentów.","delete":"Usuń","delete_all":"Usuń całkowicie","confirm_hide":"Usunąć ten dokument tylko z Twojego widoku? Kopia pozostanie u dyrektora.","confirm_all":"Usunąć ten dokument całkowicie z systemu?","deleted":"Dokument usunięty.","bad_vehicle":"Wybierz pojazd.","bad_type":"Nieznany rodzaj dokumentu.","choose_file":"Wybierz plik.","too_big":"Plik przekracza 12 MB.","bad_pdf":"PDF musi mieć 1–20 stron.","bad_file":ui()["bad_file"],"save_failed":ui()["save_failed"]},
+            "en": {"vehicle":"Vehicle / trip","scan":"Scan document","scan_help":"Choose the type and take a photo. Check it before sending.","kind":"Document type","send":"Send document","sending":"Sending…","saved":"Document saved.","fixed":" Edges corrected.","route_docs":"Trip documents","loading":"Loading…","open":"open","download":"Download","empty":"No documents.","delete":"Delete","delete_all":"Delete permanently","confirm_hide":"Remove this document only from your view? The director keeps a copy.","confirm_all":"Delete this document permanently from the whole system?","deleted":"Document deleted.","bad_vehicle":"Choose a vehicle.","bad_type":"Unknown document type.","choose_file":"Choose a file.","too_big":"File exceeds 12 MB.","bad_pdf":"PDF must contain 1–20 pages.","bad_file":"Could not read image or PDF.","save_failed":"Could not save document."},
+            "de": {"vehicle":"Fahrzeug / Tour","scan":"Dokument scannen","scan_help":"Dokumenttyp wählen, Foto machen und vor dem Senden prüfen.","kind":"Dokumenttyp","send":"Dokument senden","sending":"Wird gesendet…","saved":"Dokument gespeichert.","fixed":" Kanten korrigiert.","route_docs":"Tour-Dokumente","loading":"Laden…","open":"öffnen","download":"Herunterladen","empty":"Keine Dokumente.","delete":"Löschen","delete_all":"Vollständig löschen","confirm_hide":"Dieses Dokument nur aus deiner Ansicht entfernen? Der Direktor behält eine Kopie.","confirm_all":"Dieses Dokument vollständig aus dem System löschen?","deleted":"Dokument gelöscht.","bad_vehicle":"Fahrzeug wählen.","bad_type":"Unbekannter Dokumenttyp.","choose_file":"Datei wählen.","too_big":"Datei ist größer als 12 MB.","bad_pdf":"PDF muss 1–20 Seiten haben.","bad_file":"Bild oder PDF konnte nicht gelesen werden.","save_failed":"Dokument konnte nicht gespeichert werden."},
+        }
+        return strings[lang()]
+
+    def hidden_for_role(item):
+        hidden = item.get("hidden_for") or []
+        return role() in hidden and item.get("uploaded_by") == role()
 
     def current_trip(vehicle_id):
         try:
@@ -148,111 +176,74 @@ def register_document_routes(app, page, routes_file, vehicles):
             if width > 200 and height > 200:
                 target = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32")
                 array = cv2.warpPerspective(array, cv2.getPerspectiveTransform(np.array([tl, tr, br, bl], dtype="float32"), target), (width, height))
-        # Scanner-style B/W output: whiten paper, preserve dark text/stamps,
-        # and compensate for uneven light/shadows.
-        scan_gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
-        scan_gray = cv2.GaussianBlur(scan_gray, (3, 3), 0)
-        bw = cv2.adaptiveThreshold(
-            scan_gray, 255,
-            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
-            cv2.THRESH_BINARY,
-            35, 15
-        )
-        # Remove isolated camera noise without erasing normal print.
-        kernel = np.ones((2, 2), np.uint8)
-        bw = cv2.morphologyEx(bw, cv2.MORPH_OPEN, kernel)
         output = io.BytesIO()
-        Image.fromarray(bw).save(output, "JPEG", quality=92, optimize=True)
+        Image.fromarray(array).save(output, "JPEG", quality=88, optimize=True)
         return output.getvalue(), quad is not None
 
     @app.route("/documents")
     def trip_documents():
         if role() not in {"driver", "dispatcher", "director"}:
             abort(403)
+        s = ui()
         vehicle_select = ""
         if role() == "dispatcher":
             options = "".join(
                 '<option value="{}">{}</option>'.format(escape(str(v["id"])), escape(str(v.get("plate") or v.get("name") or v["id"])))
                 for v in vehicles
             )
-            vehicle_select = '<label>Pojazd / trasa</label><select name="vehicle_id" required>' + options + '</select>'
-        upload = r"""
-        <div class="card"><h2>Skanuj dokument</h2>
-        <p>Skieruj kamerę na dokument. Gdy wszystkie 4 krawędzie są widoczne i obraz jest stabilny, skan wykona się automatycznie.</p>
-        <form id="scanForm">__VEHICLE_SELECT__
-        <label>Rodzaj dokumentu</label><select name="type"><option value="cmr">CMR</option><option value="lieferschein">Lieferschein</option><option value="fuel">Paragon paliwowy</option><option value="other">Inny dokument</option></select>
-        <div style="display:grid;gap:10px;margin-top:12px">
-          <button type="button" id="openScanner" style="font-size:18px;padding:14px">📷 Uruchom skaner</button>
-          <label style="font-weight:800">albo wybierz gotowy plik</label>
-          <input name="file" id="fallbackFile" type="file" accept="image/*,.pdf,application/pdf">
-        </div>
-        <input type="hidden" name="scan_data" id="scanData">
-        <img id="scanPreview" alt="Podgląd" style="display:none;max-width:100%;max-height:55vh;margin:12px 0;border-radius:12px">
-        <div id="scanReviewActions" style="display:none;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0">
-          <button type="button" id="retakeScan" style="padding:14px;background:#c92a2a;color:#fff;font-weight:900">🗑️ Usuń / zrób ponownie</button>
-          <button type="submit" id="sendScan" style="padding:14px;background:#2b8a3e;color:#fff;font-weight:900">✅ Zapisz dokument</button>
-        </div>
-        <button type="submit" id="sendScanFallback" disabled style="display:none">Wyślij dokument</button><p id="scanStatus" role="status"></p></form></div>
-
-        <div id="scannerModal" style="display:none;position:fixed;inset:0;background:#05080b;z-index:99999;color:white">
-          <video id="scannerVideo" playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
-          <canvas id="scannerCanvas" style="display:none"></canvas>
-          <canvas id="scannerOverlay" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
-          <div style="position:absolute;left:12px;right:12px;top:12px;display:flex;justify-content:space-between;gap:10px">
-            <button type="button" id="closeScanner" style="padding:12px 16px">✕</button>
-            <div id="scannerHint" style="background:rgba(0,0,0,.62);padding:10px 14px;border-radius:12px;font-weight:800">Szukam dokumentu…</div>
-          </div>
-          <div style="position:absolute;left:12px;right:12px;bottom:18px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
-            <button type="button" id="manualCapture" style="padding:15px;font-size:17px">📷 Zrób ręcznie</button>
-            <button type="button" id="toggleAuto" style="padding:15px;font-size:17px">AUTO: WŁ.</button>
-          </div>
-        </div>
+            vehicle_select = '<label>{}</label><select name="vehicle_id" required>{}</select>'.format(escape(s["vehicle"]), options)
+        type_labels = _TYPE_LABELS[lang()]
+        options = "".join('<option value="{}">{}</option>'.format(k, escape(type_labels[k])) for k in ("cmr","lieferschein","fuel","other"))
+        upload = """
+        <div class="card"><h2>__SCAN__</h2><p>__HELP__</p>
+        <form id="scanForm">__VEHICLE_SELECT__<label>__KIND__</label><select name="type">__OPTIONS__</select>
+        <input name="file" type="file" accept="image/*,.pdf,application/pdf" capture="environment" required>
+        <img id="scanPreview" alt="" style="display:none;max-width:100%;max-height:55vh;margin:12px 0">
+        <button type="submit">__SEND__</button><p id="scanStatus" role="status"></p></form></div>
         <script>
-        (()=>{
-          const form=document.getElementById('scanForm'), fallback=document.getElementById('fallbackFile'), preview=document.getElementById('scanPreview'), status=document.getElementById('scanStatus'), send=document.getElementById('sendScan'), review=document.getElementById('scanReviewActions');
-          const modal=document.getElementById('scannerModal'), video=document.getElementById('scannerVideo'), canvas=document.getElementById('scannerCanvas'), overlay=document.getElementById('scannerOverlay'), hint=document.getElementById('scannerHint');
-          let stream=null, timer=null, auto=true, stable=0, stableSince=0, lastBox=null, capturedBlob=null, captureBox=null;
-          const octx=overlay.getContext('2d');
-          function ready(){const ok=!!(capturedBlob || (fallback.files&&fallback.files[0]));send.disabled=!ok;review.style.display=ok?'grid':'none';}
-          fallback.onchange=()=>{capturedBlob=null;captureBox=null;if(fallback.files[0]&&fallback.files[0].type.startsWith('image/')){preview.src=URL.createObjectURL(fallback.files[0]);preview.style.display='block'}else preview.style.display='none';ready()};
-          async function open(){
-            try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});video.srcObject=stream;await video.play();modal.style.display='block';stable=0;stableSince=0;lastBox=null;captureBox=null;loop();}
-            catch(e){status.textContent='Nie udało się uruchomić kamery. Sprawdź uprawnienia przeglądarki.';}
-          }
-          function close(){if(timer)cancelAnimationFrame(timer);timer=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}modal.style.display='none';}
-          function boxDistance(a,b){if(!a||!b)return 999;return Math.abs(a.x-b.x)+Math.abs(a.y-b.y)+Math.abs(a.w-b.w)+Math.abs(a.h-b.h)}
-          function detect(){
-            if(!video.videoWidth)return null;
-            const maxW=420, scale=Math.min(1,maxW/video.videoWidth), w=Math.round(video.videoWidth*scale), h=Math.round(video.videoHeight*scale);
-            canvas.width=w;canvas.height=h;const c=canvas.getContext('2d',{willReadFrequently:true});c.drawImage(video,0,0,w,h);const im=c.getImageData(0,0,w,h), d=im.data;
-            const gray=new Uint8Array(w*h);for(let i=0,j=0;i<d.length;i+=4,j++)gray[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
-            let minX=w,minY=h,maxX=0,maxY=0,count=0;const step=2;
-            for(let y=2;y<h-2;y+=step)for(let x=2;x<w-2;x+=step){let i=y*w+x;let gx=Math.abs(gray[i+1]-gray[i-1]),gy=Math.abs(gray[i+w]-gray[i-w]);if(gx+gy>70){minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);count++;}}
-            if(count<160)return null;
-            let bw=maxX-minX,bh=maxY-minY,area=bw*bh,ratio=area/(w*h),aspect=bw/bh;
-            const mx=minX/w,my=minY/h,mr=(w-maxX)/w,mb=(h-maxY)/h;
-            if(ratio<.20||ratio>.88||bw<w*.34||bh<h*.34)return null;
-            if(mx<.018||my<.018||mr<.018||mb<.018)return null;
-            if(aspect<.38||aspect>2.60)return null;
-            return {x:minX/w,y:minY/h,w:bw/w,h:bh/h};
-          }
-          function draw(b){overlay.width=innerWidth;overlay.height=innerHeight;octx.clearRect(0,0,overlay.width,overlay.height);if(!b)return;let vw=video.videoWidth,vh=video.videoHeight,sw=innerWidth,sh=innerHeight,s=Math.max(sw/vw,sh/vh),rw=vw*s,rh=vh*s,ox=(sw-rw)/2,oy=(sh-rh)/2;octx.strokeStyle=stableSince&&performance.now()-stableSince>350?'#40c057':'#ffd43b';octx.lineWidth=5;octx.strokeRect(ox+b.x*rw,oy+b.y*rh,b.w*rw,b.h*rh);}
-          function loop(){let b=detect();draw(b);if(b){captureBox=b;if(!stableSince)stableSince=performance.now();let dist=boxDistance(b,lastBox);if(lastBox&&dist>.28)stableSince=performance.now();lastBox=b;let held=performance.now()-stableSince;hint.textContent=held>300?'Cały dokument złapany — skanuję…':'Widzę dokument — chwila…';if(auto&&held>800){capture();return}}else{stable=0;stableSince=0;lastBox=null;captureBox=null;hint.textContent='Pokaż cały dokument — 4 krawędzie w kadrze';}timer=requestAnimationFrame(loop)}
-          async function capture(){
-            if(!video.videoWidth)return; if(timer)cancelAnimationFrame(timer);timer=null;
-            const full=document.createElement('canvas');const vw=video.videoWidth,vh=video.videoHeight;let sx=0,sy=0,sw=vw,sh=vh;if(captureBox){const pad=.035;sx=Math.max(0,(captureBox.x-pad)*vw);sy=Math.max(0,(captureBox.y-pad)*vh);sw=Math.min(vw-sx,(captureBox.w+pad*2)*vw);sh=Math.min(vh-sy,(captureBox.h+pad*2)*vh);}full.width=Math.max(1,Math.round(sw));full.height=Math.max(1,Math.round(sh));full.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,full.width,full.height);hint.textContent='Skanuję…';
-            capturedBlob=await new Promise(r=>full.toBlob(r,'image/jpeg',.95)); if(!capturedBlob){loop();return}
-            preview.src=URL.createObjectURL(capturedBlob);preview.style.display='block';fallback.value='';ready();close();status.textContent='Skan gotowy. Sprawdź podgląd i wyślij.';
-          }
-          document.getElementById('openScanner').onclick=open;document.getElementById('closeScanner').onclick=close;document.getElementById('manualCapture').onclick=capture;document.getElementById('retakeScan').onclick=()=>{capturedBlob=null;captureBox=null;fallback.value='';preview.removeAttribute('src');preview.style.display='none';status.textContent='';ready();open();};
-          document.getElementById('toggleAuto').onclick=function(){auto=!auto;this.textContent='AUTO: '+(auto?'WŁ.':'WYŁ.')};
-          form.onsubmit=async(e)=>{e.preventDefault();status.textContent='Wysyłanie…';try{let fd=new FormData(form);if(capturedBlob){fd.delete('file');fd.append('file',capturedBlob,'scan.jpg')}let r=await fetch('/api/documents',{method:'POST',body:fd}),d=await r.json();if(!r.ok)throw Error(d.error||'Błąd');status.textContent='Dokument zapisany.'+(d.document.cropped?' Krawędzie poprawione.':'');form.reset();capturedBlob=null;captureBox=null;preview.removeAttribute('src');preview.style.display='none';ready();loadDocs()}catch(err){status.textContent=err.message}};
-        })();
+        const form=document.getElementById('scanForm'),input=form.elements.file,preview=document.getElementById('scanPreview');
+        input.onchange=()=>{if(input.files[0]&&input.files[0].type.startsWith('image/')){preview.src=URL.createObjectURL(input.files[0]);preview.style.display='block'}else preview.style.display='none'};
+        form.onsubmit=async(e)=>{e.preventDefault();let status=document.getElementById('scanStatus');status.textContent=__SENDING__;
+        try{let r=await fetch('/api/documents',{method:'POST',body:new FormData(form)}),d=await r.json();if(!r.ok)throw Error(d.error||'Error');
+        status.textContent=__SAVED__+(d.document.cropped?__FIXED__:'');form.reset();preview.style.display='none';loadDocs()}catch(err){status.textContent=err.message}};
         </script>
-        """.replace("__VEHICLE_SELECT__", vehicle_select) if role() in {"driver", "dispatcher"} else ""
-        body = upload + '<div class="card"><h2>Dokumenty z trasy <span id="docCount"></span></h2><div id="docList">Ładowanie…</div></div>' + '''<script>
-        async function loadDocs(){let r=await fetch('/api/documents',{cache:'no-store'});if(!r.ok)return;let d=await r.json(),box=document.getElementById('docList');document.getElementById('docCount').textContent='('+d.documents.length+')';box.replaceChildren();for(let x of d.documents){let p=document.createElement('p'),a=document.createElement('a');a.href='/api/documents/'+encodeURIComponent(x.id)+'/file';a.textContent=x.label+' · '+x.vehicle_label+' · '+new Date(x.created_at).toLocaleString()+' · otwórz';a.target='_blank';p.appendChild(a);let download=document.createElement('a');download.href='/api/documents/'+encodeURIComponent(x.id)+'/file?download=1';download.textContent=' ⬇ Pobierz';download.style.marginLeft='14px';download.style.fontWeight='bold';p.appendChild(download);box.appendChild(p)}if(!d.documents.length)box.textContent='Brak dokumentów.'}loadDocs();setInterval(loadDocs,30000);</script>'''
-        return page("Dokumenty", body, "documents")
+        """.replace("__SCAN__", escape(s["scan"])).replace("__HELP__", escape(s["scan_help"])).replace("__VEHICLE_SELECT__", vehicle_select).replace("__KIND__", escape(s["kind"])).replace("__OPTIONS__", options).replace("__SEND__", escape(s["send"])).replace("__SENDING__", json.dumps(s["sending"])).replace("__SAVED__", json.dumps(s["saved"])).replace("__FIXED__", json.dumps(s["fixed"])) if role() in {"driver", "dispatcher"} else ""
+
+        js_strings = json.dumps({k:s[k] for k in ("open","download","empty","delete","delete_all","confirm_hide","confirm_all")}, ensure_ascii=False)
+        body = upload + '<div class="card"><h2>{} <span id="docCount"></span></h2><div id="docList">{}</div></div>'.format(escape(s["route_docs"]), escape(s["loading"])) + """
+        <script>
+        const DOC_UI=__DOC_UI__;
+        async function deleteDoc(x){
+          const full=x.can_delete_all===true;
+          if(!confirm(full?DOC_UI.confirm_all:DOC_UI.confirm_hide))return;
+          let r=await fetch('/api/documents/'+encodeURIComponent(x.id),{method:'DELETE'});
+          let d=await r.json().catch(()=>({}));
+          if(!r.ok){alert(d.error||'Error');return}
+          loadDocs();
+        }
+        async function loadDocs(){
+          let r=await fetch('/api/documents',{cache:'no-store'});if(!r.ok)return;
+          let d=await r.json(),box=document.getElementById('docList');
+          document.getElementById('docCount').textContent='('+d.documents.length+')';box.replaceChildren();
+          for(let x of d.documents){
+            let p=document.createElement('p'),a=document.createElement('a');
+            a.href='/api/documents/'+encodeURIComponent(x.id)+'/file';
+            a.textContent=x.label+' · '+x.vehicle_label+' · '+new Date(x.created_at).toLocaleString()+' · '+DOC_UI.open;
+            a.target='_blank';p.appendChild(a);
+            let download=document.createElement('a');download.href=a.href+'?download=1';download.textContent=' ⬇ '+DOC_UI.download;
+            download.style.marginLeft='14px';download.style.fontWeight='bold';p.appendChild(download);
+            if(x.can_delete){
+              let del=document.createElement('button');del.type='button';del.textContent=' 🗑 '+(x.can_delete_all?DOC_UI.delete_all:DOC_UI.delete);
+              del.style.marginLeft='14px';del.style.background='#c92a2a';del.onclick=()=>deleteDoc(x);p.appendChild(del);
+            }
+            box.appendChild(p)
+          }
+          if(!d.documents.length)box.textContent=DOC_UI.empty;
+        }
+        loadDocs();setInterval(loadDocs,30000);
+        </script>
+        """.replace("__DOC_UI__", js_strings)
+        return page(s["route_docs"], body, "documents")
 
     @app.route("/api/documents", methods=["GET", "POST"])
     def trip_documents_api():
@@ -261,38 +252,45 @@ def register_document_routes(app, page, routes_file, vehicles):
         if request.method == "GET":
             with _LOCK:
                 items = [dict(x) for x in read_index() if visible(x)]
-            return jsonify({"documents": [{k: v for k, v in x.items() if k != "filename"} for x in items[-300:][::-1]]})
+            docs = []
+            for x in items[-300:][::-1]:
+                public = {k: v for k, v in x.items() if k != "filename"}
+                public["label"] = _TYPE_LABELS[lang()].get(x.get("type"), x.get("label") or x.get("type"))
+                public["can_delete_all"] = role() == "director"
+                public["can_delete"] = role() == "director" or x.get("uploaded_by") == role()
+                docs.append(public)
+            return jsonify({"documents": docs})
         if role() not in {"driver", "dispatcher"}:
             abort(403)
-        vehicle_id = driver_vehicle if role() == "driver" else str(request.form.get("vehicle_id") or "")
+        vehicle_id = driver_vehicle_id() if role() == "driver" else str(request.form.get("vehicle_id") or "")
         vehicle = next((v for v in vehicles if str(v["id"]) == vehicle_id), None)
         if vehicle is None:
-            return jsonify({"error": "Wybierz pojazd."}), 400
+            return jsonify({"error": ui()["bad_vehicle"]}), 400
         kind = request.form.get("type", "")
         if kind not in _TYPES:
-            return jsonify({"error": "Nieznany rodzaj dokumentu."}), 400
+            return jsonify({"error": ui()["bad_type"]}), 400
         upload = request.files.get("file")
         if not upload:
-            return jsonify({"error": "Wybierz plik."}), 400
+            return jsonify({"error": ui()["choose_file"]}), 400
         raw = upload.stream.read(_MAX_BYTES + 1)
         if len(raw) > _MAX_BYTES:
-            return jsonify({"error": "Plik przekracza 12 MB."}), 413
+            return jsonify({"error": ui()["too_big"]}), 413
         is_pdf = raw.startswith(b"%PDF-")
         try:
             if is_pdf:
                 from pypdf import PdfReader
                 reader = PdfReader(io.BytesIO(raw))
                 if not 1 <= len(reader.pages) <= 20:
-                    raise ValueError("PDF musi mieć 1–20 stron.")
+                    raise ValueError(ui()["bad_pdf"])
                 result, cropped, suffix, mime = raw, False, ".pdf", "application/pdf"
             else:
                 result, cropped = scan_image(raw)
                 suffix, mime = ".jpg", "image/jpeg"
         except Exception as exc:
-            return jsonify({"error": str(exc) if isinstance(exc, ValueError) else "Nie można odczytać zdjęcia lub PDF."}), 400
+            return jsonify({"error": str(exc) if isinstance(exc, ValueError) else ui()["bad_file"]}), 400
         item_id = uuid.uuid4().hex
         filename = item_id + suffix
-        item = {"id": item_id, "type": kind, "label": _TYPES[kind], "vehicle_id": vehicle_id,
+        item = {"id": item_id, "type": kind, "label": _TYPE_LABELS[lang()][kind], "vehicle_id": vehicle_id,
                 "vehicle_label": vehicle.get("plate") or vehicle.get("name"),
                 "uploaded_by": role(), "trip": current_trip(vehicle_id), "created_at": datetime.now(timezone.utc).isoformat(),
                 "cropped": cropped, "mime": mime, "filename": filename}
@@ -301,8 +299,48 @@ def register_document_routes(app, page, routes_file, vehicles):
                 store_document(item, result)
         except Exception as exc:
             app.logger.exception("Document storage failed")
-            return jsonify({"error": str(exc) if isinstance(exc, RuntimeError) else "Nie udało się zapisać dokumentu."}), 503
+            return jsonify({"error": str(exc) if isinstance(exc, RuntimeError) else ui()["save_failed"]}), 503
         return jsonify({"ok": True, "document": {k: v for k, v in item.items() if k != "filename"}}), 201
+
+    @app.route("/api/documents/<item_id>", methods=["DELETE"])
+    def trip_document_delete(item_id):
+        if role() not in {"driver", "dispatcher", "director"}:
+            abort(403)
+        with _LOCK:
+            items = read_index()
+            item = next((x for x in items if x.get("id") == item_id), None)
+            if item is None:
+                abort(404)
+            if role() == "director":
+                if use_database:
+                    ensure_schema()
+                    with psycopg.connect(database_url, connect_timeout=8) as connection:
+                        connection.execute("DELETE FROM tranviq_trip_documents WHERE id = %s", (item_id,))
+                else:
+                    path = os.path.join(root, item.get("filename", ""))
+                    items = [x for x in items if x.get("id") != item_id]
+                    save_index(items)
+                    try:
+                        os.unlink(path)
+                    except FileNotFoundError:
+                        pass
+                return jsonify({"ok": True, "deleted_everywhere": True})
+            if item.get("uploaded_by") != role():
+                abort(403)
+            hidden = list(item.get("hidden_for") or [])
+            if role() not in hidden:
+                hidden.append(role())
+            item["hidden_for"] = hidden
+            if use_database:
+                ensure_schema()
+                with psycopg.connect(database_url, connect_timeout=8) as connection:
+                    connection.execute(
+                        "UPDATE tranviq_trip_documents SET metadata = %s::jsonb WHERE id = %s",
+                        (json.dumps(item, ensure_ascii=False), item_id),
+                    )
+            else:
+                save_index(items)
+            return jsonify({"ok": True, "deleted_everywhere": False})
 
     @app.route("/api/documents/unread")
     def trip_documents_unread():
