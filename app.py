@@ -3562,35 +3562,25 @@ def login(role):
             access = _load_driver_access()
             credentials_configured = False
 
-            # Primary system: login = vehicle plate, password managed by director.
+            # Strict login: vehicle plate -> this vehicle's saved password hash.
+            # No DXF fallback can override or confuse the director-managed password.
             for vehicle in VEHICLES:
+                plate_login = normalize_driver_login(vehicle.get("plate", ""))
                 item = access.get(vehicle["id"], {})
-                if item.get("enabled") and item.get("password_hash"):
-                    credentials_configured = True
-                    if (hmac.compare_digest(entered_login, normalize_driver_login(vehicle.get("plate", "")))
-                        and check_password_hash(item["password_hash"], password)):
-                        credentials_valid = True
-                        assigned_vehicle_id = vehicle["id"]
-                        break
+                password_hash = str(item.get("password_hash") or "")
+                enabled = bool(item.get("enabled"))
 
-            # Transition fallback for the existing SH/DXF credentials.
-            # Keeps already configured access working until a password is set
-            # on the new "Паролі" page.
-            if not credentials_valid:
-                driver_accounts = [
-                    (VEHICLES[0]["plate"], DRIVER_PASSWORD, VEHICLES[0]["id"]),
-                    (VEHICLES[1]["plate"], DRIVER_DXF_PASSWORD, VEHICLES[1]["id"]),
-                ]
-                if DRIVER_USER and DRIVER_PASSWORD:
-                    driver_accounts.append((DRIVER_USER, DRIVER_PASSWORD, VEHICLES[0]["id"]))
-                credentials_configured = credentials_configured or any(u and p for u, p, _ in driver_accounts)
-                for account_user, account_password, account_vehicle_id in driver_accounts:
-                    if (account_user and account_password
-                        and hmac.compare_digest(entered_login, normalize_driver_login(account_user))
-                        and hmac.compare_digest(password, account_password)):
-                        credentials_valid = True
-                        assigned_vehicle_id = account_vehicle_id
-                        break
+                if enabled and password_hash:
+                    credentials_configured = True
+
+                if not hmac.compare_digest(entered_login, plate_login):
+                    continue
+
+                if enabled and password_hash and check_password_hash(password_hash, password):
+                    credentials_valid = True
+                    assigned_vehicle_id = vehicle["id"]
+                break
+
         else:
             credentials_valid = (
                 credentials_configured
@@ -3610,22 +3600,11 @@ def login(role):
             # Never expose secret values. For the driver login, show which
             # Render Environment key is missing so configuration is easy to fix.
             if role == "driver":
-                missing = []
-                if not DRIVER_USER:
-                    missing.append("DRIVER_USER")
-                if not DRIVER_PASSWORD:
-                    missing.append("DRIVER_PASSWORD")
-                missing_text = ", ".join(missing)
                 error = (
                     "<p class='error'>"
-                    + escape(t("login_not_configured"))
-                    + (
-                        "<br><small>Render Environment: "
-                        + escape(missing_text)
-                        + "</small>"
-                        if missing_text else ""
-                    )
-                    + "</p>"
+                    "Для цієї машини пароль ще не встановлено. "
+                    "Директор має встановити його в розділі «🔐 Паролі»."
+                    "</p>"
                 )
             else:
                 error = (
