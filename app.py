@@ -1349,7 +1349,7 @@ def delivery_stop_status():
 
     for stop in stops:
         manual_status = stop.get("manual_status") or ""
-        if manual_status in ("completed", "pending"):
+        if manual_status == "completed":
             statuses.append(manual_status)
             continue
 
@@ -1385,7 +1385,11 @@ def delivery_stop_status():
                 dwell_start = None
                 dwell_end = None
 
-        if visited:
+        if manual_status == "pending" and is_current and selected_date == today:
+            statuses.append("current")
+        elif manual_status == "pending":
+            statuses.append("pending")
+        elif visited:
             statuses.append("completed")
         elif is_current and selected_date == today:
             statuses.append("current")
@@ -8702,7 +8706,7 @@ def gps():
         if (deliveryRouteSyncBusy || document.hidden || !vehicleSelect) return;
         deliveryRouteSyncBusy = true;
         try {{
-            const restored = await selectAndRestoreBestActiveRoute(true);
+            const restored = await selectAndRestoreBestActiveRoute(false);
             if (restored) return;
 
             const vehicleId = vehicleSelect.value;
@@ -9074,13 +9078,20 @@ def gps():
         if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) return;
         const stop = activeDeliveryRoute.stops[index];
         if (!stop || !['completed', 'pending'].includes(status)) return;
+        const previousStatus = stop.manual_status;
         stop.manual_status = status;
 
-        const saved = await readSavedDeliveryRoute(activeDeliveryRoute.vehicle_id);
-        if (saved && saved.delivery_route) {{
+        try {{
+            const saved = await readSavedDeliveryRoute(activeDeliveryRoute.vehicle_id);
+            if (!saved || !saved.delivery_route) throw new Error('Маршрут не знайдено.');
             saved.delivery_route = activeDeliveryRoute;
             saved.saved_at = new Date().toISOString();
             await saveDeliveryRouteForVehicle(saved);
+            lastServerRouteStampByVehicle[saved.vehicle_id] = serverRouteStamp(saved);
+        }} catch (error) {{
+            stop.manual_status = previousStatus;
+            alert('Не вдалося зберегти статус точки. Спробуйте ще раз.');
+            return;
         }}
 
         const vehicle = vehicles.find(function(item) {{
