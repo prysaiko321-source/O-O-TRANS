@@ -148,8 +148,10 @@ def register_document_routes(app, page, routes_file, vehicles):
             if width > 200 and height > 200:
                 target = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32")
                 array = cv2.warpPerspective(array, cv2.getPerspectiveTransform(np.array([tl, tr, br, bl], dtype="float32"), target), (width, height))
+        cleaned = Image.fromarray(array).convert("RGB")
+        cleaned = ImageOps.autocontrast(cleaned, cutoff=1)
         output = io.BytesIO()
-        Image.fromarray(array).save(output, "JPEG", quality=88, optimize=True)
+        cleaned.save(output, "JPEG", quality=90, optimize=True)
         return output.getvalue(), quad is not None
 
     @app.route("/documents")
@@ -215,11 +217,16 @@ def register_document_routes(app, page, routes_file, vehicles):
             const gray=new Uint8Array(w*h);for(let i=0,j=0;i<d.length;i+=4,j++)gray[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
             let minX=w,minY=h,maxX=0,maxY=0,count=0;const step=2;
             for(let y=2;y<h-2;y+=step)for(let x=2;x<w-2;x+=step){let i=y*w+x;let gx=Math.abs(gray[i+1]-gray[i-1]),gy=Math.abs(gray[i+w]-gray[i-w]);if(gx+gy>70){minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);count++;}}
-            if(count<120)return null;let bw=maxX-minX,bh=maxY-minY,area=bw*bh;if(area<w*h*.14||bw<w*.30||bh<h*.28)return null;
+            if(count<160)return null;
+            let bw=maxX-minX,bh=maxY-minY,area=bw*bh,ratio=area/(w*h),aspect=bw/bh;
+            const mx=minX/w,my=minY/h,mr=(w-maxX)/w,mb=(h-maxY)/h;
+            if(ratio<.24||ratio>.82||bw<w*.38||bh<h*.38)return null;
+            if(mx<.035||my<.035||mr<.035||mb<.035)return null;
+            if(aspect<.42||aspect>2.35)return null;
             return {x:minX/w,y:minY/h,w:bw/w,h:bh/h};
           }
           function draw(b){overlay.width=innerWidth;overlay.height=innerHeight;octx.clearRect(0,0,overlay.width,overlay.height);if(!b)return;let vw=video.videoWidth,vh=video.videoHeight,sw=innerWidth,sh=innerHeight,s=Math.max(sw/vw,sh/vh),rw=vw*s,rh=vh*s,ox=(sw-rw)/2,oy=(sh-rh)/2;octx.strokeStyle=stableSince&&performance.now()-stableSince>350?'#40c057':'#ffd43b';octx.lineWidth=5;octx.strokeRect(ox+b.x*rw,oy+b.y*rh,b.w*rw,b.h*rh);}
-          function loop(){let b=detect();draw(b);if(b){let dist=boxDistance(b,lastBox);captureBox=b;if(!lastBox||dist<.11){if(!stableSince)stableSince=performance.now();stable=Math.min(20,stable+1)}else if(dist<.20){stable=Math.max(0,stable-1)}else{stable=0;stableSince=performance.now()}lastBox=b;let held=stableSince?performance.now()-stableSince:0;hint.textContent=held>350?'Dokument wykryty — skanuję…':'Dokument wykryty — przytrzymaj chwilę';if(auto&&held>700&&stable>=3){capture();return}}else{stable=0;stableSince=0;lastBox=null;captureBox=null;hint.textContent='Pokaż cały dokument w kadrze';}timer=requestAnimationFrame(loop)}
+          function loop(){let b=detect();draw(b);if(b){let dist=boxDistance(b,lastBox);captureBox=b;if(lastBox&&dist<.055){if(!stableSince)stableSince=performance.now();stable=Math.min(30,stable+1)}else{stable=0;stableSince=0}lastBox=b;let held=stableSince?performance.now()-stableSince:0;hint.textContent=held>500?'Cały dokument złapany — skanuję…':'Widzę cały dokument — przytrzymaj chwilę';if(auto&&held>1050&&stable>=6){capture();return}}else{stable=0;stableSince=0;lastBox=null;captureBox=null;hint.textContent='Pokaż CAŁY dokument — wszystkie 4 krawędzie';}timer=requestAnimationFrame(loop)}
           async function capture(){
             if(!video.videoWidth)return; if(timer)cancelAnimationFrame(timer);timer=null;
             const full=document.createElement('canvas');const vw=video.videoWidth,vh=video.videoHeight;let sx=0,sy=0,sw=vw,sh=vh;if(captureBox){const pad=.035;sx=Math.max(0,(captureBox.x-pad)*vw);sy=Math.max(0,(captureBox.y-pad)*vh);sw=Math.min(vw-sx,(captureBox.w+pad*2)*vw);sh=Math.min(vh-sy,(captureBox.h+pad*2)*vh);}full.width=Math.max(1,Math.round(sw));full.height=Math.max(1,Math.round(sh));full.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,full.width,full.height);hint.textContent='Skanuję…';
