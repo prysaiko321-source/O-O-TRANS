@@ -11,6 +11,7 @@ import uuid
 from datetime import datetime, timezone, timedelta
 from html import escape
 from zoneinfo import ZoneInfo
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from flask import (
     Flask,
@@ -1129,6 +1130,27 @@ def _write_delivery_routes(data):
 DRIVER_SETTINGS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_driver_settings.json")
 DRIVER_SETTINGS_LOCK = threading.Lock()
 
+DRIVER_ACCESS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_driver_access.json")
+DRIVER_ACCESS_LOCK = threading.Lock()
+
+def _load_driver_access():
+    try:
+        with open(DRIVER_ACCESS_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+def _write_driver_access(data):
+    folder = os.path.dirname(DRIVER_ACCESS_FILE)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    temporary = DRIVER_ACCESS_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False)
+    os.replace(temporary, DRIVER_ACCESS_FILE)
+
+
 
 def _load_driver_settings():
     try:
@@ -2197,6 +2219,7 @@ document.addEventListener('DOMContentLoaded', function () {{
             ),
             ("branding", "/settings/branding", t("branding")),
             ("driver_settings", "/driver-settings", "🚐 Kierowcy"),
+            ("driver_access", "/driver-access", "🔐 Паролі"),
             ("health", "/health", t("health"))
         ]
     else:
@@ -3535,25 +3558,39 @@ def login(role):
         assigned_vehicle_id = ""
 
         if role == "driver":
-            # Driver login is the vehicle registration number.
-            # Existing SH credentials remain accepted so an already deployed
-            # driver account is not broken during the transition.
-            driver_accounts = [
-                (VEHICLES[0]["plate"], DRIVER_PASSWORD, VEHICLES[0]["id"]),
-                (VEHICLES[1]["plate"], DRIVER_DXF_PASSWORD, VEHICLES[1]["id"]),
-            ]
-            if DRIVER_USER and DRIVER_PASSWORD:
-                driver_accounts.append((DRIVER_USER, DRIVER_PASSWORD, VEHICLES[0]["id"]))
-
-            credentials_configured = any(u and p for u, p, _ in driver_accounts)
             entered_login = normalize_driver_login(username)
-            for account_user, account_password, account_vehicle_id in driver_accounts:
-                if (account_user and account_password
-                    and hmac.compare_digest(entered_login, normalize_driver_login(account_user))
-                    and hmac.compare_digest(password, account_password)):
-                    credentials_valid = True
-                    assigned_vehicle_id = account_vehicle_id
-                    break
+            access = _load_driver_access()
+            credentials_configured = False
+
+            # Primary system: login = vehicle plate, password managed by director.
+            for vehicle in VEHICLES:
+                item = access.get(vehicle["id"], {})
+                if item.get("enabled") and item.get("password_hash"):
+                    credentials_configured = True
+                    if (hmac.compare_digest(entered_login, normalize_driver_login(vehicle.get("plate", "")))
+                        and check_password_hash(item["password_hash"], password)):
+                        credentials_valid = True
+                        assigned_vehicle_id = vehicle["id"]
+                        break
+
+            # Transition fallback for the existing SH/DXF credentials.
+            # Keeps already configured access working until a password is set
+            # on the new "Паролі" page.
+            if not credentials_valid:
+                driver_accounts = [
+                    (VEHICLES[0]["plate"], DRIVER_PASSWORD, VEHICLES[0]["id"]),
+                    (VEHICLES[1]["plate"], DRIVER_DXF_PASSWORD, VEHICLES[1]["id"]),
+                ]
+                if DRIVER_USER and DRIVER_PASSWORD:
+                    driver_accounts.append((DRIVER_USER, DRIVER_PASSWORD, VEHICLES[0]["id"]))
+                credentials_configured = credentials_configured or any(u and p for u, p, _ in driver_accounts)
+                for account_user, account_password, account_vehicle_id in driver_accounts:
+                    if (account_user and account_password
+                        and hmac.compare_digest(entered_login, normalize_driver_login(account_user))
+                        and hmac.compare_digest(password, account_password)):
+                        credentials_valid = True
+                        assigned_vehicle_id = account_vehicle_id
+                        break
         else:
             credentials_valid = (
                 credentials_configured
@@ -3684,6 +3721,70 @@ def require_login():
 
 from documents import register_document_routes
 register_document_routes(app, page, DELIVERY_ROUTES_FILE, VEHICLES)
+
+
+@app.route("/driver-access", methods=["GET", "POST"])
+def driver_access():
+    message = ""
+    if request.method == "POST":
+        vehicle_id = normalize_vehicle_id(request.form.get("vehicle_id", ""))
+        action = request.form.get("action", "save")
+        vehicle = vehicle_by_id(vehicle_id)
+        if not vehicle:
+            message = "<p class='error'>Nie znaleziono pojazdu.</p>"
+        else:
+            with DRIVER_ACCESS_LOCK:
+                access = _load_driver_access()
+                if action == "disable":
+                    access[vehicle_id] = {"enabled": False, "password_hash": access.get(vehicle_id, {}).get("password_hash", "")}
+                    _write_driver_access(access)
+                    message = "<p class='ok'>Доступ вимкнено для {}</p>".format(escape(vehicle["plate"]))
+                else:
+                    password = request.form.get("password", "")
+                    if len(password) < 4:
+                        message = "<p class='error'>Пароль має містити щонайменше 4 символи.</p>"
+                    else:
+                        access[vehicle_id] = {
+                            "enabled": True,
+                            "password_hash": generate_password_hash(password),
+                            "updated_at": datetime.now(POLAND_TZ).isoformat()
+                        }
+                        _write_driver_access(access)
+                        message = "<p class='ok'>Пароль збережено для {}</p>".format(escape(vehicle["plate"]))
+
+    access = _load_driver_access()
+    rows = []
+    for vehicle in VEHICLES:
+        item = access.get(vehicle["id"], {})
+        enabled = bool(item.get("enabled") and item.get("password_hash"))
+        rows.append("""
+        <div class="card" style="margin-bottom:12px">
+          <h3>{plate}</h3>
+          <div class="small">Логін водія: <strong>{plate}</strong></div>
+          <div class="small" style="margin:5px 0 12px">Статус: <strong>{status}</strong></div>
+          <form method="post">
+            <input type="hidden" name="vehicle_id" value="{vehicle_id}">
+            <label>Новий пароль</label>
+            <input name="password" type="password" autocomplete="new-password" placeholder="Введи пароль" style="width:100%;box-sizing:border-box;margin:6px 0 10px">
+            <button type="submit" name="action" value="save">💾 ЗБЕРЕГТИ ПАРОЛЬ</button>
+            <button type="submit" name="action" value="disable" style="margin-left:6px;background:#c92a2a">⛔ ВИМКНУТИ ДОСТУП</button>
+          </form>
+        </div>
+        """.format(
+            plate=escape(vehicle.get("plate") or vehicle["name"]),
+            vehicle_id=escape(vehicle["id"]),
+            status=("Доступ увімкнений" if enabled else "Пароль ще не встановлено")
+        ))
+    body = """
+    <div class="card">
+      <h2>🔐 Доступ водіїв</h2>
+      <p>Логін для кожної машини — її державний номер. Тут ти сам задаєш або змінюєш пароль.</p>
+      <p class="small">Зміна пароля не викидає водія, який уже увійшов. Новий пароль діятиме при наступному вході.</p>
+    </div>
+    {message}
+    {rows}
+    """.format(message=message, rows="".join(rows))
+    return page("Паролі водіїв", body, "driver_access")
 
 
 @app.route("/director")
