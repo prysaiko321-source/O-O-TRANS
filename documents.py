@@ -148,10 +148,21 @@ def register_document_routes(app, page, routes_file, vehicles):
             if width > 200 and height > 200:
                 target = np.array([[0, 0], [width - 1, 0], [width - 1, height - 1], [0, height - 1]], dtype="float32")
                 array = cv2.warpPerspective(array, cv2.getPerspectiveTransform(np.array([tl, tr, br, bl], dtype="float32"), target), (width, height))
-        cleaned = Image.fromarray(array).convert("RGB")
-        cleaned = ImageOps.autocontrast(cleaned, cutoff=1)
+        # Scanner-style B/W output: whiten paper, preserve dark text/stamps,
+        # and compensate for uneven light/shadows.
+        scan_gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
+        scan_gray = cv2.GaussianBlur(scan_gray, (3, 3), 0)
+        bw = cv2.adaptiveThreshold(
+            scan_gray, 255,
+            cv2.ADAPTIVE_THRESH_GAUSSIAN_C,
+            cv2.THRESH_BINARY,
+            35, 15
+        )
+        # Remove isolated camera noise without erasing normal print.
+        kernel = np.ones((2, 2), np.uint8)
+        bw = cv2.morphologyEx(bw, cv2.MORPH_OPEN, kernel)
         output = io.BytesIO()
-        cleaned.save(output, "JPEG", quality=90, optimize=True)
+        Image.fromarray(bw).save(output, "JPEG", quality=92, optimize=True)
         return output.getvalue(), quad is not None
 
     @app.route("/documents")
@@ -220,13 +231,13 @@ def register_document_routes(app, page, routes_file, vehicles):
             if(count<160)return null;
             let bw=maxX-minX,bh=maxY-minY,area=bw*bh,ratio=area/(w*h),aspect=bw/bh;
             const mx=minX/w,my=minY/h,mr=(w-maxX)/w,mb=(h-maxY)/h;
-            if(ratio<.24||ratio>.82||bw<w*.38||bh<h*.38)return null;
-            if(mx<.035||my<.035||mr<.035||mb<.035)return null;
-            if(aspect<.42||aspect>2.35)return null;
+            if(ratio<.20||ratio>.88||bw<w*.34||bh<h*.34)return null;
+            if(mx<.018||my<.018||mr<.018||mb<.018)return null;
+            if(aspect<.38||aspect>2.60)return null;
             return {x:minX/w,y:minY/h,w:bw/w,h:bh/h};
           }
           function draw(b){overlay.width=innerWidth;overlay.height=innerHeight;octx.clearRect(0,0,overlay.width,overlay.height);if(!b)return;let vw=video.videoWidth,vh=video.videoHeight,sw=innerWidth,sh=innerHeight,s=Math.max(sw/vw,sh/vh),rw=vw*s,rh=vh*s,ox=(sw-rw)/2,oy=(sh-rh)/2;octx.strokeStyle=stableSince&&performance.now()-stableSince>350?'#40c057':'#ffd43b';octx.lineWidth=5;octx.strokeRect(ox+b.x*rw,oy+b.y*rh,b.w*rw,b.h*rh);}
-          function loop(){let b=detect();draw(b);if(b){let dist=boxDistance(b,lastBox);captureBox=b;if(!stableSince)stableSince=performance.now();if(lastBox&&dist>.16){stableSince=performance.now();stable=0}else{stable=Math.min(30,stable+1)}lastBox=b;let held=performance.now()-stableSince;hint.textContent=held>350?'Cały dokument złapany — skanuję…':'Widzę cały dokument — chwila…';if(auto&&held>650&&stable>=3){capture();return}}else{stable=0;stableSince=0;lastBox=null;captureBox=null;hint.textContent='Pokaż CAŁY dokument — wszystkie 4 krawędzie';}timer=requestAnimationFrame(loop)}
+          function loop(){let b=detect();draw(b);if(b){captureBox=b;if(!stableSince)stableSince=performance.now();let dist=boxDistance(b,lastBox);if(lastBox&&dist>.28)stableSince=performance.now();lastBox=b;let held=performance.now()-stableSince;hint.textContent=held>300?'Cały dokument złapany — skanuję…':'Widzę dokument — chwila…';if(auto&&held>800){capture();return}}else{stable=0;stableSince=0;lastBox=null;captureBox=null;hint.textContent='Pokaż cały dokument — 4 krawędzie w kadrze';}timer=requestAnimationFrame(loop)}
           async function capture(){
             if(!video.videoWidth)return; if(timer)cancelAnimationFrame(timer);timer=null;
             const full=document.createElement('canvas');const vw=video.videoWidth,vh=video.videoHeight;let sx=0,sy=0,sw=vw,sh=vh;if(captureBox){const pad=.035;sx=Math.max(0,(captureBox.x-pad)*vw);sy=Math.max(0,(captureBox.y-pad)*vh);sw=Math.min(vw-sx,(captureBox.w+pad*2)*vw);sh=Math.min(vh-sy,(captureBox.h+pad*2)*vh);}full.width=Math.max(1,Math.round(sw));full.height=Math.max(1,Math.round(sh));full.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,full.width,full.height);hint.textContent='Skanuję…';
