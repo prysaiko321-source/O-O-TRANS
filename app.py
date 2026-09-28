@@ -1555,16 +1555,16 @@ GLOBAL_UI_TRANSLATIONS = {
         "Залишилося мало часу до обов'язкової перерви:": 'Pozostało mało czasu do obowiązkowej przerwy:',
         'Залишилося мало часу до денного відпочинку:': 'Pozostało mało czasu do odpoczynku dobowego:',
         'Водій': 'Kierowca',
-        'Картка водія': 'Karta kierowcy',
+        'Картка водія': 'Карта водія',
         'Вставлена': 'Włożona',
         'Оновлено': 'Zaktualizowano',
         'Стан часу': 'Stan czasu',
-        'До наступної перерви': 'Do następnej przerwy',
+        'До наступної перерви': 'До наступної перерви',
         'Залишок безперервного керування': 'Pozostały czas jazdy ciągłej',
         'Залишок керування сьогодні': 'Pozostały czas jazdy dzisiaj',
         'Залишок у зміні': 'Pozostały czas jazdy w zmianie',
         'Залишок керування цього тижня': 'Pozostały czas jazdy w tym tygodniu',
-        'До денного відпочинку': 'Do odpoczynku dobowego',
+        'До денного відпочинку': 'До добового відпочинку',
         'До тижневого відпочинку': 'Do odpoczynku tygodniowego',
         'Керування сьогодні': 'Jazda dzisiaj',
         'Керування за тиждень': 'Jazda w tym tygodniu',
@@ -1627,8 +1627,8 @@ GLOBAL_UI_TRANSLATIONS = {
         "Інформація про дороги": "Informacje o drogach", "Історія": "Historia", "Швидкість:": "Prędkość:", "Статус:": "Status:",
         "Їде": "Jedzie", "Стоїть": "Stoi", "Інша робота": "Inna praca", "Відпочинок": "Odpoczynek",
         "Немає даних": "Brak danych", "Немає координат": "Brak współrzędnych", "Водія не визначено": "Nie określono kierowcy",
-        "Картка водія не вставлена в тахограф.": "Karta kierowcy nie jest włożona do tachografu.",
-        "Термін дії картки водія закінчився.": "Karta kierowcy straciła ważność.", "Без попереджень": "Brak ostrzeżeń",
+        "Картка водія не вставлена в тахограф.": "Карта водія nie jest włożona do tachografu.",
+        "Термін дії картки водія закінчився.": "Карта водія straciła ważność.", "Без попереджень": "Brak ostrzeżeń",
         "Готовність": "Gotowość", "Керування": "Jazda", "Доставка": "Dostawa", "Ще не вигружено": "Jeszcze nierozładowane",
         "Бус до 3,5 т": "Bus do 3,5 t", "Вантажний до 7,5 т": "Ciężarowy do 7,5 t", "Вантажний до 12 т": "Ciężarowy do 12 t",
         "Вантажний до 18 т": "Ciężarowy do 18 t", "Вантажний до 26 т": "Ciężarowy do 26 t", "Фура до 40 т": "Zestaw do 40 t", "Понад 40 т": "Powyżej 40 t",
@@ -3895,17 +3895,17 @@ def driver_dashboard():
       </div>
       <div id="driverTachoPane" class="driver-tacho">
         <div class="card">
-          <div class="driver-kicker">TACHOGRAF · SH 9203G</div>
-          <div id="driverTachoStatus" class="driver-small">Pobieranie danych z tachografu…</div>
+          <div class="driver-kicker">ТАХОГРАФ · SH 9203G</div>
+          <div id="driverTachoStatus" class="driver-small">Отримання даних тахографа…</div>
           <div class="driver-tacho-grid" style="margin-top:10px">
-            <div class="driver-tacho-item"><div class="driver-small">Do następnej przerwy</div><div id="tachoBreak" class="driver-tacho-value">—</div></div>
-            <div class="driver-tacho-item"><div class="driver-small">Jazda dzienna — pozostało</div><div id="tachoDaily" class="driver-tacho-value">—</div></div>
-            <div class="driver-tacho-item"><div class="driver-small">Bieżący okres jazdy — pozostało</div><div id="tachoCurrent" class="driver-tacho-value">—</div></div>
-            <div class="driver-tacho-item"><div class="driver-small">Do odpoczynku dobowego</div><div id="tachoRest" class="driver-tacho-value">—</div></div>
-            <div class="driver-tacho-item"><div class="driver-small">Jazda tygodniowa — pozostało</div><div id="tachoWeekly" class="driver-tacho-value">—</div></div>
-            <div class="driver-tacho-item"><div class="driver-small">Karta kierowcy</div><div id="tachoCard" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">До наступної перерви</div><div id="tachoBreak" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Залишок денного часу керування</div><div id="tachoDaily" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Залишок поточного періоду керування</div><div id="tachoCurrent" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">До добового відпочинку</div><div id="tachoRest" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Залишок тижневого часу керування</div><div id="tachoWeekly" class="driver-tacho-value">—</div></div>
+            <div class="driver-tacho-item"><div class="driver-small">Карта водія</div><div id="tachoCard" class="driver-tacho-value">—</div></div>
           </div>
-          <div id="driverTachoNotice" class="driver-tacho-warn">IQ pokazuje wyłącznie potwierdzone dane Navirec. Brakujące wartości nie są zgadywane.</div>
+          <div id="driverTachoNotice" class="driver-tacho-warn">Показуються останні підтверджені дані Navirec. Тимчасово порожній пакет не стирає попередні значення.</div>
         </div>
       </div>
       <div id="driverIqPane" class="driver-iq">
@@ -4187,33 +4187,62 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         finally{busy=false;}
       }
       function fmtSeconds(value){
-        const n=Number(value); if(!Number.isFinite(n)||n<0) return 'brak danych';
+        const n=Number(value); if(!Number.isFinite(n)||n<0) return 'Немає даних';
         const total=Math.round(n/60),h=Math.floor(total/60),m=total%60;
-        return (h?h+' godz. ':'')+m+' min';
+        return (h?h+' год. ':'')+m+' хв';
       }
       function setTachoText(id,value){const el=document.getElementById(id);if(el)el.textContent=value;}
+      const confirmedTacho = {};
+      let confirmedTachoAt = null;
+      function keepConfirmed(target, source, key){
+        const v=source ? source[key] : null;
+        if(v!==null && v!==undefined && v!=='') target[key]=v;
+      }
       async function loadTacho(){
         try{
           const r=await fetch('/api/driver-tachograph/'+encodeURIComponent(vehicleId)+'?ts='+Date.now(),{cache:'no-store'});
           if(!r.ok) throw new Error('HTTP '+r.status);
-          const data=await r.json(); latestTacho=data.tachograph||null;
+          const data=await r.json();
+          const incoming=data.tachograph||{};
+          [
+            'time_until_break_s','remaining_daily_driving_s',
+            'remaining_current_driving_s','time_until_daily_rest_s',
+            'remaining_weekly_driving_s','driver_name',
+            'working_state','time_state','updated_at','age_seconds'
+          ].forEach(function(k){keepConfirmed(confirmedTacho,incoming,k);});
+          // Card presence is sticky once positively confirmed. A transient false/null
+          // packet must not make an inserted card blink off.
+          if(incoming.card_present===true) confirmedTacho.card_present=true;
+          if(Object.keys(confirmedTacho).length) confirmedTachoAt=new Date();
+
+          latestTacho=Object.keys(confirmedTacho).length ? Object.assign({},confirmedTacho) : null;
           const t=latestTacho||{};
           setTachoText('tachoBreak',fmtSeconds(t.time_until_break_s));
           setTachoText('tachoDaily',fmtSeconds(t.remaining_daily_driving_s));
           setTachoText('tachoCurrent',fmtSeconds(t.remaining_current_driving_s));
           setTachoText('tachoRest',fmtSeconds(t.time_until_daily_rest_s));
           setTachoText('tachoWeekly',fmtSeconds(t.remaining_weekly_driving_s));
-          setTachoText('tachoCard',t.card_present?'włożona':'brak / brak danych');
-          const age=Number(t.age_seconds);
-          tachoStatus.textContent=(Number.isFinite(age)?('Ostatnie dane: '+Math.round(age/60)+' min temu'):'Dane Navirec pobrane')+(t.driver_name?' · '+t.driver_name:'');
-        }catch(e){latestTacho=null;tachoStatus.textContent='Nie udało się pobrać danych tachografu.';}
+          setTachoText('tachoCard',t.card_present===true?'Карта вставлена':'Немає даних');
+
+          let status=[];
+          if(t.driver_name && t.driver_name!=='Водія не визначено') status.push('Водій: '+t.driver_name);
+          if(confirmedTachoAt) status.push('останнє підтвердження '+confirmedTachoAt.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'}));
+          tachoStatus.textContent=status.length?status.join(' · '):'Очікую підтверджені дані тахографа…';
+        }catch(e){
+          // Network/API refresh failure must never blank already confirmed values.
+          if(latestTacho){
+            tachoStatus.textContent=(latestTacho.driver_name&&latestTacho.driver_name!=='Водія не визначено'?'Водій: '+latestTacho.driver_name+' · ':'')+'показано останні підтверджені дані';
+          }else{
+            tachoStatus.textContent='Тимчасово немає зв’язку з тахографом.';
+          }
+        }
       }
       function iqTachoAnswer(kind){
         const t=latestTacho; if(!t){iqResult.textContent='Nie mam teraz aktualnych danych tachografu lub karty kierowcy. GPS pojazdu działa, ale bez danych tachografu nie podam dokładnego pozostałego czasu jazdy.';return;}
-        if(kind==='break'){const v=fmtSeconds(t.time_until_break_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał czasu do następnej przerwy.':'Do następnej wymaganej przerwy pozostało '+v+'.';return;}
-        if(kind==='daily'){const v=fmtSeconds(t.remaining_daily_driving_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał pozostałego dziennego czasu jazdy.':'Pozostały dzienny czas jazdy: '+v+'.';return;}
-        if(kind==='rest'){const v=fmtSeconds(t.time_until_daily_rest_s);iqResult.textContent=v==='brak danych'?'Tachograf nie podał czasu do odpoczynku dobowego.':'Do odpoczynku dobowego pozostało '+v+'.';return;}
-        const vals=[]; if(fmtSeconds(t.remaining_daily_driving_s)!=='brak danych') vals.push('jazda dzienna '+fmtSeconds(t.remaining_daily_driving_s)); if(fmtSeconds(t.time_until_break_s)!=='brak danych') vals.push('do przerwy '+fmtSeconds(t.time_until_break_s)); if(fmtSeconds(t.time_until_daily_rest_s)!=='brak danych') vals.push('do odpoczynku dobowego '+fmtSeconds(t.time_until_daily_rest_s));
+        if(kind==='break'){const v=fmtSeconds(t.time_until_break_s);iqResult.textContent=v==='Немає даних'?'Tachograf nie podał czasu do następnej przerwy.':'Do następnej wymaganej przerwy pozostało '+v+'.';return;}
+        if(kind==='daily'){const v=fmtSeconds(t.remaining_daily_driving_s);iqResult.textContent=v==='Немає даних'?'Tachograf nie podał pozostałego dziennego czasu jazdy.':'Pozostały dzienny czas jazdy: '+v+'.';return;}
+        if(kind==='rest'){const v=fmtSeconds(t.time_until_daily_rest_s);iqResult.textContent=v==='Немає даних'?'Tachograf nie podał czasu do odpoczynku dobowego.':'До добового відпочинку pozostało '+v+'.';return;}
+        const vals=[]; if(fmtSeconds(t.remaining_daily_driving_s)!=='Немає даних') vals.push('jazda dzienna '+fmtSeconds(t.remaining_daily_driving_s)); if(fmtSeconds(t.time_until_break_s)!=='Немає даних') vals.push('do przerwy '+fmtSeconds(t.time_until_break_s)); if(fmtSeconds(t.time_until_daily_rest_s)!=='Немає даних') vals.push('do odpoczynku dobowego '+fmtSeconds(t.time_until_daily_rest_s));
         iqResult.textContent=vals.length?('Tachograf SH: '+vals.join(', ')+'.'):'Navirec nie podał jeszcze wartości czasu, które mogę bezpiecznie odczytać.';
       }
       function iqCurrentStop(){
@@ -4242,7 +4271,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         return {latitude:lat,longitude:lon};
       }
       function iqFormatDriveTime(seconds){
-        const n=Number(seconds); if(!Number.isFinite(n)||n<0) return 'brak danych';
+        const n=Number(seconds); if(!Number.isFinite(n)||n<0) return 'Немає даних';
         const mins=Math.max(1,Math.round(n/60)),h=Math.floor(mins/60),m=mins%60;
         if(h&&m) return h+' godz. '+m+' min';
         if(h) return h+' godz.';
@@ -4392,11 +4421,11 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "TWOJE ZLECENIA": "ТВОЇ РЕЙСИ", "📍 MAPA GPS POJAZDÓW": "📍 GPS-КАРТА МАШИН",
             "NASTĘPNY PUNKT": "НАСТУПНА ТОЧКА", "🧭 NAWIGUJ": "🧭 НАВІГУВАТИ", "✓ ZAKOŃCZONO": "✓ ВИКОНАНО",
             "Czekam na aktywną trasę dla": "Очікую активний маршрут для", "Ładowanie pozycji GPS…": "Завантажую GPS-позиції…",
-            "TACHOGRAF · SH 9203G": "ТАХОГРАФ · SH 9203G", "Pobieranie danych z tachografu…": "Отримую дані тахографа…",
-            "Do następnej przerwy": "До наступної перерви", "Jazda dzienna — pozostało": "Денне водіння — залишилось",
-            "Bieżący okres jazdy — pozostało": "Поточний період водіння — залишилось", "Do odpoczynku dobowego": "До добового відпочинку",
-            "Jazda tygodniowa — pozostało": "Тижневе водіння — залишилось", "Karta kierowcy": "Картка водія",
-            "IQ pokazuje wyłącznie potwierdzone dane Navirec. Brakujące wartości nie są zgadywane.": "IQ показує лише підтверджені дані Navirec. Відсутні значення не вгадуються.",
+            "ТАХОГРАФ · SH 9203G": "ТАХОГРАФ · SH 9203G", "Отримання даних тахографа…": "Отримую дані тахографа…",
+            "До наступної перерви": "До наступної перерви", "Залишок денного часу керування": "Денне водіння — залишилось",
+            "Залишок поточного періоду керування": "Поточний період водіння — залишилось", "До добового відпочинку": "До добового відпочинку",
+            "Залишок тижневого часу керування": "Тижневе водіння — залишилось", "Карта водія": "Картка водія",
+            "Показуються останні підтверджені дані Navirec. Тимчасово порожній пакет не стирає попередні значення.": "IQ показує лише підтверджені дані Navirec. Відсутні значення не вгадуються.",
             "IQ · ASYSTENT GŁOSOWY": "IQ · ГОЛОСОВИЙ ПОМІЧНИК", "🎙 NACIŚNIJ I MÓW": "🎙 НАТИСНИ І ГОВОРИ", "🔴 SŁUCHAM…": "🔴 СЛУХАЮ…",
             "USŁYSZAŁEM": "Я ПОЧУВ", "IQ ZROZUMIAŁ": "IQ ЗРОЗУМІВ", "Najpierw naciśnij mikrofon i powiedz polecenie.": "Натисни мікрофон і скажи команду.",
             "Test:": "Тест:", "WIADOMOŚCI · TRANVIQ": "ПОВІДОМЛЕННЯ · TRANVIQ", "Wybierz odbiorcę…": "Вибери одержувача…",
@@ -4419,7 +4448,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "Serwis tras nie obliczył drogi. Nie mogę podać dokładnych kilometrów ani czasu jazdy.": "Сервіс маршрутів не розрахував дорогу. Не можу назвати точні кілометри й час їзди.",
             "Następny rozładunek:": "Наступна вигрузка:",
             "Następny punkt:": "Наступна точка:", "Zostało": "Залишилось", "około": "приблизно", "Przewidywany przyjazd:": "Орієнтовне прибуття:", "Okno punktu:": "Часове вікно:",
-            "godz.": "год", "min": "хв", "brak danych": "немає даних", "Brak aktywnego następnego punktu.": "Немає активної наступної точки.",
+            "godz.": "год", "min": "хв", "Немає даних": "немає даних", "Brak aktywnego następnego punktu.": "Немає активної наступної точки.",
             "IQ zrozumiał: następny adres.": "IQ зрозумів: наступна адреса.", "IQ zrozumiał: nawigacja do następnego punktu.": "IQ зрозумів: навігація до наступної точки.",
             "Nie ma jeszcze następnej trasy.": "Наступного рейсу ще немає.", "POKAŻ TRASĘ 2": "ПОКАЗАТИ РЕЙС 2", "POBIERZ GPS": "ОНОВИТИ GPS",
             "Pobiorę najnowszą pozycję GPS.": "Отримаю найсвіжішу GPS-позицію.", "IQ zrozumiał: nawigować do pojazdu": "IQ зрозумів: навігувати до машини",
@@ -6558,7 +6587,7 @@ def gps():
             ['\\u0432\\u0438\\u0457\\u0437\\u0434', 'wyjazd'],
             ['\\u0432\\u0456\\u0434 \\u043f\\u043e\\u043f\\u0435\\u0440\\u0435\\u0434\\u043d\\u044c\\u043e\\u0457 \\u0442\\u043e\\u0447\\u043a\\u0438', 'od poprzedniego punktu'],
             ['\\u041e\\u043f\\u043b\\u0430\\u0442\\u0430 \\u0434\\u043e\\u0440\\u0456\\u0433:', 'Opłaty drogowe:'],
-            ['\\u0434\\u0430\\u043d\\u0438\\u0445 \\u043f\\u0440\\u043e \\u043f\\u043b\\u0430\\u0442\\u043d\\u0456 \\u0434\\u0456\\u043b\\u044f\\u043d\\u043a\\u0438 \\u043d\\u0435\\u043c\\u0430\\u0454.', 'brak danych o płatnych odcinkach.'],
+            ['\\u0434\\u0430\\u043d\\u0438\\u0445 \\u043f\\u0440\\u043e \\u043f\\u043b\\u0430\\u0442\\u043d\\u0456 \\u0434\\u0456\\u043b\\u044f\\u043d\\u043a\\u0438 \\u043d\\u0435\\u043c\\u0430\\u0454.', 'Немає даних o płatnych odcinkach.'],
             [' \\u0433\\u043e\\u0434 ', ' godz. '],
             [' \\u0445\\u0432', ' min'],
             [' \\u043a\\u043c', ' km'],
@@ -9798,13 +9827,13 @@ def gps():
             "Планований виїзд:": "Planowany wyjazd:",
             "Сьогодні вже пройдено:": "Dzisiaj już przejechano:",
             "керування:": "jazda:",
-            "Паливо: даних немає": "Paliwo: brak danych",
+            "Паливо: даних немає": "Paliwo: Немає даних",
             "Перерв 45 хв:": "Przerw 45 min:",
             "добових відпочинків:": "odpoczynków dobowych:",
             "Фізично вільний:": "Fizycznie wolny:",
             "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
             "Рекомендований наступний виїзд:": "Zalecany następny wyjazd:",
-            "Оплата доріг: даних про платні ділянки немає.": "Opłaty drogowe: brak danych o płatnych odcinkach.",
+            "Оплата доріг: даних про платні ділянки немає.": "Opłaty drogowe: Немає даних o płatnych odcinkach.",
             "Орієнтовна оплата доріг:": "Szacunkowe opłaty drogowe:",
             "Спочатку виберіть місто": "Najpierw wybierz miasto",
             "Шукаю міста...": "Szukam miast...",
