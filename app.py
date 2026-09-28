@@ -4268,8 +4268,8 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           for(const viaStop of plan.via) waypoints.push(await pointFor(viaStop));
           const destination=await pointFor(stop);
           const routeResp=await fetch('/api/route',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({origin:origin,destination:destination,waypoints:waypoints,avoid_tolls:false})});
-          if(!routeResp.ok) throw new Error('route');
           const route=await routeResp.json();
+          if(!routeResp.ok) throw new Error('route: '+(route.error||('HTTP '+routeResp.status)));
           if(route.distance_m==null||route.duration_s==null) throw new Error('route');
           const km=Number(route.distance_m)/1000,secs=Number(route.duration_s);
           if(!Number.isFinite(km)||km<0||!Number.isFinite(secs)||secs<0) throw new Error('route');
@@ -4283,7 +4283,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             ? 'Nie ma aktualnych współrzędnych GPS tego pojazdu. Sprawdź pozycję i spróbuj ponownie.'
             : (reason==='geocode'
               ? 'Nie udało się ustalić współrzędnych punktu trasy. Sprawdź adres.'
-              : 'Serwis tras chwilowo nie obliczył drogi. Możesz otworzyć nawigację do punktu.');
+              : 'Serwis tras nie obliczył drogi. Nie mogę podać dokładnych kilometrów ani czasu jazdy.');
           const a=document.createElement('a');a.href=googleMapsUrl(stop.address);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
           console.error('TRANVIQ IQ ETA error:',e);
         }
@@ -4403,6 +4403,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "Nie ma aktualnych współrzędnych GPS tego pojazdu. Sprawdź pozycję i spróbuj ponownie.": "Немає актуальних GPS-координат цієї машини. Перевір позицію та спробуй ще раз.",
             "Nie udało się ustalić współrzędnych punktu trasy. Sprawdź adres.": "Не вдалося визначити координати точки маршруту. Перевір адресу.",
             "Serwis tras chwilowo nie obliczył drogi. Możesz otworzyć nawigację do punktu.": "Сервіс маршрутів зараз не розрахував дорогу. Можеш відкрити навігацію до точки.",
+            "Serwis tras nie obliczył drogi. Nie mogę podać dokładnych kilometrów ani czasu jazdy.": "Сервіс маршрутів не розрахував дорогу. Не можу назвати точні кілометри й час їзди.",
             "Następny rozładunek:": "Наступна вигрузка:",
             "Następny punkt:": "Наступна точка:", "Zostało": "Залишилось", "około": "приблизно", "Przewidywany przyjazd:": "Орієнтовне прибуття:", "Okno punktu:": "Часове вікно:",
             "godz.": "год", "min": "хв", "brak danych": "немає даних", "Brak aktywnego następnego punktu.": "Немає активної наступної точки.",
