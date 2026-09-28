@@ -131,7 +131,8 @@ ROLE_ENDPOINTS = {
         "driver_fleet_visibility",
         "geocode_search",
         "route_calculate",
-        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file"
+        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file",
+        "driver_tachograph_api"
     }
 }
 
@@ -3814,8 +3815,9 @@ def driver_tachograph_api(vehicle_id):
     calculation. Missing Navirec values stay null; the UI must never invent them.
     """
     vehicle_id = normalize_api_id(vehicle_id) or str(vehicle_id)
-    states_result = get_last_vehicle_states_result()
-    snapshots = build_tachograph_snapshots(states_result.get("items", []))
+    # Use the same live vehicle-state source as the working GPS/tachograph view.
+    states = get_vehicle_states()
+    snapshots = build_tachograph_snapshots(states)
     snapshot = snapshots.get(vehicle_id)
     if snapshot is None:
         return jsonify({"ok": False, "vehicle_id": vehicle_id, "tachograph": None}), 404
@@ -3823,7 +3825,7 @@ def driver_tachograph_api(vehicle_id):
         "ok": True,
         "vehicle_id": vehicle_id,
         "tachograph": snapshot,
-        "source_ok": bool(states_result.get("ok")),
+        "source_ok": True,
     })
 
 
