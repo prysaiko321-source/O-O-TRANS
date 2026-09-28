@@ -82,6 +82,8 @@ DRIVER_PASSWORD = (
     or os.environ.get("DRIVER_PASS")
     or ""
 ).strip()
+DRIVER_DXF_USER = (os.environ.get("DRIVER_DXF_USER") or "dxf").strip()
+DRIVER_DXF_PASSWORD = (os.environ.get("DRIVER_DXF_PASSWORD") or "DXF-739184").strip()
 POLAND_TZ = ZoneInfo("Europe/Warsaw")
 
 ROLE_LABELS = {
@@ -187,6 +189,21 @@ def role_home_url(role=None):
         "home"
     )
     return url_for(endpoint)
+
+
+def normalize_driver_login(value):
+    """Normalize a vehicle plate used as driver login: DX 9034F == DX9034F."""
+    return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
+
+
+def current_driver_vehicle():
+    """Vehicle assigned to the logged-in driver session."""
+    assigned_id = normalize_vehicle_id(session.get("driver_vehicle_id", ""))
+    if assigned_id:
+        for vehicle in VEHICLES:
+            if vehicle["id"] == assigned_id:
+                return vehicle
+    return VEHICLES[0]
 
 
 def vehicle_by_id(vehicle_id):
@@ -3513,20 +3530,43 @@ def login(role):
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
-        credentials_configured = bool(
-            expected_user and expected_password
-        )
+        credentials_configured = bool(expected_user and expected_password)
+        credentials_valid = False
+        assigned_vehicle_id = ""
 
-        credentials_valid = (
-            credentials_configured
-            and hmac.compare_digest(username, expected_user)
-            and hmac.compare_digest(password, expected_password)
-        )
+        if role == "driver":
+            # Driver login is the vehicle registration number.
+            # Existing SH credentials remain accepted so an already deployed
+            # driver account is not broken during the transition.
+            driver_accounts = [
+                (VEHICLES[0]["plate"], DRIVER_PASSWORD, VEHICLES[0]["id"]),
+                (VEHICLES[1]["plate"], DRIVER_DXF_PASSWORD, VEHICLES[1]["id"]),
+            ]
+            if DRIVER_USER and DRIVER_PASSWORD:
+                driver_accounts.append((DRIVER_USER, DRIVER_PASSWORD, VEHICLES[0]["id"]))
+
+            credentials_configured = any(u and p for u, p, _ in driver_accounts)
+            entered_login = normalize_driver_login(username)
+            for account_user, account_password, account_vehicle_id in driver_accounts:
+                if (account_user and account_password
+                    and hmac.compare_digest(entered_login, normalize_driver_login(account_user))
+                    and hmac.compare_digest(password, account_password)):
+                    credentials_valid = True
+                    assigned_vehicle_id = account_vehicle_id
+                    break
+        else:
+            credentials_valid = (
+                credentials_configured
+                and hmac.compare_digest(username, expected_user)
+                and hmac.compare_digest(password, expected_password)
+            )
 
         if credentials_valid:
             session["logged_in"] = True
             session["role"] = role
             session["username"] = username
+            if role == "driver":
+                session["driver_vehicle_id"] = assigned_vehicle_id
             return redirect(role_home_url(role))
 
         if not credentials_configured:
@@ -3831,9 +3871,8 @@ def driver_tachograph_api(vehicle_id):
 
 @app.route("/driver")
 def driver_dashboard():
-    # First live driver pilot: SH 9203G.  The route itself remains the same
-    # shared server route used by director and dispatcher.
-    driver_vehicle = VEHICLES[0]
+    # Each driver sees the vehicle assigned by their login.
+    driver_vehicle = current_driver_vehicle()
     vehicle_id = driver_vehicle["id"]
     vehicle_name = driver_vehicle["name"]
     vehicle_plate = driver_vehicle.get("plate") or vehicle_name
@@ -3895,7 +3934,7 @@ def driver_dashboard():
       </div>
       <div id="driverTachoPane" class="driver-tacho">
         <div class="card">
-          <div class="driver-kicker">ТАХОГРАФ · SH 9203G</div>
+          <div class="driver-kicker">ТАХОГРАФ · __PLATE__</div>
           <div id="driverTachoStatus" class="driver-small">Отримання даних тахографа…</div>
           <div class="driver-tacho-grid" style="margin-top:10px">
             <div class="driver-tacho-item"><div class="driver-small">До наступної перерви</div><div id="tachoBreak" class="driver-tacho-value">—</div></div>
@@ -6087,7 +6126,7 @@ def api_live_vehicle_states():
         vehicles.append(item)
 
     if current_role() == "driver" and not driver_can_see_other_vehicles():
-        own_id = VEHICLES[0]["id"]
+        own_id = current_driver_vehicle()["id"]
         vehicles = [item for item in vehicles if item.get("id") == own_id]
 
     return jsonify({"ok": True, "vehicles": vehicles})
@@ -6099,7 +6138,7 @@ def api_driver_gps(vehicle_id):
     vehicle = vehicle_by_id(vehicle_id)
     if not vehicle:
         return jsonify({"ok": False, "error": "vehicle_not_found"}), 404
-    if current_role() == "driver" and vehicle_id != VEHICLES[0]["id"]:
+    if current_role() == "driver" and vehicle_id != current_driver_vehicle()["id"]:
         return jsonify({"ok": False, "error": "vehicle_not_allowed"}), 403
     state = state_for_vehicle(vehicle_id)
     if not state:
