@@ -3871,7 +3871,9 @@ def driver_dashboard():
 
       <div class="driver-tabs"><button id="driverRouteTab" class="driver-tab active" type="button">🗺️ TRASA</button><button id="driverTachoTab" class="driver-tab" type="button">⏱️ TACHOGRAF</button><button id="driverIqTab" class="driver-tab" type="button">🎙️ IQ</button><button id="driverMsgTab" class="driver-tab" type="button">💬 WIADOMOŚCI <span id="driverUnread" class="driver-unread" style="display:none">0</span></button></div>
       <div id="driverRoutePane">
-      <div class="card" style="margin:10px 0"><div class="driver-kicker">TWOJE ZLECENIA</div><div id="driverJobs" class="driver-jobs"></div></div><div class="card" style="margin:10px 0"><button id="driverMapTab" class="driver-btn driver-nav" type="button" style="width:100%">📍 MAPA GPS POJAZDÓW</button></div>
+      <div class="card" style="margin:10px 0"><div class="driver-kicker">TWOJE ZLECENIA</div><div id="driverJobs" class="driver-jobs"></div></div>
+      <div class="card" style="margin:10px 0"><a href="/documents" class="driver-btn driver-nav" style="width:100%;background:#7048e8;color:#fff">📷 SKANUJ DOKUMENT</a><div class="driver-small" style="margin-top:8px;text-align:center">CMR · Lieferschein · paragon paliwowy · inny dokument</div></div>
+      <div class="card" style="margin:10px 0"><button id="driverMapTab" class="driver-btn driver-nav" type="button" style="width:100%">📍 MAPA GPS POJAZDÓW</button></div>
       <div id="driverNext" class="driver-next" style="display:none">
         <div class="driver-kicker">NASTĘPNY PUNKT</div>
         <div id="driverNextAddress" class="driver-address"></div>
