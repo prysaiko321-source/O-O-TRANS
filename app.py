@@ -1307,16 +1307,10 @@ def delivery_stop_status():
     if not stops:
         return jsonify({"error": "Немає координат точок."}), 400
 
+    # The route date describes the planned job, not the date on which GPS
+    # presence must be checked. An active route can continue for several days.
     today = datetime.now(POLAND_TZ).date()
-    if selected_date > today:
-        return jsonify({
-            "statuses": [
-                stop.get("manual_status") or "pending" for stop in stops
-            ],
-            "radius_m": 1000
-        })
-
-    history = get_vehicle_history(vehicle_id, date_string)
+    history = get_vehicle_history(vehicle_id, today.isoformat())
     points = history.get("points", []) if history.get("ok") else []
     current_state = state_for_vehicle(vehicle_id)
     current_latitude = None
@@ -1385,13 +1379,13 @@ def delivery_stop_status():
                 dwell_start = None
                 dwell_end = None
 
-        if manual_status == "pending" and is_current and selected_date == today:
+        if manual_status == "pending" and is_current:
             statuses.append("current")
         elif manual_status == "pending":
             statuses.append("pending")
         elif visited:
             statuses.append("completed")
-        elif is_current and selected_date == today:
+        elif is_current:
             statuses.append("current")
         else:
             statuses.append("pending")
@@ -9143,15 +9137,8 @@ def gps():
                 deliveryRoute,
                 data.statuses
             );
-            const lastStatus = data.statuses[
-                deliveryRoute.stops.length - 1
-            ];
-            // Активний маршрут очищаємо тільки коли автомобіль ЗАРАЗ
-            // знаходиться на останній точці. Історичний заїзд на цю адресу
-            // раніше того самого дня не повинен видаляти новий маршрут.
-            if (lastStatus === 'current') {{
-                removeSavedDeliveryRoute(vehicle.id);
-            }}
+            // Arrival at the last stop is not proof of unloading. Keep the
+            // route until the driver or dispatcher explicitly finishes it.
         }} catch (error) {{
             // Статуси не повинні ламати сам маршрут.
         }}
