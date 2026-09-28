@@ -123,7 +123,7 @@ ROLE_ENDPOINTS = {
         "delivery_routes_list",
         "api_live_vehicle_states",
         "tachograph",
-        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file", "trip_documents_unread", "trip_documents_seen"
+        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file", "trip_document_delete", "trip_documents_unread", "trip_documents_seen"
     },
     "driver": {
         "driver_dashboard",
@@ -134,7 +134,7 @@ ROLE_ENDPOINTS = {
         "driver_fleet_visibility",
         "geocode_search",
         "route_calculate",
-        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file",
+        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file", "trip_document_delete",
         "driver_tachograph_api"
     }
 }
@@ -2183,7 +2183,7 @@ document.addEventListener('DOMContentLoaded', function () {{
         }.get(language, "📍 GPS pojazdów")
         nav_items = [
             ("driver", "/driver", t("my_trips")),
-            ("documents", "/documents", "📄 Dokumenty"),
+            ("documents", "/documents", "📄 " + {"uk":"Документи","pl":"Dokumenty","en":"Documents","de":"Dokumente"}.get(current_language(),"Документи")),
             ("driver_gps", "/driver#gps", driver_gps_label),
             (
                 "road_payments",
@@ -2194,7 +2194,7 @@ document.addEventListener('DOMContentLoaded', function () {{
     elif role == "dispatcher":
         nav_items = [
             ("gps", "/gps", t("gps")),
-            ("documents", "/documents", "📄 Dokumenty"),
+            ("documents", "/documents", "📄 " + {"uk":"Документи","pl":"Dokumenty","en":"Documents","de":"Dokumente"}.get(current_language(),"Документи")),
             ("tachograph", "/tachograph", t("tachograph")),
             (
                 "road_payments",
@@ -2211,14 +2211,14 @@ document.addEventListener('DOMContentLoaded', function () {{
             ("fuel", "/fuel", t("fuel")),
             ("tachograph", "/tachograph", t("tachograph")),
             ("finance", "/finance", t("finance")),
-            ("documents", "/documents", "📄 Dokumenty"),
+            ("documents", "/documents", "📄 " + {"uk":"Документи","pl":"Dokumenty","en":"Documents","de":"Dokumente"}.get(current_language(),"Документи")),
             (
                 "road_payments",
                 "/road-payments",
                 road_payments_label
             ),
             ("branding", "/settings/branding", t("branding")),
-            ("driver_settings", "/driver-settings", "🚐 Kierowcy"),
+            ("driver_settings", "/driver-settings", "🚐 " + {"uk":"Водії","pl":"Kierowcy","en":"Drivers","de":"Fahrer"}.get(current_language(),"Водії")),
             ("driver_access", "/driver-access", "🔐 Паролі"),
             ("health", "/health", t("health"))
         ]
@@ -2245,7 +2245,7 @@ document.addEventListener('DOMContentLoaded', function () {{
         )
 
     if role in ("director", "dispatcher"):
-        nav_links.append('''<script>async function documentAlerts(){try{let r=await fetch('/api/documents/unread',{cache:'no-store'}),d=await r.json(),a=document.querySelector('a[href="/documents"]');if(a){a.textContent='📄 Dokumenty'+(d.count?' · Nowy dokument ('+d.count+')':'')}}catch(e){}}documentAlerts();setInterval(documentAlerts,30000);if(location.pathname==='/documents'){fetch('/api/documents/seen',{method:'POST'});}</script>''')
+        nav_links.append('''<script>async function documentAlerts(){try{let r=await fetch('/api/documents/unread',{cache:'no-store'}),d=await r.json(),a=document.querySelector('a[href="/documents"]');if(a){a.textContent=a.textContent.split(' · ')[0]+(d.count?' · '+({uk:'Новий документ',pl:'Nowy dokument',en:'New document',de:'Neues Dokument'}['''+"'"+'''+(document.documentElement.lang||'uk')+''' +"'"+''']||'Новий документ')+' ('+d.count+')':'')}}catch(e){}}documentAlerts();setInterval(documentAlerts,30000);if(location.pathname==='/documents'){fetch('/api/documents/seen',{method:'POST'});}</script>''')
     nav = '<nav class="nav">{}</nav>'.format(
         "".join(nav_links)
     )
