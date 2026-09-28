@@ -1192,34 +1192,87 @@ def driver_fleet_visibility():
     return jsonify({"ok": True, "show_other_vehicles": enabled})
 
 
+@app.route("/drivers")
 @app.route("/driver-settings")
 def driver_settings():
     if current_role() != "director":
         return redirect(role_home_url())
+
+    language = current_language()
+    labels = {
+        "uk": {
+            "title": "Водії",
+            "text": "Налаштування видимості GPS інших автомобілів для водіїв.",
+            "toggle": "Водій може бачити інші автомобілі",
+            "auto": "Зміна автоматично застосовується в кабінеті водія.",
+            "saving": "Збереження…",
+            "on": "УВІМКНЕНО — водій бачить інші автомобілі.",
+            "off": "ВИМКНЕНО — водій бачить тільки свій автомобіль.",
+            "error": "Не вдалося зберегти налаштування."
+        },
+        "pl": {
+            "title": "Kierowcy",
+            "text": "Ustawienia widoczności GPS innych pojazdów dla kierowców.",
+            "toggle": "Kierowca może widzieć inne pojazdy",
+            "auto": "Zmiana działa automatycznie w panelu kierowcy.",
+            "saving": "Zapisywanie…",
+            "on": "WŁĄCZONE — kierowca widzi inne pojazdy.",
+            "off": "WYŁĄCZONE — kierowca widzi tylko swój pojazd.",
+            "error": "Nie udało się zapisać ustawienia."
+        },
+        "en": {
+            "title": "Drivers",
+            "text": "Control whether drivers can see GPS positions of other vehicles.",
+            "toggle": "Driver can see other vehicles",
+            "auto": "The change is applied automatically in the driver panel.",
+            "saving": "Saving…",
+            "on": "ON — driver can see other vehicles.",
+            "off": "OFF — driver sees only their vehicle.",
+            "error": "Could not save the setting."
+        },
+        "de": {
+            "title": "Fahrer",
+            "text": "Sichtbarkeit der GPS-Positionen anderer Fahrzeuge für Fahrer.",
+            "toggle": "Fahrer kann andere Fahrzeuge sehen",
+            "auto": "Die Änderung wird automatisch im Fahrerbereich übernommen.",
+            "saving": "Speichern…",
+            "on": "EIN — Fahrer sieht andere Fahrzeuge.",
+            "off": "AUS — Fahrer sieht nur sein Fahrzeug.",
+            "error": "Einstellung konnte nicht gespeichert werden."
+        }
+    }.get(language, {})
     enabled = driver_can_see_other_vehicles()
-    body = f"""
+    body = """
     <div class="card" style="max-width:760px;margin:0 auto">
-      <h2>Ustawienia kierowców</h2>
-      <p>Kontrola widoczności GPS innych pojazdów dla kierowcy testowego SH 9203G.</p>
+      <h2>{title}</h2>
+      <p>{text}</p>
       <label style="display:flex;align-items:center;gap:12px;font-size:18px;font-weight:800;margin:20px 0">
-        <input id="fleetVisibility" type="checkbox" {'checked' if enabled else ''} style="width:24px;height:24px">
-        Kierowca SH może widzieć inne pojazdy
+        <input id="fleetVisibility" type="checkbox" {checked} style="width:24px;height:24px">
+        {toggle}
       </label>
-      <div id="fleetVisibilityStatus" class="small">Zmiana działa automatycznie na telefonie kierowcy.</div>
+      <div id="fleetVisibilityStatus" class="small">{auto}</div>
     </div>
     <script>
+    const DRIVER_TEXTS={texts};
     document.getElementById('fleetVisibility').addEventListener('change', async function() {{
       const status=document.getElementById('fleetVisibilityStatus');
-      status.textContent='Zapisywanie…';
+      status.textContent=DRIVER_TEXTS.saving;
       try {{
         const r=await fetch('/api/driver-fleet-visibility', {{method:'PUT',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{show_other_vehicles:this.checked}})}});
         if(!r.ok) throw new Error('HTTP '+r.status);
-        status.textContent=this.checked?'WŁĄCZONE — kierowca widzi inne pojazdy.':'WYŁĄCZONE — kierowca widzi tylko swój pojazd.';
-      }} catch(e) {{ this.checked=!this.checked; status.textContent='Nie udało się zapisać ustawienia.'; }}
+        status.textContent=this.checked?DRIVER_TEXTS.on:DRIVER_TEXTS.off;
+      }} catch(e) {{
+        this.checked=!this.checked;
+        status.textContent=DRIVER_TEXTS.error;
+      }}
     }});
     </script>
-    """
-    return page("Ustawienia kierowców", body, "driver_settings")
+    """.format(
+        title=labels["title"], text=labels["text"], checked=("checked" if enabled else ""),
+        toggle=labels["toggle"], auto=labels["auto"],
+        texts=__import__("json").dumps({k: labels[k] for k in ("saving","on","off","error")}, ensure_ascii=False)
+    )
+    return page(labels["title"], body, "driver_settings")
 
 
 @app.route("/api/delivery-route/<vehicle_id>/queue", methods=["GET", "POST", "DELETE"])
@@ -2218,7 +2271,7 @@ document.addEventListener('DOMContentLoaded', function () {{
                 road_payments_label
             ),
             ("branding", "/settings/branding", t("branding")),
-            ("driver_settings", "/driver-settings", "🚐 " + {"uk":"Водії","pl":"Kierowcy","en":"Drivers","de":"Fahrer"}.get(current_language(),"Водії")),
+            ("driver_settings", "/drivers", "🚐 " + {"uk":"Водії","pl":"Kierowcy","en":"Drivers","de":"Fahrer"}.get(current_language(),"Водії")),
             ("driver_access", "/driver-access", "🔐 Паролі"),
             ("health", "/health", t("health"))
         ]
