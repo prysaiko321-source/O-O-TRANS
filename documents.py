@@ -163,13 +163,70 @@ def register_document_routes(app, page, routes_file, vehicles):
                 for v in vehicles
             )
             vehicle_select = '<label>Pojazd / trasa</label><select name="vehicle_id" required>' + options + '</select>'
-        upload = """
-        <div class="card"><h2>Skanuj dokument</h2><p>Wybierz rodzaj i zrób zdjęcie dokumentu. Sprawdź podgląd przed wysłaniem.</p>
-        <form id="scanForm">__VEHICLE_SELECT__<label>Rodzaj dokumentu</label><select name="type"><option value="cmr">CMR</option><option value="lieferschein">Lieferschein</option><option value="fuel">Paragon paliwowy</option><option value="other">Inny dokument</option></select>
-        <input name="file" type="file" accept="image/*,.pdf,application/pdf" capture="environment" required>
-        <img id="scanPreview" alt="Podgląd" style="display:none;max-width:100%;max-height:55vh;margin:12px 0">
-        <button type="submit">Wyślij dokument</button><p id="scanStatus" role="status"></p></form></div>
-        <script>const form=document.getElementById('scanForm'),input=form.elements.file,preview=document.getElementById('scanPreview');input.onchange=()=>{if(input.files[0]&&input.files[0].type.startsWith('image/')){preview.src=URL.createObjectURL(input.files[0]);preview.style.display='block'}else preview.style.display='none'};form.onsubmit=async(e)=>{e.preventDefault();let status=document.getElementById('scanStatus');status.textContent='Wysyłanie…';try{let r=await fetch('/api/documents',{method:'POST',body:new FormData(form)}),d=await r.json();if(!r.ok)throw Error(d.error||'Błąd');status.textContent='Dokument zapisany.'+(d.document.cropped?' Krawędzie poprawione.':'');form.reset();preview.style.display='none';loadDocs()}catch(err){status.textContent=err.message}};</script>
+        upload = r"""
+        <div class="card"><h2>Skanuj dokument</h2>
+        <p>Skieruj kamerę na dokument. Gdy wszystkie 4 krawędzie są widoczne i obraz jest stabilny, skan wykona się automatycznie.</p>
+        <form id="scanForm">__VEHICLE_SELECT__
+        <label>Rodzaj dokumentu</label><select name="type"><option value="cmr">CMR</option><option value="lieferschein">Lieferschein</option><option value="fuel">Paragon paliwowy</option><option value="other">Inny dokument</option></select>
+        <div style="display:grid;gap:10px;margin-top:12px">
+          <button type="button" id="openScanner" style="font-size:18px;padding:14px">📷 Uruchom skaner</button>
+          <label style="font-weight:800">albo wybierz gotowy plik</label>
+          <input name="file" id="fallbackFile" type="file" accept="image/*,.pdf,application/pdf">
+        </div>
+        <input type="hidden" name="scan_data" id="scanData">
+        <img id="scanPreview" alt="Podgląd" style="display:none;max-width:100%;max-height:55vh;margin:12px 0;border-radius:12px">
+        <button type="submit" id="sendScan" disabled>Wyślij dokument</button><p id="scanStatus" role="status"></p></form></div>
+
+        <div id="scannerModal" style="display:none;position:fixed;inset:0;background:#05080b;z-index:99999;color:white">
+          <video id="scannerVideo" playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
+          <canvas id="scannerCanvas" style="display:none"></canvas>
+          <canvas id="scannerOverlay" style="position:absolute;inset:0;width:100%;height:100%;pointer-events:none"></canvas>
+          <div style="position:absolute;left:12px;right:12px;top:12px;display:flex;justify-content:space-between;gap:10px">
+            <button type="button" id="closeScanner" style="padding:12px 16px">✕</button>
+            <div id="scannerHint" style="background:rgba(0,0,0,.62);padding:10px 14px;border-radius:12px;font-weight:800">Szukam dokumentu…</div>
+          </div>
+          <div style="position:absolute;left:12px;right:12px;bottom:18px;display:grid;grid-template-columns:1fr 1fr;gap:10px">
+            <button type="button" id="manualCapture" style="padding:15px;font-size:17px">📷 Zrób ręcznie</button>
+            <button type="button" id="toggleAuto" style="padding:15px;font-size:17px">AUTO: WŁ.</button>
+          </div>
+        </div>
+        <script>
+        (()=>{
+          const form=document.getElementById('scanForm'), fallback=document.getElementById('fallbackFile'), preview=document.getElementById('scanPreview'), status=document.getElementById('scanStatus'), send=document.getElementById('sendScan');
+          const modal=document.getElementById('scannerModal'), video=document.getElementById('scannerVideo'), canvas=document.getElementById('scannerCanvas'), overlay=document.getElementById('scannerOverlay'), hint=document.getElementById('scannerHint');
+          let stream=null, timer=null, auto=true, stable=0, lastBox=null, capturedBlob=null;
+          const octx=overlay.getContext('2d');
+          function ready(){send.disabled=!(capturedBlob || (fallback.files&&fallback.files[0]));}
+          fallback.onchange=()=>{capturedBlob=null; if(fallback.files[0]&&fallback.files[0].type.startsWith('image/')){preview.src=URL.createObjectURL(fallback.files[0]);preview.style.display='block'}else preview.style.display='none';ready()};
+          async function open(){
+            try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});video.srcObject=stream;await video.play();modal.style.display='block';stable=0;lastBox=null;loop();}
+            catch(e){status.textContent='Nie udało się uruchomić kamery. Sprawdź uprawnienia przeglądarki.';}
+          }
+          function close(){if(timer)cancelAnimationFrame(timer);timer=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}modal.style.display='none';}
+          function boxDistance(a,b){if(!a||!b)return 999;return Math.abs(a.x-b.x)+Math.abs(a.y-b.y)+Math.abs(a.w-b.w)+Math.abs(a.h-b.h)}
+          function detect(){
+            if(!video.videoWidth)return null;
+            const maxW=420, scale=Math.min(1,maxW/video.videoWidth), w=Math.round(video.videoWidth*scale), h=Math.round(video.videoHeight*scale);
+            canvas.width=w;canvas.height=h;const c=canvas.getContext('2d',{willReadFrequently:true});c.drawImage(video,0,0,w,h);const im=c.getImageData(0,0,w,h), d=im.data;
+            const gray=new Uint8Array(w*h);for(let i=0,j=0;i<d.length;i+=4,j++)gray[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
+            let minX=w,minY=h,maxX=0,maxY=0,count=0;const step=2;
+            for(let y=2;y<h-2;y+=step)for(let x=2;x<w-2;x+=step){let i=y*w+x;let gx=Math.abs(gray[i+1]-gray[i-1]),gy=Math.abs(gray[i+w]-gray[i-w]);if(gx+gy>70){minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);count++;}}
+            if(count<250)return null;let bw=maxX-minX,bh=maxY-minY,area=bw*bh;if(area<w*h*.22||bw<w*.38||bh<h*.35)return null;
+            return {x:minX/w,y:minY/h,w:bw/w,h:bh/h};
+          }
+          function draw(b){overlay.width=innerWidth;overlay.height=innerHeight;octx.clearRect(0,0,overlay.width,overlay.height);if(!b)return;let vw=video.videoWidth,vh=video.videoHeight,sw=innerWidth,sh=innerHeight,s=Math.max(sw/vw,sh/vh),rw=vw*s,rh=vh*s,ox=(sw-rw)/2,oy=(sh-rh)/2;octx.strokeStyle=stable>7?'#40c057':'#ffd43b';octx.lineWidth=5;octx.strokeRect(ox+b.x*rw,oy+b.y*rh,b.w*rw,b.h*rh);}
+          function loop(){let b=detect();draw(b);if(b){let dist=boxDistance(b,lastBox);stable=dist<.035?stable+1:0;lastBox=b;hint.textContent=stable>7?'Trzymaj nieruchomo…':'Dokument wykryty — ustaw równo';if(auto&&stable>12){capture();return}}else{stable=0;lastBox=null;hint.textContent='Pokaż cały dokument i 4 krawędzie';}timer=requestAnimationFrame(loop)}
+          async function capture(){
+            if(!video.videoWidth)return; if(timer)cancelAnimationFrame(timer);timer=null;
+            const full=document.createElement('canvas');full.width=video.videoWidth;full.height=video.videoHeight;full.getContext('2d').drawImage(video,0,0);hint.textContent='Skanuję…';
+            capturedBlob=await new Promise(r=>full.toBlob(r,'image/jpeg',.94)); if(!capturedBlob){loop();return}
+            preview.src=URL.createObjectURL(capturedBlob);preview.style.display='block';fallback.value='';ready();close();status.textContent='Skan gotowy. Sprawdź podgląd i wyślij.';
+          }
+          document.getElementById('openScanner').onclick=open;document.getElementById('closeScanner').onclick=close;document.getElementById('manualCapture').onclick=capture;
+          document.getElementById('toggleAuto').onclick=function(){auto=!auto;this.textContent='AUTO: '+(auto?'WŁ.':'WYŁ.')};
+          form.onsubmit=async(e)=>{e.preventDefault();status.textContent='Wysyłanie…';try{let fd=new FormData(form);if(capturedBlob){fd.delete('file');fd.append('file',capturedBlob,'scan.jpg')}let r=await fetch('/api/documents',{method:'POST',body:fd}),d=await r.json();if(!r.ok)throw Error(d.error||'Błąd');status.textContent='Dokument zapisany.'+(d.document.cropped?' Krawędzie poprawione.':'');form.reset();capturedBlob=null;preview.style.display='none';ready();loadDocs()}catch(err){status.textContent=err.message}};
+        })();
+        </script>
         """.replace("__VEHICLE_SELECT__", vehicle_select) if role() in {"driver", "dispatcher"} else ""
         body = upload + '<div class="card"><h2>Dokumenty z trasy <span id="docCount"></span></h2><div id="docList">Ładowanie…</div></div>' + '''<script>
         async function loadDocs(){let r=await fetch('/api/documents',{cache:'no-store'});if(!r.ok)return;let d=await r.json(),box=document.getElementById('docList');document.getElementById('docCount').textContent='('+d.documents.length+')';box.replaceChildren();for(let x of d.documents){let p=document.createElement('p'),a=document.createElement('a');a.href='/api/documents/'+encodeURIComponent(x.id)+'/file';a.textContent=x.label+' · '+x.vehicle_label+' · '+new Date(x.created_at).toLocaleString()+' · otwórz';a.target='_blank';p.appendChild(a);let download=document.createElement('a');download.href='/api/documents/'+encodeURIComponent(x.id)+'/file?download=1';download.textContent=' ⬇ Pobierz';download.style.marginLeft='14px';download.style.fontWeight='bold';p.appendChild(download);box.appendChild(p)}if(!d.documents.length)box.textContent='Brak dokumentów.'}loadDocs();setInterval(loadDocs,30000);</script>'''
