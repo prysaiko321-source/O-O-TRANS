@@ -4,3 +4,6 @@ gunicorn
 psycopg[binary]
 cryptography
 pypdf
+
+Pillow>=10,<12
+opencv-python-headless>=4.9,<5

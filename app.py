@@ -120,7 +120,7 @@ ROLE_ENDPOINTS = {
         "delivery_routes_list",
         "api_live_vehicle_states",
         "tachograph",
-        "road_payments"
+        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file", "trip_documents_unread", "trip_documents_seen"
     },
     "driver": {
         "driver_dashboard",
@@ -131,7 +131,7 @@ ROLE_ENDPOINTS = {
         "driver_fleet_visibility",
         "geocode_search",
         "route_calculate",
-        "road_payments"
+        "road_payments", "trip_documents", "trip_documents_api", "trip_document_file"
     }
 }
 
@@ -2143,6 +2143,7 @@ document.addEventListener('DOMContentLoaded', function () {{
         }.get(language, "📍 GPS pojazdów")
         nav_items = [
             ("driver", "/driver", t("my_trips")),
+            ("documents", "/documents", "📄 Dokumenty"),
             ("driver_gps", "/driver#gps", driver_gps_label),
             (
                 "road_payments",
@@ -2153,6 +2154,7 @@ document.addEventListener('DOMContentLoaded', function () {{
     elif role == "dispatcher":
         nav_items = [
             ("gps", "/gps", t("gps")),
+            ("documents", "/documents", "📄 Dokumenty"),
             ("tachograph", "/tachograph", t("tachograph")),
             (
                 "road_payments",
@@ -2169,6 +2171,7 @@ document.addEventListener('DOMContentLoaded', function () {{
             ("fuel", "/fuel", t("fuel")),
             ("tachograph", "/tachograph", t("tachograph")),
             ("finance", "/finance", t("finance")),
+            ("documents", "/documents", "📄 Dokumenty"),
             (
                 "road_payments",
                 "/road-payments",
@@ -2200,6 +2203,8 @@ document.addEventListener('DOMContentLoaded', function () {{
             )
         )
 
+    if role in ("director", "dispatcher"):
+        nav_links.append('''<script>async function documentAlerts(){try{let r=await fetch('/api/documents/unread',{cache:'no-store'}),d=await r.json(),a=document.querySelector('a[href="/documents"]');if(a){a.textContent='📄 Dokumenty'+(d.count?' · Nowy dokument ('+d.count+')':'')}}catch(e){}}documentAlerts();setInterval(documentAlerts,30000);if(location.pathname==='/documents'){fetch('/api/documents/seen',{method:'POST'});}</script>''')
     nav = '<nav class="nav">{}</nav>'.format(
         "".join(nav_links)
     )
@@ -3634,6 +3639,10 @@ def require_login():
         return None
 
     return redirect(role_home_url(role))
+
+
+from documents import register_document_routes
+register_document_routes(app, page, DELIVERY_ROUTES_FILE, VEHICLES)
 
 
 @app.route("/director")
