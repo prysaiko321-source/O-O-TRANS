@@ -175,7 +175,11 @@ def register_document_routes(app, page, routes_file, vehicles):
         </div>
         <input type="hidden" name="scan_data" id="scanData">
         <img id="scanPreview" alt="Podgląd" style="display:none;max-width:100%;max-height:55vh;margin:12px 0;border-radius:12px">
-        <button type="submit" id="sendScan" disabled>Wyślij dokument</button><p id="scanStatus" role="status"></p></form></div>
+        <div id="scanReviewActions" style="display:none;grid-template-columns:1fr 1fr;gap:10px;margin:12px 0">
+          <button type="button" id="retakeScan" style="padding:14px;background:#c92a2a;color:#fff;font-weight:900">🗑️ Usuń / zrób ponownie</button>
+          <button type="submit" id="sendScan" style="padding:14px;background:#2b8a3e;color:#fff;font-weight:900">✅ Zapisz dokument</button>
+        </div>
+        <button type="submit" id="sendScanFallback" disabled style="display:none">Wyślij dokument</button><p id="scanStatus" role="status"></p></form></div>
 
         <div id="scannerModal" style="display:none;position:fixed;inset:0;background:#05080b;z-index:99999;color:white">
           <video id="scannerVideo" playsinline muted style="width:100%;height:100%;object-fit:cover"></video>
@@ -192,14 +196,14 @@ def register_document_routes(app, page, routes_file, vehicles):
         </div>
         <script>
         (()=>{
-          const form=document.getElementById('scanForm'), fallback=document.getElementById('fallbackFile'), preview=document.getElementById('scanPreview'), status=document.getElementById('scanStatus'), send=document.getElementById('sendScan');
+          const form=document.getElementById('scanForm'), fallback=document.getElementById('fallbackFile'), preview=document.getElementById('scanPreview'), status=document.getElementById('scanStatus'), send=document.getElementById('sendScan'), review=document.getElementById('scanReviewActions');
           const modal=document.getElementById('scannerModal'), video=document.getElementById('scannerVideo'), canvas=document.getElementById('scannerCanvas'), overlay=document.getElementById('scannerOverlay'), hint=document.getElementById('scannerHint');
-          let stream=null, timer=null, auto=true, stable=0, lastBox=null, capturedBlob=null;
+          let stream=null, timer=null, auto=true, stable=0, stableSince=0, lastBox=null, capturedBlob=null, captureBox=null;
           const octx=overlay.getContext('2d');
-          function ready(){send.disabled=!(capturedBlob || (fallback.files&&fallback.files[0]));}
-          fallback.onchange=()=>{capturedBlob=null; if(fallback.files[0]&&fallback.files[0].type.startsWith('image/')){preview.src=URL.createObjectURL(fallback.files[0]);preview.style.display='block'}else preview.style.display='none';ready()};
+          function ready(){const ok=!!(capturedBlob || (fallback.files&&fallback.files[0]));send.disabled=!ok;review.style.display=ok?'grid':'none';}
+          fallback.onchange=()=>{capturedBlob=null;captureBox=null;if(fallback.files[0]&&fallback.files[0].type.startsWith('image/')){preview.src=URL.createObjectURL(fallback.files[0]);preview.style.display='block'}else preview.style.display='none';ready()};
           async function open(){
-            try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});video.srcObject=stream;await video.play();modal.style.display='block';stable=0;lastBox=null;loop();}
+            try{stream=await navigator.mediaDevices.getUserMedia({video:{facingMode:{ideal:'environment'},width:{ideal:1920},height:{ideal:1080}},audio:false});video.srcObject=stream;await video.play();modal.style.display='block';stable=0;stableSince=0;lastBox=null;captureBox=null;loop();}
             catch(e){status.textContent='Nie udało się uruchomić kamery. Sprawdź uprawnienia przeglądarki.';}
           }
           function close(){if(timer)cancelAnimationFrame(timer);timer=null;if(stream){stream.getTracks().forEach(t=>t.stop());stream=null}modal.style.display='none';}
@@ -211,20 +215,20 @@ def register_document_routes(app, page, routes_file, vehicles):
             const gray=new Uint8Array(w*h);for(let i=0,j=0;i<d.length;i+=4,j++)gray[j]=(d[i]*77+d[i+1]*150+d[i+2]*29)>>8;
             let minX=w,minY=h,maxX=0,maxY=0,count=0;const step=2;
             for(let y=2;y<h-2;y+=step)for(let x=2;x<w-2;x+=step){let i=y*w+x;let gx=Math.abs(gray[i+1]-gray[i-1]),gy=Math.abs(gray[i+w]-gray[i-w]);if(gx+gy>70){minX=Math.min(minX,x);maxX=Math.max(maxX,x);minY=Math.min(minY,y);maxY=Math.max(maxY,y);count++;}}
-            if(count<250)return null;let bw=maxX-minX,bh=maxY-minY,area=bw*bh;if(area<w*h*.22||bw<w*.38||bh<h*.35)return null;
+            if(count<120)return null;let bw=maxX-minX,bh=maxY-minY,area=bw*bh;if(area<w*h*.14||bw<w*.30||bh<h*.28)return null;
             return {x:minX/w,y:minY/h,w:bw/w,h:bh/h};
           }
-          function draw(b){overlay.width=innerWidth;overlay.height=innerHeight;octx.clearRect(0,0,overlay.width,overlay.height);if(!b)return;let vw=video.videoWidth,vh=video.videoHeight,sw=innerWidth,sh=innerHeight,s=Math.max(sw/vw,sh/vh),rw=vw*s,rh=vh*s,ox=(sw-rw)/2,oy=(sh-rh)/2;octx.strokeStyle=stable>7?'#40c057':'#ffd43b';octx.lineWidth=5;octx.strokeRect(ox+b.x*rw,oy+b.y*rh,b.w*rw,b.h*rh);}
-          function loop(){let b=detect();draw(b);if(b){let dist=boxDistance(b,lastBox);stable=dist<.035?stable+1:0;lastBox=b;hint.textContent=stable>7?'Trzymaj nieruchomo…':'Dokument wykryty — ustaw równo';if(auto&&stable>12){capture();return}}else{stable=0;lastBox=null;hint.textContent='Pokaż cały dokument i 4 krawędzie';}timer=requestAnimationFrame(loop)}
+          function draw(b){overlay.width=innerWidth;overlay.height=innerHeight;octx.clearRect(0,0,overlay.width,overlay.height);if(!b)return;let vw=video.videoWidth,vh=video.videoHeight,sw=innerWidth,sh=innerHeight,s=Math.max(sw/vw,sh/vh),rw=vw*s,rh=vh*s,ox=(sw-rw)/2,oy=(sh-rh)/2;octx.strokeStyle=stableSince&&performance.now()-stableSince>350?'#40c057':'#ffd43b';octx.lineWidth=5;octx.strokeRect(ox+b.x*rw,oy+b.y*rh,b.w*rw,b.h*rh);}
+          function loop(){let b=detect();draw(b);if(b){let dist=boxDistance(b,lastBox);captureBox=b;if(!lastBox||dist<.11){if(!stableSince)stableSince=performance.now();stable=Math.min(20,stable+1)}else if(dist<.20){stable=Math.max(0,stable-1)}else{stable=0;stableSince=performance.now()}lastBox=b;let held=stableSince?performance.now()-stableSince:0;hint.textContent=held>350?'Dokument wykryty — skanuję…':'Dokument wykryty — przytrzymaj chwilę';if(auto&&held>700&&stable>=3){capture();return}}else{stable=0;stableSince=0;lastBox=null;captureBox=null;hint.textContent='Pokaż cały dokument w kadrze';}timer=requestAnimationFrame(loop)}
           async function capture(){
             if(!video.videoWidth)return; if(timer)cancelAnimationFrame(timer);timer=null;
-            const full=document.createElement('canvas');full.width=video.videoWidth;full.height=video.videoHeight;full.getContext('2d').drawImage(video,0,0);hint.textContent='Skanuję…';
-            capturedBlob=await new Promise(r=>full.toBlob(r,'image/jpeg',.94)); if(!capturedBlob){loop();return}
+            const full=document.createElement('canvas');const vw=video.videoWidth,vh=video.videoHeight;let sx=0,sy=0,sw=vw,sh=vh;if(captureBox){const pad=.035;sx=Math.max(0,(captureBox.x-pad)*vw);sy=Math.max(0,(captureBox.y-pad)*vh);sw=Math.min(vw-sx,(captureBox.w+pad*2)*vw);sh=Math.min(vh-sy,(captureBox.h+pad*2)*vh);}full.width=Math.max(1,Math.round(sw));full.height=Math.max(1,Math.round(sh));full.getContext('2d').drawImage(video,sx,sy,sw,sh,0,0,full.width,full.height);hint.textContent='Skanuję…';
+            capturedBlob=await new Promise(r=>full.toBlob(r,'image/jpeg',.95)); if(!capturedBlob){loop();return}
             preview.src=URL.createObjectURL(capturedBlob);preview.style.display='block';fallback.value='';ready();close();status.textContent='Skan gotowy. Sprawdź podgląd i wyślij.';
           }
-          document.getElementById('openScanner').onclick=open;document.getElementById('closeScanner').onclick=close;document.getElementById('manualCapture').onclick=capture;
+          document.getElementById('openScanner').onclick=open;document.getElementById('closeScanner').onclick=close;document.getElementById('manualCapture').onclick=capture;document.getElementById('retakeScan').onclick=()=>{capturedBlob=null;captureBox=null;fallback.value='';preview.removeAttribute('src');preview.style.display='none';status.textContent='';ready();open();};
           document.getElementById('toggleAuto').onclick=function(){auto=!auto;this.textContent='AUTO: '+(auto?'WŁ.':'WYŁ.')};
-          form.onsubmit=async(e)=>{e.preventDefault();status.textContent='Wysyłanie…';try{let fd=new FormData(form);if(capturedBlob){fd.delete('file');fd.append('file',capturedBlob,'scan.jpg')}let r=await fetch('/api/documents',{method:'POST',body:fd}),d=await r.json();if(!r.ok)throw Error(d.error||'Błąd');status.textContent='Dokument zapisany.'+(d.document.cropped?' Krawędzie poprawione.':'');form.reset();capturedBlob=null;preview.style.display='none';ready();loadDocs()}catch(err){status.textContent=err.message}};
+          form.onsubmit=async(e)=>{e.preventDefault();status.textContent='Wysyłanie…';try{let fd=new FormData(form);if(capturedBlob){fd.delete('file');fd.append('file',capturedBlob,'scan.jpg')}let r=await fetch('/api/documents',{method:'POST',body:fd}),d=await r.json();if(!r.ok)throw Error(d.error||'Błąd');status.textContent='Dokument zapisany.'+(d.document.cropped?' Krawędzie poprawione.':'');form.reset();capturedBlob=null;captureBox=null;preview.removeAttribute('src');preview.style.display='none';ready();loadDocs()}catch(err){status.textContent=err.message}};
         })();
         </script>
         """.replace("__VEHICLE_SELECT__", vehicle_select) if role() in {"driver", "dispatcher"} else ""
