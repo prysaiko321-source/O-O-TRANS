@@ -9520,56 +9520,65 @@ def gps():
         }}
 
         if (!looksLikeOrder && simpleLines.length >= 2) {{
-            // Розумний поділ адрес без обов'язкових порожніх рядків.
-            // Рядок "поштовий індекс + місто" закриває поточну точку.
-            // Наступний непорожній рядок автоматично починає нову адресу.
-            function hasPostalCity(line) {{
-                const value = String(line || '').trim();
+            /*
+             * Plain copied addresses:
+             * accumulate lines until a line containing postal code + city.
+             * That line ENDS the current stop. The next line starts a new stop.
+             * No blank separator is required.
+             */
+            function isPostalEnd(line) {{
+                const v = String(line || '').trim();
                 return (
-                    /\b\d{{2}}-\d{{3}}\s+[\p{{L}}]/u.test(value) ||
-                    /\b(?:DE|D|PL|CZ|AT|NL|BE|FR|IT|ES|PT|DK|SE|NO|FI|LT|LV|EE|SK|HU|RO|BG|HR|SI|CH|LU)\s*[- ]?\s*\d{{4,6}}\s+[\p{{L}}]/iu.test(value) ||
-                    /\b\d{{4,6}}\s+[\p{{L}}][\p{{L}} .'-]*/u.test(value)
+                    /(?:^|[\s,])\d{{2}}-\d{{3}}(?:\s|,|$)/.test(v) ||          // PL: 65-138
+                    /(?:^|[\s,])(?:D|DE)\s*-\s*\d{{5}}(?:\s|,|$)/i.test(v) || // D - 72531
+                    /(?:^|[\s,])DE\d{{5}}(?:\s|,|$)/i.test(v) ||              // DE15711
+                    /(?:^|[\s,])\d{{5}}(?:\s|,|$)/.test(v)                    // DE/other: 15711
                 );
             }}
 
-            function normalizePlainAddress(address) {{
-                return String(address || '')
+            function cleanBlockAddress(block) {{
+                const rows = block.slice();
+
+                // A leading company name is context, not its own stop.
+                // Keep all following address rows together.
+                let useful = rows;
+                if (rows.length >= 2 && !isPostalEnd(rows[0]) &&
+                    !/\d/.test(rows[0]) &&
+                    !/\b(?:str(?:aße|asse)?|weg|platz|allee|gasse|ring|damm|chaussee|ufer|ul\.?|aleja|al\.?|plac|os\.?)\b/i.test(rows[0])) {{
+                    useful = rows.slice(1);
+                }}
+
+                return useful.join(', ')
                     .replace(/\bD\s*-\s*(\d{{5}})\b/ig, '$1')
                     .replace(/\bDE\s*[- ]?\s*(\d{{5}})\b/ig, '$1')
                     .replace(/\s*,\s*/g, ', ')
                     .trim();
             }}
 
-            const smartBlocks = [];
-            let smartCurrent = [];
-
-            function pushSmartBlock() {{
-                if (!smartCurrent.length) return;
-                const address = normalizePlainAddress(addressFromBlock(smartCurrent));
-                if (address) smartBlocks.push(address);
-                smartCurrent = [];
-            }}
+            const parsedAddresses = [];
+            let block = [];
 
             simpleLines.forEach(function(line) {{
-                if (smartCurrent.length &&
-                        hasPostalCity(smartCurrent[smartCurrent.length - 1])) {{
-                    pushSmartBlock();
-                }}
+                block.push(line);
 
-                smartCurrent.push(line);
-
-                // Індекс + місто = природний кінець адреси.
-                if (hasPostalCity(line)) {{
-                    pushSmartBlock();
+                if (isPostalEnd(line)) {{
+                    const address = cleanBlockAddress(block);
+                    if (address) parsedAddresses.push(address);
+                    block = [];
                 }}
             }});
-            pushSmartBlock();
 
-            if (smartBlocks.length >= 1) {{
-                if (smartBlocks.length > 24) {{
+            // Do not throw away a final one-line address lacking a postal code.
+            if (block.length) {{
+                const address = cleanBlockAddress(block);
+                if (address) parsedAddresses.push(address);
+            }}
+
+            if (parsedAddresses.length >= 1) {{
+                if (parsedAddresses.length > 24) {{
                     throw new Error('За один раз можна додати до 24 точок.');
                 }}
-                return smartBlocks.map(function(address) {{
+                return parsedAddresses.map(function(address) {{
                     return {{
                         address: address,
                         date: null,
