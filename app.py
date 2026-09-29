@@ -1361,12 +1361,25 @@ def delivery_stop_status():
             current_state.get("location")
         )
 
-    # Real warehouses, gates and geocoded street addresses can differ by
-    # several hundred metres. Treat a 1 km geofence as the delivery area.
-    # Automatic completion requires at least 5 minutes of stopped/slow GPS
-    # history inside that area. A manual driver/dispatcher choice overrides it.
-    radius_km = 1.0
-    minimum_dwell_seconds = 5 * 60
+    # If the live Navirec state is temporarily unavailable, keep using the
+    # newest history point instead of making the current stop flash red.
+    if (
+        (current_latitude is None or current_longitude is None)
+        and points
+    ):
+        current_latitude = safe_float(points[-1].get("latitude"))
+        current_longitude = safe_float(points[-1].get("longitude"))
+
+    # Use a slightly wider radius for "vehicle is here" than for automatic
+    # completion. Geocoded street addresses and real warehouse gates can be
+    # noticeably apart.
+    current_radius_km = 1.5
+    completion_radius_km = 1.0
+
+    # One minute stopped/slow inside the delivery area is enough to remember
+    # the visit after the vehicle leaves. While the vehicle is still there the
+    # stop remains CURRENT (yellow), not COMPLETED (green).
+    minimum_dwell_seconds = 60
     statuses = []
 
     def point_time(point):
@@ -1396,7 +1409,7 @@ def delivery_stop_status():
                 },
                 stop
             )
-            is_current = current_distance <= radius_km
+            is_current = current_distance <= current_radius_km
 
         dwell_start = None
         dwell_end = None
@@ -1408,7 +1421,7 @@ def delivery_stop_status():
             stopped = speed <= 8 or activity not in ("driving", "moving")
             timestamp = point_time(point)
 
-            if distance <= radius_km and stopped and timestamp is not None:
+            if distance <= completion_radius_km and stopped and timestamp is not None:
                 if dwell_start is None:
                     dwell_start = timestamp
                 dwell_end = timestamp
@@ -1423,17 +1436,20 @@ def delivery_stop_status():
             statuses.append("current")
         elif manual_status == "pending":
             statuses.append("pending")
+        elif is_current:
+            # Yellow must stay yellow while the vehicle is physically at the
+            # stop. Only after it leaves can the GPS visit turn green.
+            statuses.append("current")
         elif visited:
             statuses.append("completed")
-        elif is_current:
-            statuses.append("current")
         else:
             statuses.append("pending")
 
     return jsonify({
         "statuses": statuses,
-        "radius_m": int(radius_km * 1000),
-        "minimum_dwell_minutes": 5
+        "current_radius_m": int(current_radius_km * 1000),
+        "completion_radius_m": int(completion_radius_km * 1000),
+        "minimum_dwell_seconds": minimum_dwell_seconds
     })
 
 
@@ -9462,16 +9478,45 @@ def gps():
                 return;
             }}
 
+            let autoCompletedChanged = false;
             data.statuses.forEach(function(status, index) {{
                 const marker = deliveryMarkers[index];
                 const stop = deliveryRoute.stops[index];
                 if (!marker || !stop) return;
+
+                // GPS completion is monotonic: after the vehicle has left a
+                // confirmed unloading point, remember it in the saved route.
+                // The user can still explicitly change it back with
+                // "Nie rozładowano".
+                if (
+                    status === 'completed' &&
+                    !stop.manual_status
+                ) {{
+                    stop.manual_status = 'completed';
+                    autoCompletedChanged = true;
+                }}
 
                 marker.setIcon(deliveryStopIcon(index + 1, status));
                 marker.setPopupContent(
                     deliveryStopPopup(stop, index, status)
                 );
             }});
+
+            if (autoCompletedChanged) {{
+                try {{
+                    const saved = await readSavedDeliveryRoute(vehicle.id);
+                    if (saved && saved.delivery_route) {{
+                        saved.delivery_route = deliveryRoute;
+                        saved.saved_at = new Date().toISOString();
+                        await saveDeliveryRouteForVehicle(saved);
+                        lastServerRouteStampByVehicle[vehicle.id] =
+                            serverRouteStamp(saved);
+                    }}
+                }} catch (error) {{
+                    // The map stays usable even if this one persistence write fails.
+                }}
+            }}
+
             await refreshVehicleDeliveryPopup(
                 vehicle,
                 deliveryRoute,
