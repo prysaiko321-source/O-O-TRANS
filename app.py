@@ -156,8 +156,8 @@ VEHICLES = [
     },
     {
         "id": "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb",
-        "name": "Renault Master DX 9034F",
-        "plate": "DX 9034F"
+        "name": "Renault Master DX 9043F",
+        "plate": "DX 9043F"
     },
     {
         "id": "f016af91-dee6-4e72-9f86-4b2e27a253c1",
@@ -193,7 +193,7 @@ def role_home_url(role=None):
 
 
 def normalize_driver_login(value):
-    """Normalize a vehicle plate used as driver login: DX 9034F == DX9034F."""
+    """Normalize a vehicle plate used as driver login: DX 9043F == DX9043F."""
     return re.sub(r"[^A-Z0-9]", "", str(value or "").upper())
 
 
@@ -4049,7 +4049,7 @@ def driver_dashboard():
               <option value="">Wybierz odbiorcę…</option>
               <option value="role:director">Dyrektor</option>
               <option value="role:dispatcher">Logistyk</option>
-              <option value="vehicle:cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb">Kierowca DX 9034F</option>
+              <option value="vehicle:cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb">Kierowca DX 9043F</option>
               <option value="vehicle:f016af91-dee6-4e72-9f86-4b2e27a253c1">Kierowca DX 5405A</option>
             </select>
             <textarea id="driverMsgText" rows="3" placeholder="Napisz wiadomość albo użyj mikrofonu…"></textarea>
