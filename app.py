@@ -3489,6 +3489,50 @@ def change_language():
     return redirect(next_url)
 
 
+@app.route("/callback", methods=["GET"])
+def trans_eu_callback():
+    """Public OAuth redirect URI registered for O&O TRANS Load Finder."""
+    error = (request.args.get("error") or "").strip()
+    error_description = (request.args.get("error_description") or "").strip()
+    code = (request.args.get("code") or "").strip()
+
+    if error:
+        detail = escape(error_description or error)
+        return (
+            """<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trans.eu — O&O TRANS</title></head>
+<body style="font-family:Arial,sans-serif;max-width:720px;margin:48px auto;padding:0 18px">
+<h2>Trans.eu — błąd autoryzacji</h2>
+<p>Trans.eu zwrócił błąd: <strong>{}</strong></p>
+<p>Możesz zamknąć tę stronę i wrócić do aplikacji.</p>
+</body></html>""".format(detail),
+            400,
+        )
+
+    if code:
+        return """<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trans.eu — O&O TRANS</title></head>
+<body style="font-family:Arial,sans-serif;max-width:720px;margin:48px auto;padding:0 18px">
+<h2>Trans.eu — przekierowanie odebrane</h2>
+<p>Adres callback działa poprawnie i aplikacja odebrała odpowiedź autoryzacyjną.</p>
+<p>Wymiana kodu na token zostanie podłączona po otrzymaniu danych dostępowych API od Trans.eu.</p>
+</body></html>"""
+
+    return """<!doctype html>
+<html lang="pl">
+<head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Trans.eu callback — O&O TRANS</title></head>
+<body style="font-family:Arial,sans-serif;max-width:720px;margin:48px auto;padding:0 18px">
+<h2>O&O TRANS Load Finder</h2>
+<p>Callback Trans.eu jest aktywny.</p>
+<p>Ten adres służy do przekierowania po autoryzacji Trans.eu.</p>
+</body></html>"""
+
+
 register_branding_routes(
     app,
     page,
@@ -3512,16 +3556,16 @@ except Exception as finance_exc:
     FINANCE_MODULE_ERROR = str(finance_exc)
 
 
-@app.route(
-    "/login",
-    defaults={"role": None},
-    methods=["GET", "POST"]
-)
 @app.route("/login/driver", methods=["GET", "POST"])
 def driver_login_compat():
     return login("driver")
 
 
+@app.route(
+    "/login",
+    defaults={"role": None},
+    methods=["GET", "POST"]
+)
 @app.route("/login/<role>", methods=["GET", "POST"])
 def login(role):
     if role is None:
@@ -3694,6 +3738,7 @@ def require_login():
         or request.path.startswith("/login/")
         or request.path == "/assets/company-logo.jpg"
         or request.path == "/language"
+        or request.path == "/callback"
         or request.path == "/api/finance/email-invoices/import"
     ):
         return None
