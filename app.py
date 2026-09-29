@@ -131,9 +131,13 @@ ROLE_ENDPOINTS = {
         "delivery_routes_list",
         "delivery_stop_status",
         "api_live_vehicle_states",
+        "api_driver_gps",
         "driver_fleet_visibility",
         "geocode_search",
         "route_calculate",
+        "message_recipients",
+        "internal_messages",
+        "internal_messages_read",
         "road_payments", "trip_documents", "trip_documents_api", "trip_document_file", "trip_document_delete",
         "driver_tachograph_api"
     }
@@ -2117,7 +2121,7 @@ def page(title, body, active=""):
     role = current_role()
     language = current_language()
     visible_title = translate_full_app_body(language, translate_title(language, title))
-    body = translate_full_app_body(language, body, preserve_scripts=(active == "gps"))
+    body = translate_full_app_body(language, body, preserve_scripts=(active in {"gps", "driver", "documents"}))
 
     # Targeted cleanup for Finance only; transport/GPS logic is untouched.
     if active == "finance" and language == "en":
@@ -4272,14 +4276,14 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(wrap);
             const b=wrap.querySelector('.oo-map-type-button'),m=wrap.querySelector('.oo-map-type-menu');
             const lang=(document.documentElement.lang||'uk').toLowerCase().slice(0,2);
-            const names={{
-              uk:{{title:'Вигляд карти',items:['Карта','Супутник','Рельєф']}},
-              pl:{{title:'Widok mapy',items:['Mapa','Satelita','Teren']}},
-              en:{{title:'Map view',items:['Map','Satellite','Terrain']}},
-              de:{{title:'Kartenansicht',items:['Karte','Satellit','Gelände']}}
-            }}[lang]||{{title:'Вигляд карти',items:['Карта','Супутник','Рельєф']}};
+            const names={
+              uk:{title:'Вигляд карти',items:['Карта','Супутник','Рельєф']},
+              pl:{title:'Widok mapy',items:['Mapa','Satelita','Teren']},
+              en:{title:'Map view',items:['Map','Satellite','Terrain']},
+              de:{title:'Kartenansicht',items:['Karte','Satellit','Gelände']}
+            }[lang]||{title:'Вигляд карти',items:['Карта','Супутник','Рельєф']};
             b.title=names.title;
-            m.querySelectorAll('button[data-layer]').forEach(function(x,i){{if(names.items[i])x.textContent=names.items[i];}});
+            m.querySelectorAll('button[data-layer]').forEach(function(x,i){if(names.items[i])x.textContent=names.items[i];});
             wrap.style.position='relative';wrap.style.marginTop='42px';b.style.width='36px';b.style.height='36px';b.style.background='#fff';b.style.border='2px solid rgba(0,0,0,.2)';b.style.borderRadius='6px';b.style.cursor='pointer';m.style.position='absolute';m.style.right='0';m.style.top='40px';m.style.minWidth='112px';m.style.background='#fff';m.style.padding='5px';m.style.zIndex='1000';m.querySelectorAll('button').forEach(function(x){x.style.display='block';x.style.width='100%';x.style.border='0';x.style.background='#fff';x.style.padding='7px 10px';x.style.textAlign='left';x.style.cursor='pointer';});
             b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();m.style.display=m.style.display==='none'?'block':'none';});
             m.querySelectorAll('button[data-layer]').forEach(function(x){x.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();const n=x.dataset.layer;Object.values(baseMaps).forEach(function(l){if(fleetMap.hasLayer(l))fleetMap.removeLayer(l);});(baseMaps[n]||streetLayer).addTo(fleetMap);try{localStorage.setItem('oo_map_layer',n);}catch(err){}m.style.display='none';});});
