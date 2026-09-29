@@ -9638,6 +9638,12 @@ def gps():
             const fuelLitres = distanceKm * fuelConsumption / 100;
             const fuelCost = fuelLitres * fuelPrice;
             const polishUi = gpsUiLanguage === 'pl';
+            const routeUi = function(uk, pl, en, de) {
+                if (gpsUiLanguage === 'pl') return pl;
+                if (gpsUiLanguage === 'en') return en;
+                if (gpsUiLanguage === 'de') return de;
+                return uk;
+            };
             const pauseLabel = schedule.pause_type === 'daily_rest'
                 ? (polishUi ? 'długi odpoczynek dobowy' : 'довгий добовий відпочинок')
                 : (schedule.pause_type === 'break_45'
@@ -9649,9 +9655,12 @@ def gps():
                     ? 'ok'
                     : 'warning');
             const feasibilityTitle = schedule.late_count
-                ? (polishUi
-                    ? 'Ryzyko opóźnienia: ' + schedule.late_count + ' punktów poza oknem czasowym.'
-                    : 'Є ризик запізнення: ' + schedule.late_count + ' точок поза вікном.')
+                ? routeUi(
+                    'Є ризик запізнення: ' + schedule.late_count + ' розвантажень поза часовим вікном.',
+                    'Ryzyko opóźnienia: ' + schedule.late_count + ' rozładunków poza oknem czasowym.',
+                    'Risk of delay: ' + schedule.late_count + ' unloadings outside the time window.',
+                    'Verspätungsrisiko: ' + schedule.late_count + ' Entladungen außerhalb des Zeitfensters.'
+                )
                 : (schedule.has_tachograph
                     ? (polishUi ? 'Trasa jest zgodna z aktualnymi danymi tachografu.' : 'Маршрут узгоджено з актуальним тахографом.')
                     : (schedule.rest_before_start
@@ -9665,28 +9674,33 @@ def gps():
             const stopRows = schedule.stops.map(function(stop, index) {{
                 let note = '';
                 if (stop.wait_seconds >= 60) {{
-                    note += (polishUi ? ' · oczekiwanie ' : ' · очікування ') +
+                    note += routeUi(' · очікування ', ' · oczekiwanie ', ' · waiting ', ' · Wartezeit ') +
                         formatDuration(stop.wait_seconds);
                 }}
                 if (stop.late) {{
-                    note += (polishUi ? ' · <strong>OPÓŹNIENIE</strong>' : ' · <strong>ЗАПІЗНЕННЯ</strong>');
+                    note += routeUi(
+                        ' · <strong>ЗАПІЗНЕННЯ</strong>',
+                        ' · <strong>OPÓŹNIENIE</strong>',
+                        ' · <strong>DELAY</strong>',
+                        ' · <strong>VERSPÄTUNG</strong>'
+                    );
                 }}
                 return '<li><strong>' +
                     formatDateTime(stop.service_start) + '</strong> — ' +
                     escapeHtml(stop.address) +
                     (stop.window_start && stop.window_end
                         ? ' (' + stop.window_start + '–' + stop.window_end + ')'
-                        : (polishUi ? ' (bez okna czasowego)' : ' (без часового вікна)')) +
-                    '<br><span class="small">' + (polishUi ? 'wyjazd ' : 'виїзд ') +
+                        : routeUi(' (без часового вікна)', ' (bez okna czasowego)', ' (no time window)', ' (ohne Zeitfenster)')) +
+                    '<br><span class="small">' + routeUi('виїзд ', 'wyjazd ', 'departure ', 'Abfahrt ') +
                     formatDateTime(stop.departure) +
-                    (polishUi ? ', od poprzedniego punktu ' : ', від попередньої точки ') +
+                    routeUi(', від попередньої точки ', ', od poprzedniego punktu ', ', from previous stop ', ', vom vorherigen Stopp ') +
                     (stop.distance_m / 1000).toFixed(1) +
                     ' km' + note + '</span>' +
                     '<br><span style="display:inline-flex;gap:6px;margin-top:5px">' +
-                    '<button type="button" title="Підняти точку" ' +
+                    '<button type="button" title="' + routeUi('Підняти точку','Przesuń punkt w górę','Move stop up','Stopp nach oben') + '" ' +
                     'onclick="reorderActiveDeliveryStops(' + index + ', -1)" ' +
                     (index === 0 ? 'disabled ' : '') + '>↑</button>' +
-                    '<button type="button" title="Опустити точку" ' +
+                    '<button type="button" title="' + routeUi('Опустити точку','Przesuń punkt w dół','Move stop down','Stopp nach unten') + '" ' +
                     'onclick="reorderActiveDeliveryStops(' + index + ', 1)" ' +
                     (index === schedule.stops.length - 1 ? 'disabled ' : '') +
                     '>↓</button></span></li>';
