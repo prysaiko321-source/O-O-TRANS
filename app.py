@@ -9177,6 +9177,47 @@ def gps():
             return datePattern.test(line) || stopTypeFromText(line);
         }});
 
+        // Plain copied transport data often comes as:
+        //   Company name
+        //   Street, DE12345 City, DE
+        //   Company name
+        //   Street, DE12345 City, DE
+        // There are TWO stops here, not four. Detect address-looking lines
+        // and treat the company line immediately before each one as a label.
+        function looksLikePlainAddress(line) {{
+            const value = String(line || '').trim();
+            if (!value) return false;
+            return (
+                /(?:^|[,\\s])(?:DE|PL|CZ|AT|NL|BE|FR|IT|ES|PT|DK|SE|NO|FI|LT|LV|EE|SK|HU|RO|BG|HR|SI|CH|LU)[-\\s]?\\d{{4,6}}\\s+[^,]+(?:,\\s*[A-Z]{{2}})?$/i.test(value) ||
+                /\\b\\d{{4,6}}\\s+[\\p{{L}}][\\p{{L}} .'-]+(?:,\\s*[A-Z]{{2}})?$/u.test(value)
+            );
+        }}
+
+        if (!looksLikeOrder && simpleLines.length >= 2) {{
+            const plainAddressLines = simpleLines.filter(looksLikePlainAddress);
+            if (plainAddressLines.length >= 1 &&
+                    plainAddressLines.length < simpleLines.length) {{
+                if (plainAddressLines.length > 24) {{
+                    throw new Error('За один раз можна додати до 24 точок.');
+                }}
+                return plainAddressLines.map(function(line) {{
+                    // Normalize compact country+postal forms such as
+                    // "DE48624 Schöppingen, DE" -> "48624 Schöppingen, DE".
+                    const address = line.replace(
+                        /,\\s*([A-Z]{{2}})[-\\s]?(\\d{{4,6}})\\s+/i,
+                        ', $2 '
+                    ).trim();
+                    return {{
+                        address: address,
+                        date: null,
+                        window_start: null,
+                        window_end: null,
+                        stop_type: null
+                    }};
+                }});
+            }}
+        }}
+
         if (!looksLikeOrder) {{
             // Одна адреса теж є повноцінним маршрутом: старт беремо з
             // поточної GPS-позиції вибраного автомобіля, а ця адреса є фінішем.
