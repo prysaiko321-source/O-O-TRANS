@@ -4179,7 +4179,17 @@ def driver_dashboard():
       document.addEventListener('pointerdown',function(){audioUnlocked=true;},{once:true});
       loadRecipients();loadMessages(false);setInterval(function(){loadMessages(msgPane.style.display!=='none');},5000);
 function openRouteTab(){routePane.style.display='block';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(routeTab);}
-      function openMapTab(){routePane.style.display='none';mapPane.style.display='block';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(mapTab);if(!fleetMap){fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'}).addTo(fleetMap);}setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
+      function openMapTab(){routePane.style.display='none';mapPane.style.display='block';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(mapTab);if(!fleetMap){
+        fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);
+        const streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
+        const satelliteLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'});
+        const terrainLayer=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap'});
+        const baseMaps={'Карта':streetLayer,'Супутник':satelliteLayer,'Рельєф':terrainLayer};
+        let saved='Карта';try{saved=localStorage.getItem('oo_map_layer')||'Карта';}catch(e){}
+        (baseMaps[saved]||streetLayer).addTo(fleetMap);
+        L.control.layers(baseMaps,null,{position:'topright',collapsed:false}).addTo(fleetMap);
+        fleetMap.on('baselayerchange',function(e){try{localStorage.setItem('oo_map_layer',e.name);}catch(err){}});
+      }setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
       function openTachoTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='block';iqPane.style.display='none';setActiveTab(tachoTab);loadTacho();}
       function openIqTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='block';setActiveTab(iqTab);loadTacho();}
       routeTab.addEventListener('click',function(){history.replaceState(null,'',location.pathname);openRouteTab();});
@@ -6729,13 +6739,50 @@ def gps():
         6
     );
 
-    L.tileLayer(
+    const streetLayer = L.tileLayer(
         'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
         {{
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap'
         }}
-    ).addTo(map);
+    );
+
+    const satelliteLayer = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
+        {{
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri'
+        }}
+    );
+
+    const terrainLayer = L.tileLayer(
+        'https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',
+        {{
+            maxZoom: 17,
+            attribution: 'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap'
+        }}
+    );
+
+    const baseMaps = {{
+        'Карта': streetLayer,
+        'Супутник': satelliteLayer,
+        'Рельєф': terrainLayer
+    }};
+
+    let savedMapLayer = 'Карта';
+    try {{
+        savedMapLayer = localStorage.getItem('oo_map_layer') || 'Карта';
+    }} catch (e) {{}}
+
+    const initialLayer = baseMaps[savedMapLayer] || streetLayer;
+    initialLayer.addTo(map);
+    L.control.layers(baseMaps, null, {{position: 'topright', collapsed: false}}).addTo(map);
+
+    map.on('baselayerchange', function(event) {{
+        try {{
+            localStorage.setItem('oo_map_layer', event.name);
+        }} catch (e) {{}}
+    }});
 
     const bounds = [];
     const vehicleMarkersById = {{}};
@@ -10661,13 +10708,50 @@ def history():
 
     const map = L.map('map');
 
-    L.tileLayer(
+    const streetLayer = L.tileLayer(
         'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
         {{
             maxZoom: 19,
             attribution: '&copy; OpenStreetMap'
         }}
-    ).addTo(map);
+    );
+
+    const satelliteLayer = L.tileLayer(
+        'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
+        {{
+            maxZoom: 19,
+            attribution: 'Tiles &copy; Esri'
+        }}
+    );
+
+    const terrainLayer = L.tileLayer(
+        'https://{{s}}.tile.opentopomap.org/{{z}}/{{x}}/{{y}}.png',
+        {{
+            maxZoom: 17,
+            attribution: 'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap'
+        }}
+    );
+
+    const baseMaps = {{
+        'Карта': streetLayer,
+        'Супутник': satelliteLayer,
+        'Рельєф': terrainLayer
+    }};
+
+    let savedMapLayer = 'Карта';
+    try {{
+        savedMapLayer = localStorage.getItem('oo_map_layer') || 'Карта';
+    }} catch (e) {{}}
+
+    const initialLayer = baseMaps[savedMapLayer] || streetLayer;
+    initialLayer.addTo(map);
+    L.control.layers(baseMaps, null, {{position: 'topright', collapsed: false}}).addTo(map);
+
+    map.on('baselayerchange', function(event) {{
+        try {{
+            localStorage.setItem('oo_map_layer', event.name);
+        }} catch (e) {{}}
+    }});
 
     if (points.length > 0) {{
 
