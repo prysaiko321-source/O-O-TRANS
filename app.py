@@ -2221,8 +2221,18 @@ document.addEventListener('DOMContentLoaded', function () {{
             ),
             ("branding", "/settings/branding", t("branding")),
             ("driver_settings", "/driver-settings", "🚐 " + {"uk":"Водії","pl":"Kierowcy","en":"Drivers","de":"Fahrer"}.get(current_language(),"Водії")),
-            ("driver_access", "/driver-access", "🔐 Паролі"),
-            ("health", "/health", t("health"))
+            ("driver_access", "/driver-access", "🔐 " + {
+                "uk": "Паролі",
+                "pl": "Hasła",
+                "en": "Passwords",
+                "de": "Passwörter"
+            }.get(current_language(), "Паролі")),
+            ("health", "/health", {
+                "uk": "Стан системи",
+                "pl": "Stan systemu",
+                "en": "System status",
+                "de": "Systemstatus"
+            }.get(current_language(), "Стан системи"))
         ]
     else:
         nav_items = []
