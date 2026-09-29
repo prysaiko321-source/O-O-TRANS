@@ -9638,12 +9638,12 @@ def gps():
             const fuelLitres = distanceKm * fuelConsumption / 100;
             const fuelCost = fuelLitres * fuelPrice;
             const polishUi = gpsUiLanguage === 'pl';
-            const routeUi = function(uk, pl, en, de) {
+            const routeUi = function(uk, pl, en, de) {{
                 if (gpsUiLanguage === 'pl') return pl;
                 if (gpsUiLanguage === 'en') return en;
                 if (gpsUiLanguage === 'de') return de;
                 return uk;
-            };
+            }};
             const pauseLabel = schedule.pause_type === 'daily_rest'
                 ? (polishUi ? 'długi odpoczynek dobowy' : 'довгий добовий відпочинок')
                 : (schedule.pause_type === 'break_45'
