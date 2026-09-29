@@ -2994,6 +2994,18 @@ body.page-gps .powered-by {{
     display: none;
 }}
 
+/* Keep the save-next-route action reachable in a long planner. */
+#queue-delivery-route-button {{
+    position: sticky;
+    bottom: 8px;
+    z-index: 25;
+    min-height: 44px;
+}}
+
+#queue-delivery-route-button:disabled {{
+    position: static;
+}}
+
 .gps-route-planner label {{
     display: block;
     margin: 0 0 5px;
@@ -3362,31 +3374,24 @@ body.page-gps .powered-by {{
         min-height: 440px;
     }}
 
-    /* Mobile GPS planner:
-       the old panel started below the large mobile header but its max-height
-       was calculated from the whole viewport. With body.page-gps overflow
-       hidden this made the lower part of the planner physically unreachable. */
+    /* GPS planner: its visible height is calculated in JS BELOW the header. */
     body.page-gps {{
-        overflow-y: auto;
-        overflow-x: hidden;
+        overflow: hidden;
     }}
 
     .gps-screen {{
-        height: 100dvh;
-        min-height: 560px;
+        min-height: 0;
     }}
 
     .gps-screen #map {{
-        height: 100%;
-        min-height: 560px;
+        min-height: 0;
     }}
 
     .gps-map-toolbar {{
         top: 10px;
-        bottom: 10px;
+        bottom: auto;
         left: 48px;
         width: calc(100vw - 60px);
-        max-height: none;
         padding: 10px 10px 88px;
         overflow-y: auto;
         overflow-x: hidden;
@@ -7469,6 +7474,8 @@ def gps():
                 expanded ? 'open' : 'closed'
             );
         }} catch (error) {{}}
+
+        window.requestAnimationFrame(resizeGpsMap);
     }}
 
     let toolbarExpanded = false;
@@ -7563,17 +7570,53 @@ def gps():
     L.DomEvent.disableClickPropagation(toolbar);
     L.DomEvent.disableScrollPropagation(toolbar);
 
+    const gpsScreen = mapElement.closest('.gps-screen');
+
     function resizeGpsMap() {{
-        const top = mapElement.getBoundingClientRect().top;
+        const mapTop = mapElement.getBoundingClientRect().top;
+        const vv = window.visualViewport || null;
+        const viewportBottom = vv
+            ? vv.offsetTop + vv.height
+            : window.innerHeight;
+
+        // Exact space visible below the page header/navigation.
         const availableHeight = Math.max(
-            440,
-            window.innerHeight - top
+            320,
+            Math.floor(viewportBottom - mapTop)
         );
+
         mapElement.style.height = availableHeight + 'px';
+
+        if (gpsScreen) {{
+            gpsScreen.style.height = availableHeight + 'px';
+            gpsScreen.style.minHeight = '0';
+        }}
+
+        // The planner is absolute inside gpsScreen, so constrain it to the
+        // same visible area. This works on desktop, tablet and phone.
+        const toolbarTop = Math.max(
+            0,
+            parseFloat(window.getComputedStyle(toolbar).top) || 0
+        );
+        const toolbarMaxHeight = Math.max(
+            180,
+            availableHeight - toolbarTop - 10
+        );
+
+        toolbar.style.maxHeight = toolbarMaxHeight + 'px';
+        toolbar.style.overflowY = toolbar.classList.contains('collapsed')
+            ? 'hidden'
+            : 'auto';
+
         map.invalidateSize(false);
     }}
 
     window.addEventListener('resize', resizeGpsMap);
+    window.addEventListener('orientationchange', resizeGpsMap);
+    if (window.visualViewport) {{
+        window.visualViewport.addEventListener('resize', resizeGpsMap);
+        window.visualViewport.addEventListener('scroll', resizeGpsMap);
+    }}
     window.requestAnimationFrame(resizeGpsMap);
 
     let measureMode = false;
