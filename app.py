@@ -4188,7 +4188,20 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         let saved='Карта';try{saved=localStorage.getItem('oo_map_layer')||'Карта';}catch(e){}
         (baseMaps[saved]||streetLayer).addTo(fleetMap);
         L.control.layers(baseMaps,null,{position:'topright',collapsed:true}).addTo(fleetMap);
-        fleetMap.on('baselayerchange',function(e){try{localStorage.setItem('oo_map_layer',e.name);}catch(err){}});
+        fleetMap.on('baselayerchange',function(e){
+          try{localStorage.setItem('oo_map_layer',e.name);}catch(err){}
+          const c=fleetMap.getContainer().querySelector('.leaflet-control-layers');
+          if(c)c.classList.remove('leaflet-control-layers-expanded');
+        });
+        const c=fleetMap.getContainer().querySelector('.leaflet-control-layers');
+        if(c){
+          const t=c.querySelector('.leaflet-control-layers-toggle');
+          if(t){
+            t.addEventListener('mouseenter',function(e){e.stopPropagation();c.classList.remove('leaflet-control-layers-expanded');});
+            t.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();c.classList.toggle('leaflet-control-layers-expanded');});
+          }
+        }
+        fleetMap.on('click',function(){if(c)c.classList.remove('leaflet-control-layers-expanded');});
       }setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
       function openTachoTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='block';iqPane.style.display='none';setActiveTab(tachoTab);loadTacho();}
       function openIqTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='block';setActiveTab(iqTab);loadTacho();}
