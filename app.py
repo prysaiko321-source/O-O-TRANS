@@ -1138,6 +1138,15 @@ DRIVER_SETTINGS_LOCK = threading.Lock()
 DRIVER_ACCESS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_driver_access.json")
 DRIVER_ACCESS_LOCK = threading.Lock()
 
+def _driver_access_storage_is_persistent():
+    """True only when driver credentials are stored on Render persistent disk."""
+    try:
+        path = os.path.abspath(DRIVER_ACCESS_FILE)
+    except Exception:
+        return False
+    return path.startswith("/var/data/") or path == "/var/data"
+
+
 def _load_driver_access():
     try:
         with open(DRIVER_ACCESS_FILE, "r", encoding="utf-8") as handle:
@@ -3895,15 +3904,34 @@ def driver_access():
             vehicle_id=escape(vehicle["id"]),
             status=("Доступ увімкнений" if enabled else "Пароль ще не встановлено")
         ))
+    storage_notice = ""
+    if not _driver_access_storage_is_persistent():
+        storage_notice = """
+        <div class="card" style="border:2px solid #c92a2a;background:#fff5f5">
+          <strong>⚠️ Паролі зараз зберігаються у тимчасовому сховищі Render.</strong>
+          <p style="margin-bottom:0">
+            Після нового deploy/restart вони можуть зникнути.
+            Для постійного збереження підключи Persistent Disk до
+            <code>/var/data</code>. Після цього пароль, встановлений тут один раз,
+            залишатиметься до моменту, коли директор сам його змінить або вимкне.
+          </p>
+        </div>
+        """
+
     body = """
     <div class="card">
       <h2>🔐 Доступ водіїв</h2>
       <p>Логін для кожної машини — її державний номер. Тут ти сам задаєш або змінюєш пароль.</p>
       <p class="small">Зміна пароля не викидає водія, який уже увійшов. Новий пароль діятиме при наступному вході.</p>
     </div>
+    {storage_notice}
     {message}
     {rows}
-    """.format(message=message, rows="".join(rows))
+    """.format(
+        storage_notice=storage_notice,
+        message=message,
+        rows="".join(rows)
+    )
     return page("Паролі водіїв", body, "driver_access")
 
 
@@ -12143,6 +12171,12 @@ def health():
         "company": COMPANY_NAME,
         "company_id": COMPANY_ID,
         "vehicles": len(VEHICLES),
+        "driver_password_storage": (
+            "persistent"
+            if _driver_access_storage_is_persistent()
+            else "ephemeral"
+        ),
+        "driver_access_file": DRIVER_ACCESS_FILE,
         "navirec_token_configured": bool(
             NAVIREC_TOKEN
         )
