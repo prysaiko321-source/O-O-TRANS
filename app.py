@@ -4190,8 +4190,11 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
         const satelliteLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'});
         const terrainLayer=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap'});
-        const baseMaps={'Карта':streetLayer,'Супутник':satelliteLayer,'Рельєф':terrainLayer};
-        let saved='Карта';try{saved=localStorage.getItem('oo_map_layer')||'Карта';}catch(e){}
+        const mapLayerLabels={uk:{street:'Карта',satellite:'Супутник',terrain:'Рельєф'},pl:{street:'Mapa',satellite:'Satelita',terrain:'Teren'},en:{street:'Map',satellite:'Satellite',terrain:'Terrain'},de:{street:'Karte',satellite:'Satellit',terrain:'Gelände'}};
+        const mapUiLanguage={{ current_language()|tojson }};
+        const mapLabels=mapLayerLabels[mapUiLanguage]||mapLayerLabels.uk;
+        const baseMaps={};baseMaps[mapLabels.street]=streetLayer;baseMaps[mapLabels.satellite]=satelliteLayer;baseMaps[mapLabels.terrain]=terrainLayer;
+        let saved=mapLabels.street;try{saved=localStorage.getItem('oo_map_layer')||mapLabels.street;}catch(e){}
         (baseMaps[saved]||streetLayer).addTo(fleetMap);
         const FleetMapTypeControl=L.Control.extend({
           options:{position:'topright'},
@@ -6787,15 +6790,22 @@ def gps():
         }}
     );
 
-    const baseMaps = {{
-        'Карта': streetLayer,
-        'Супутник': satelliteLayer,
-        'Рельєф': terrainLayer
+    const mapLayerLabels = {{
+        uk: {{street:'Карта', satellite:'Супутник', terrain:'Рельєф'}},
+        pl: {{street:'Mapa', satellite:'Satelita', terrain:'Teren'}},
+        en: {{street:'Map', satellite:'Satellite', terrain:'Terrain'}},
+        de: {{street:'Karte', satellite:'Satellit', terrain:'Gelände'}}
     }};
+    const mapUiLanguage = {{ current_language()|tojson }};
+    const mapLabels = mapLayerLabels[mapUiLanguage] || mapLayerLabels.uk;
+    const baseMaps = {{}};
+    baseMaps[mapLabels.street] = streetLayer;
+    baseMaps[mapLabels.satellite] = satelliteLayer;
+    baseMaps[mapLabels.terrain] = terrainLayer;
 
     let savedMapLayer = 'Карта';
     try {{
-        savedMapLayer = localStorage.getItem('oo_map_layer') || 'Карта';
+        savedMapLayer = localStorage.getItem('oo_map_layer') || mapLabels.street;
     }} catch (e) {{}}
 
     const initialLayer = baseMaps[savedMapLayer] || streetLayer;
@@ -10761,15 +10771,22 @@ def history():
         }}
     );
 
-    const baseMaps = {{
-        'Карта': streetLayer,
-        'Супутник': satelliteLayer,
-        'Рельєф': terrainLayer
+    const mapLayerLabels = {{
+        uk: {{street:'Карта', satellite:'Супутник', terrain:'Рельєф'}},
+        pl: {{street:'Mapa', satellite:'Satelita', terrain:'Teren'}},
+        en: {{street:'Map', satellite:'Satellite', terrain:'Terrain'}},
+        de: {{street:'Karte', satellite:'Satellit', terrain:'Gelände'}}
     }};
+    const mapUiLanguage = {{ current_language()|tojson }};
+    const mapLabels = mapLayerLabels[mapUiLanguage] || mapLayerLabels.uk;
+    const baseMaps = {{}};
+    baseMaps[mapLabels.street] = streetLayer;
+    baseMaps[mapLabels.satellite] = satelliteLayer;
+    baseMaps[mapLabels.terrain] = terrainLayer;
 
     let savedMapLayer = 'Карта';
     try {{
-        savedMapLayer = localStorage.getItem('oo_map_layer') || 'Карта';
+        savedMapLayer = localStorage.getItem('oo_map_layer') || mapLabels.street;
     }} catch (e) {{}}
 
     const initialLayer = baseMaps[savedMapLayer] || streetLayer;
