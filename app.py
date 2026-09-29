@@ -128,6 +128,7 @@ ROLE_ENDPOINTS = {
     "driver": {
         "driver_dashboard",
         "delivery_route_storage",
+        "delivery_route_queue",
         "delivery_routes_list",
         "delivery_stop_status",
         "api_live_vehicle_states",
@@ -4451,6 +4452,13 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           const data=await r.json();
           let candidate=data.route||null;
 
+          // The active-route object also carries route_queue. Read it here first
+          // so the driver still sees the next job even if the dedicated queue
+          // request is temporarily unavailable.
+          routeQueue=(candidate && Array.isArray(candidate.route_queue))
+            ? candidate.route_queue
+            : [];
+
           // Fallback dla kierowcy: jeżeli bezpośredni odczyt dla pojazdu
           // nie zwrócił trasy, sprawdź wspólną listę aktywnych tras.
           // Chroni to przed starszymi zapisami, które mogły zostać
@@ -4473,9 +4481,16 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             }catch(ignore){}
           }
 
+          if(candidate && Array.isArray(candidate.route_queue) && !routeQueue.length){
+            routeQueue=candidate.route_queue;
+          }
+
           try{
             const qr=await fetch('/api/delivery-route/'+encodeURIComponent(vehicleId)+'/queue?ts='+Date.now(),{cache:'no-store'});
-            if(qr.ok){const qd=await qr.json();routeQueue=Array.isArray(qd.queue)?qd.queue:[];}
+            if(qr.ok){
+              const qd=await qr.json();
+              if(Array.isArray(qd.queue)) routeQueue=qd.queue;
+            }
           }catch(ignore){}
           const s=stamp(candidate)+'|q:'+JSON.stringify(routeQueue.map(function(x){return x.saved_at||x.queued_at||'';}));
           if(s!==lastStamp){ savedRoute=candidate; lastStamp=s; render(); }
