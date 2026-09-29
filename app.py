@@ -4190,11 +4190,8 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
         const satelliteLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'});
         const terrainLayer=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap'});
-        const mapLayerLabels={uk:{street:'Карта',satellite:'Супутник',terrain:'Рельєф'},pl:{street:'Mapa',satellite:'Satelita',terrain:'Teren'},en:{street:'Map',satellite:'Satellite',terrain:'Terrain'},de:{street:'Karte',satellite:'Satellit',terrain:'Gelände'}};
-        const mapUiLanguage={{ current_language()|tojson }};
-        const mapLabels=mapLayerLabels[mapUiLanguage]||mapLayerLabels.uk;
-        const baseMaps={};baseMaps[mapLabels.street]=streetLayer;baseMaps[mapLabels.satellite]=satelliteLayer;baseMaps[mapLabels.terrain]=terrainLayer;
-        let saved=mapLabels.street;try{saved=localStorage.getItem('oo_map_layer')||mapLabels.street;}catch(e){}
+        const baseMaps={'Карта':streetLayer,'Супутник':satelliteLayer,'Рельєф':terrainLayer};
+        let saved='Карта';try{saved=localStorage.getItem('oo_map_layer')||'Карта';}catch(e){}
         (baseMaps[saved]||streetLayer).addTo(fleetMap);
         const FleetMapTypeControl=L.Control.extend({
           options:{position:'topright'},
@@ -4203,6 +4200,15 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             wrap.innerHTML='<button type="button" class="oo-map-type-button" title="Вигляд карти">🗺️</button><div class="oo-map-type-menu" style="display:none"><button type="button" data-layer="Карта">Карта</button><button type="button" data-layer="Супутник">Супутник</button><button type="button" data-layer="Рельєф">Рельєф</button></div>';
             L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(wrap);
             const b=wrap.querySelector('.oo-map-type-button'),m=wrap.querySelector('.oo-map-type-menu');
+            const lang=(document.documentElement.lang||'uk').toLowerCase().slice(0,2);
+            const names={{
+              uk:{{title:'Вигляд карти',items:['Карта','Супутник','Рельєф']}},
+              pl:{{title:'Widok mapy',items:['Mapa','Satelita','Teren']}},
+              en:{{title:'Map view',items:['Map','Satellite','Terrain']}},
+              de:{{title:'Kartenansicht',items:['Karte','Satellit','Gelände']}}
+            }}[lang]||{{title:'Вигляд карти',items:['Карта','Супутник','Рельєф']}};
+            b.title=names.title;
+            m.querySelectorAll('button[data-layer]').forEach(function(x,i){{if(names.items[i])x.textContent=names.items[i];}});
             wrap.style.position='relative';wrap.style.marginTop='42px';b.style.width='36px';b.style.height='36px';b.style.background='#fff';b.style.border='2px solid rgba(0,0,0,.2)';b.style.borderRadius='6px';b.style.cursor='pointer';m.style.position='absolute';m.style.right='0';m.style.top='40px';m.style.minWidth='112px';m.style.background='#fff';m.style.padding='5px';m.style.zIndex='1000';m.querySelectorAll('button').forEach(function(x){x.style.display='block';x.style.width='100%';x.style.border='0';x.style.background='#fff';x.style.padding='7px 10px';x.style.textAlign='left';x.style.cursor='pointer';});
             b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();m.style.display=m.style.display==='none'?'block':'none';});
             m.querySelectorAll('button[data-layer]').forEach(function(x){x.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();const n=x.dataset.layer;Object.values(baseMaps).forEach(function(l){if(fleetMap.hasLayer(l))fleetMap.removeLayer(l);});(baseMaps[n]||streetLayer).addTo(fleetMap);try{localStorage.setItem('oo_map_layer',n);}catch(err){}m.style.display='none';});});
@@ -6790,22 +6796,15 @@ def gps():
         }}
     );
 
-    const mapLayerLabels = {{
-        uk: {{street:'Карта', satellite:'Супутник', terrain:'Рельєф'}},
-        pl: {{street:'Mapa', satellite:'Satelita', terrain:'Teren'}},
-        en: {{street:'Map', satellite:'Satellite', terrain:'Terrain'}},
-        de: {{street:'Karte', satellite:'Satellit', terrain:'Gelände'}}
+    const baseMaps = {{
+        'Карта': streetLayer,
+        'Супутник': satelliteLayer,
+        'Рельєф': terrainLayer
     }};
-    const mapUiLanguage = {{ current_language()|tojson }};
-    const mapLabels = mapLayerLabels[mapUiLanguage] || mapLayerLabels.uk;
-    const baseMaps = {{}};
-    baseMaps[mapLabels.street] = streetLayer;
-    baseMaps[mapLabels.satellite] = satelliteLayer;
-    baseMaps[mapLabels.terrain] = terrainLayer;
 
     let savedMapLayer = 'Карта';
     try {{
-        savedMapLayer = localStorage.getItem('oo_map_layer') || mapLabels.street;
+        savedMapLayer = localStorage.getItem('oo_map_layer') || 'Карта';
     }} catch (e) {{}}
 
     const initialLayer = baseMaps[savedMapLayer] || streetLayer;
@@ -6816,6 +6815,27 @@ def gps():
         {{position: 'topright', collapsed: true}}
     ).addTo(map);
     layerControl.getContainer().style.marginTop = '42px';
+
+    (function(control) {{
+        const lang = (document.documentElement.lang || 'uk').toLowerCase().slice(0, 2);
+        const names = {{
+            uk: ['Карта', 'Супутник', 'Рельєф'],
+            pl: ['Mapa', 'Satelita', 'Teren'],
+            en: ['Map', 'Satellite', 'Terrain'],
+            de: ['Karte', 'Satellit', 'Gelände']
+        }}[lang] || ['Карта', 'Супутник', 'Рельєф'];
+
+        const labels = control.getContainer().querySelectorAll(
+            '.leaflet-control-layers-base label'
+        );
+        labels.forEach(function(label, index) {{
+            const spans = label.querySelectorAll('span');
+            const target = spans.length ? spans[spans.length - 1] : null;
+            if (target && names[index]) {{
+                target.textContent = ' ' + names[index];
+            }}
+        }});
+    }})(layerControl);
 
     map.on('baselayerchange', function(event) {{
         try {{
@@ -10771,22 +10791,15 @@ def history():
         }}
     );
 
-    const mapLayerLabels = {{
-        uk: {{street:'Карта', satellite:'Супутник', terrain:'Рельєф'}},
-        pl: {{street:'Mapa', satellite:'Satelita', terrain:'Teren'}},
-        en: {{street:'Map', satellite:'Satellite', terrain:'Terrain'}},
-        de: {{street:'Karte', satellite:'Satellit', terrain:'Gelände'}}
+    const baseMaps = {{
+        'Карта': streetLayer,
+        'Супутник': satelliteLayer,
+        'Рельєф': terrainLayer
     }};
-    const mapUiLanguage = {{ current_language()|tojson }};
-    const mapLabels = mapLayerLabels[mapUiLanguage] || mapLayerLabels.uk;
-    const baseMaps = {{}};
-    baseMaps[mapLabels.street] = streetLayer;
-    baseMaps[mapLabels.satellite] = satelliteLayer;
-    baseMaps[mapLabels.terrain] = terrainLayer;
 
     let savedMapLayer = 'Карта';
     try {{
-        savedMapLayer = localStorage.getItem('oo_map_layer') || mapLabels.street;
+        savedMapLayer = localStorage.getItem('oo_map_layer') || 'Карта';
     }} catch (e) {{}}
 
     const initialLayer = baseMaps[savedMapLayer] || streetLayer;
@@ -10797,6 +10810,27 @@ def history():
         {{position: 'topright', collapsed: true}}
     ).addTo(map);
     layerControl.getContainer().style.marginTop = '42px';
+
+    (function(control) {{
+        const lang = (document.documentElement.lang || 'uk').toLowerCase().slice(0, 2);
+        const names = {{
+            uk: ['Карта', 'Супутник', 'Рельєф'],
+            pl: ['Mapa', 'Satelita', 'Teren'],
+            en: ['Map', 'Satellite', 'Terrain'],
+            de: ['Karte', 'Satellit', 'Gelände']
+        }}[lang] || ['Карта', 'Супутник', 'Рельєф'];
+
+        const labels = control.getContainer().querySelectorAll(
+            '.leaflet-control-layers-base label'
+        );
+        labels.forEach(function(label, index) {{
+            const spans = label.querySelectorAll('span');
+            const target = spans.length ? spans[spans.length - 1] : null;
+            if (target && names[index]) {{
+                target.textContent = ' ' + names[index];
+            }}
+        }});
+    }})(layerControl);
 
     map.on('baselayerchange', function(event) {{
         try {{
