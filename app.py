@@ -6800,7 +6800,12 @@ def gps():
 
     const initialLayer = baseMaps[savedMapLayer] || streetLayer;
     initialLayer.addTo(map);
-    L.control.layers(baseMaps, null, {{position: 'topright', collapsed: false}}).addTo(map);
+    const layerControl = L.control.layers(
+        baseMaps,
+        null,
+        {{position: 'topright', collapsed: true}}
+    ).addTo(map);
+    layerControl.getContainer().style.marginTop = '42px';
 
     map.on('baselayerchange', function(event) {{
         try {{
@@ -10769,7 +10774,12 @@ def history():
 
     const initialLayer = baseMaps[savedMapLayer] || streetLayer;
     initialLayer.addTo(map);
-    L.control.layers(baseMaps, null, {{position: 'topright', collapsed: false}}).addTo(map);
+    const layerControl = L.control.layers(
+        baseMaps,
+        null,
+        {{position: 'topright', collapsed: true}}
+    ).addTo(map);
+    layerControl.getContainer().style.marginTop = '42px';
 
     map.on('baselayerchange', function(event) {{
         try {{
