@@ -2131,6 +2131,13 @@ def page(title, body, active=""):
 .tranviq-file-picker {{ display:flex; align-items:center; gap:10px; flex-wrap:wrap; margin:6px 0; }}
 .tranviq-file-picker button {{ cursor:pointer; }}
 .tranviq-file-picker-name {{ opacity:.82; }}
+
+.oo-map-type-control{position:relative;margin-top:42px!important}
+.oo-map-type-button{width:36px;height:36px;border:2px solid rgba(0,0,0,.2);border-radius:6px;background:#fff;cursor:pointer;font-size:19px;line-height:30px;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+.oo-map-type-menu{position:absolute;right:0;top:40px;min-width:112px;background:#fff;border-radius:6px;padding:5px;box-shadow:0 2px 9px rgba(0,0,0,.35);z-index:1000}
+.oo-map-type-menu button{display:block;width:100%;border:0;background:#fff;padding:7px 10px;text-align:left;cursor:pointer;border-radius:4px;color:#1b2733}
+.oo-map-type-menu button:hover{background:#e9f2f5}
+
 </style>
 <script>
 document.addEventListener('DOMContentLoaded', function () {{
@@ -3360,6 +3367,13 @@ body.page-gps .powered-by {{
         grid-template-columns: 1fr 1fr;
     }}
 }}
+
+.oo-map-type-control{position:relative;margin-top:42px!important}
+.oo-map-type-button{width:36px;height:36px;border:2px solid rgba(0,0,0,.2);border-radius:6px;background:#fff;cursor:pointer;font-size:19px;line-height:30px;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+.oo-map-type-menu{position:absolute;right:0;top:40px;min-width:112px;background:#fff;border-radius:6px;padding:5px;box-shadow:0 2px 9px rgba(0,0,0,.35);z-index:1000}
+.oo-map-type-menu button{display:block;width:100%;border:0;background:#fff;padding:7px 10px;text-align:left;cursor:pointer;border-radius:4px;color:#1b2733}
+.oo-map-type-menu button:hover{background:#e9f2f5}
+
 </style>
 {extra_head}
 </head>
@@ -3985,7 +3999,14 @@ def driver_dashboard():
       .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-open{margin-top:8px;border:0;border-radius:9px;padding:8px 11px;background:#e7f5ff;font-weight:900;cursor:pointer}.driver-iq{display:none}.driver-iq-card{border:2px solid #7048e8;border-radius:16px;padding:16px;background:#f8f7ff}.driver-mic{width:100%;min-height:68px;border:0;border-radius:14px;background:#7048e8;color:#fff;font-size:20px;font-weight:900;cursor:pointer}.driver-mic.listening{background:#c2255c}.driver-iq-box{margin-top:12px;padding:12px;border-radius:12px;background:#fff;border:1px solid #ddd}.driver-iq-label{font-size:12px;font-weight:900;color:#68757d;text-transform:uppercase;margin-bottom:5px}.driver-iq-text{font-size:17px;font-weight:800;min-height:24px}.driver-iq-action{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}.driver-iq-action a,.driver-iq-action button{border:0;border-radius:10px;padding:10px 12px;background:#0b7285;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}
       .driver-tacho{display:none}.driver-tacho-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.driver-tacho-item{border:1px solid #d8e1e5;border-radius:12px;padding:12px;background:#fff}.driver-tacho-value{font-size:20px;font-weight:900;margin-top:4px}.driver-tacho-warn{margin-top:10px;padding:10px;border-radius:10px;background:#fff3bf;font-weight:800}.driver-tacho-ok{margin-top:10px;padding:10px;border-radius:10px;background:#d3f9d8;font-weight:800}
       @media(max-width:520px){.driver-tabs{grid-template-columns:1fr 1fr}.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}.driver-tacho-grid{grid-template-columns:1fr}}
-    </style>
+    
+.oo-map-type-control{position:relative;margin-top:42px!important}
+.oo-map-type-button{width:36px;height:36px;border:2px solid rgba(0,0,0,.2);border-radius:6px;background:#fff;cursor:pointer;font-size:19px;line-height:30px;box-shadow:0 1px 5px rgba(0,0,0,.35)}
+.oo-map-type-menu{position:absolute;right:0;top:40px;min-width:112px;background:#fff;border-radius:6px;padding:5px;box-shadow:0 2px 9px rgba(0,0,0,.35);z-index:1000}
+.oo-map-type-menu button{display:block;width:100%;border:0;background:#fff;padding:7px 10px;text-align:left;cursor:pointer;border-radius:4px;color:#1b2733}
+.oo-map-type-menu button:hover{background:#e9f2f5}
+
+</style>
     <div class="driver-shell">
       <div class="card">
         <div class="driver-head">
@@ -4187,21 +4208,25 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const baseMaps={'Карта':streetLayer,'Супутник':satelliteLayer,'Рельєф':terrainLayer};
         let saved='Карта';try{saved=localStorage.getItem('oo_map_layer')||'Карта';}catch(e){}
         (baseMaps[saved]||streetLayer).addTo(fleetMap);
-        L.control.layers(baseMaps,null,{position:'topright',collapsed:true}).addTo(fleetMap);
+        const FleetMapTypeControl=L.Control.extend({
+          options:{position:'topright'},
+          onAdd:function(){
+            const wrap=L.DomUtil.create('div','oo-map-type-control');
+            wrap.innerHTML='<button type="button" class="oo-map-type-button" title="Вигляд карти">🗺️</button><div class="oo-map-type-menu" style="display:none"><button type="button" data-layer="Карта">Карта</button><button type="button" data-layer="Супутник">Супутник</button><button type="button" data-layer="Рельєф">Рельєф</button></div>';
+            L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(wrap);
+            const b=wrap.querySelector('.oo-map-type-button'),m=wrap.querySelector('.oo-map-type-menu');
+            b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();m.style.display=m.style.display==='none'?'block':'none';});
+            m.querySelectorAll('button[data-layer]').forEach(function(x){x.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();const n=x.dataset.layer;Object.values(baseMaps).forEach(function(l){if(fleetMap.hasLayer(l))fleetMap.removeLayer(l);});(baseMaps[n]||streetLayer).addTo(fleetMap);try{localStorage.setItem('oo_map_layer',n);}catch(err){}m.style.display='none';});});
+            fleetMap.on('click',function(){m.style.display='none';});
+            return wrap;
+          }
+        });
+        new FleetMapTypeControl().addTo(fleetMap);
         fleetMap.on('baselayerchange',function(e){
           try{localStorage.setItem('oo_map_layer',e.name);}catch(err){}
           const c=fleetMap.getContainer().querySelector('.leaflet-control-layers');
           if(c)c.classList.remove('leaflet-control-layers-expanded');
         });
-        const c=fleetMap.getContainer().querySelector('.leaflet-control-layers');
-        if(c){
-          const t=c.querySelector('.leaflet-control-layers-toggle');
-          if(t){
-            t.addEventListener('mouseenter',function(e){e.stopPropagation();c.classList.remove('leaflet-control-layers-expanded');});
-            t.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();c.classList.toggle('leaflet-control-layers-expanded');});
-          }
-        }
-        fleetMap.on('click',function(){if(c)c.classList.remove('leaflet-control-layers-expanded');});
       }setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
       function openTachoTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='block';iqPane.style.display='none';setActiveTab(tachoTab);loadTacho();}
       function openIqTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='none';iqPane.style.display='block';setActiveTab(iqTab);loadTacho();}
