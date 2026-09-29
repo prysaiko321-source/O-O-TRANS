@@ -3362,16 +3362,67 @@ body.page-gps .powered-by {{
         min-height: 440px;
     }}
 
+    /* Mobile GPS planner:
+       the old panel started below the large mobile header but its max-height
+       was calculated from the whole viewport. With body.page-gps overflow
+       hidden this made the lower part of the planner physically unreachable. */
+    body.page-gps {{
+        overflow-y: auto;
+        overflow-x: hidden;
+    }}
+
+    .gps-screen {{
+        height: 100dvh;
+        min-height: 560px;
+    }}
+
+    .gps-screen #map {{
+        height: 100%;
+        min-height: 560px;
+    }}
+
     .gps-map-toolbar {{
         top: 10px;
+        bottom: 10px;
         left: 48px;
         width: calc(100vw - 60px);
-        padding: 10px;
+        max-height: none;
+        padding: 10px 10px 88px;
+        overflow-y: auto;
+        overflow-x: hidden;
+        -webkit-overflow-scrolling: touch;
+        overscroll-behavior: contain;
+        touch-action: pan-y;
+    }}
+
+    .gps-toolbar-content {{
+        padding-bottom: 20px;
+    }}
+
+    /* Keep the important "next route" action reachable on a phone while
+       scrolling through a long calculated route. */
+    #queue-delivery-route-button {{
+        position: sticky;
+        bottom: 8px;
+        z-index: 25;
+        min-height: 46px;
+        background: #17652c;
+        color: #ffffff;
+        border: 1px solid #0f4f21;
+        box-shadow: 0 4px 14px rgba(0, 0, 0, .22);
+    }}
+
+    #queue-delivery-route-button:disabled {{
+        position: static;
+        box-shadow: none;
     }}
 
     .gps-map-toolbar.collapsed {{
+        bottom: auto;
         width: min(280px, calc(100vw - 60px));
+        max-height: none;
         padding: 6px;
+        overflow: hidden;
     }}
 
     .gps-map-brand {{
