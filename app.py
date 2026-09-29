@@ -9520,19 +9520,56 @@ def gps():
         }}
 
         if (!looksLikeOrder && simpleLines.length >= 2) {{
-            const plainAddressLines = simpleLines.filter(looksLikePlainAddress);
-            if (plainAddressLines.length >= 1 &&
-                    plainAddressLines.length < simpleLines.length) {{
-                if (plainAddressLines.length > 24) {{
+            // Розумний поділ адрес без обов'язкових порожніх рядків.
+            // Рядок "поштовий індекс + місто" закриває поточну точку.
+            // Наступний непорожній рядок автоматично починає нову адресу.
+            function hasPostalCity(line) {{
+                const value = String(line || '').trim();
+                return (
+                    /\b\d{{2}}-\d{{3}}\s+[\p{{L}}]/u.test(value) ||
+                    /\b(?:DE|D|PL|CZ|AT|NL|BE|FR|IT|ES|PT|DK|SE|NO|FI|LT|LV|EE|SK|HU|RO|BG|HR|SI|CH|LU)\s*[- ]?\s*\d{{4,6}}\s+[\p{{L}}]/iu.test(value) ||
+                    /\b\d{{4,6}}\s+[\p{{L}}][\p{{L}} .'-]*/u.test(value)
+                );
+            }}
+
+            function normalizePlainAddress(address) {{
+                return String(address || '')
+                    .replace(/\bD\s*-\s*(\d{{5}})\b/ig, '$1')
+                    .replace(/\bDE\s*[- ]?\s*(\d{{5}})\b/ig, '$1')
+                    .replace(/\s*,\s*/g, ', ')
+                    .trim();
+            }}
+
+            const smartBlocks = [];
+            let smartCurrent = [];
+
+            function pushSmartBlock() {{
+                if (!smartCurrent.length) return;
+                const address = normalizePlainAddress(addressFromBlock(smartCurrent));
+                if (address) smartBlocks.push(address);
+                smartCurrent = [];
+            }}
+
+            simpleLines.forEach(function(line) {{
+                if (smartCurrent.length &&
+                        hasPostalCity(smartCurrent[smartCurrent.length - 1])) {{
+                    pushSmartBlock();
+                }}
+
+                smartCurrent.push(line);
+
+                // Індекс + місто = природний кінець адреси.
+                if (hasPostalCity(line)) {{
+                    pushSmartBlock();
+                }}
+            }});
+            pushSmartBlock();
+
+            if (smartBlocks.length >= 1) {{
+                if (smartBlocks.length > 24) {{
                     throw new Error('За один раз можна додати до 24 точок.');
                 }}
-                return plainAddressLines.map(function(line) {{
-                    // Normalize compact country+postal forms such as
-                    // "DE48624 Schöppingen, DE" -> "48624 Schöppingen, DE".
-                    const address = line.replace(
-                        /,\\s*([A-Z]{{2}})[-\\s]?(\\d{{4,6}})\\s+/i,
-                        ', $2 '
-                    ).trim();
+                return smartBlocks.map(function(address) {{
                     return {{
                         address: address,
                         date: null,
