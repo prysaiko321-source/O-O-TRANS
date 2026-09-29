@@ -4187,7 +4187,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const baseMaps={'Карта':streetLayer,'Супутник':satelliteLayer,'Рельєф':terrainLayer};
         let saved='Карта';try{saved=localStorage.getItem('oo_map_layer')||'Карта';}catch(e){}
         (baseMaps[saved]||streetLayer).addTo(fleetMap);
-        L.control.layers(baseMaps,null,{position:'topright',collapsed:false}).addTo(fleetMap);
+        L.control.layers(baseMaps,null,{position:'topright',collapsed:true}).addTo(fleetMap);
         fleetMap.on('baselayerchange',function(e){try{localStorage.setItem('oo_map_layer',e.name);}catch(err){}});
       }setTimeout(function(){fleetMap.invalidateSize();loadFleet();},80);}
       function openTachoTab(){routePane.style.display='none';mapPane.style.display='none';tachoPane.style.display='block';iqPane.style.display='none';setActiveTab(tachoTab);loadTacho();}
