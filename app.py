@@ -2132,11 +2132,6 @@ def page(title, body, active=""):
 .tranviq-file-picker button {{ cursor:pointer; }}
 .tranviq-file-picker-name {{ opacity:.82; }}
 
-.oo-map-type-control{position:relative;margin-top:42px!important}
-.oo-map-type-button{width:36px;height:36px;border:2px solid rgba(0,0,0,.2);border-radius:6px;background:#fff;cursor:pointer;font-size:19px;line-height:30px;box-shadow:0 1px 5px rgba(0,0,0,.35)}
-.oo-map-type-menu{position:absolute;right:0;top:40px;min-width:112px;background:#fff;border-radius:6px;padding:5px;box-shadow:0 2px 9px rgba(0,0,0,.35);z-index:1000}
-.oo-map-type-menu button{display:block;width:100%;border:0;background:#fff;padding:7px 10px;text-align:left;cursor:pointer;border-radius:4px;color:#1b2733}
-.oo-map-type-menu button:hover{background:#e9f2f5}
 
 </style>
 <script>
@@ -3368,11 +3363,6 @@ body.page-gps .powered-by {{
     }}
 }}
 
-.oo-map-type-control{position:relative;margin-top:42px!important}
-.oo-map-type-button{width:36px;height:36px;border:2px solid rgba(0,0,0,.2);border-radius:6px;background:#fff;cursor:pointer;font-size:19px;line-height:30px;box-shadow:0 1px 5px rgba(0,0,0,.35)}
-.oo-map-type-menu{position:absolute;right:0;top:40px;min-width:112px;background:#fff;border-radius:6px;padding:5px;box-shadow:0 2px 9px rgba(0,0,0,.35);z-index:1000}
-.oo-map-type-menu button{display:block;width:100%;border:0;background:#fff;padding:7px 10px;text-align:left;cursor:pointer;border-radius:4px;color:#1b2733}
-.oo-map-type-menu button:hover{background:#e9f2f5}
 
 </style>
 {extra_head}
@@ -4000,11 +3990,6 @@ def driver_dashboard():
       .driver-tacho{display:none}.driver-tacho-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.driver-tacho-item{border:1px solid #d8e1e5;border-radius:12px;padding:12px;background:#fff}.driver-tacho-value{font-size:20px;font-weight:900;margin-top:4px}.driver-tacho-warn{margin-top:10px;padding:10px;border-radius:10px;background:#fff3bf;font-weight:800}.driver-tacho-ok{margin-top:10px;padding:10px;border-radius:10px;background:#d3f9d8;font-weight:800}
       @media(max-width:520px){.driver-tabs{grid-template-columns:1fr 1fr}.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}.driver-tacho-grid{grid-template-columns:1fr}}
     
-.oo-map-type-control{position:relative;margin-top:42px!important}
-.oo-map-type-button{width:36px;height:36px;border:2px solid rgba(0,0,0,.2);border-radius:6px;background:#fff;cursor:pointer;font-size:19px;line-height:30px;box-shadow:0 1px 5px rgba(0,0,0,.35)}
-.oo-map-type-menu{position:absolute;right:0;top:40px;min-width:112px;background:#fff;border-radius:6px;padding:5px;box-shadow:0 2px 9px rgba(0,0,0,.35);z-index:1000}
-.oo-map-type-menu button{display:block;width:100%;border:0;background:#fff;padding:7px 10px;text-align:left;cursor:pointer;border-radius:4px;color:#1b2733}
-.oo-map-type-menu button:hover{background:#e9f2f5}
 
 </style>
     <div class="driver-shell">
@@ -4215,6 +4200,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             wrap.innerHTML='<button type="button" class="oo-map-type-button" title="Вигляд карти">🗺️</button><div class="oo-map-type-menu" style="display:none"><button type="button" data-layer="Карта">Карта</button><button type="button" data-layer="Супутник">Супутник</button><button type="button" data-layer="Рельєф">Рельєф</button></div>';
             L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(wrap);
             const b=wrap.querySelector('.oo-map-type-button'),m=wrap.querySelector('.oo-map-type-menu');
+            wrap.style.position='relative';wrap.style.marginTop='42px';b.style.width='36px';b.style.height='36px';b.style.background='#fff';b.style.border='2px solid rgba(0,0,0,.2)';b.style.borderRadius='6px';b.style.cursor='pointer';m.style.position='absolute';m.style.right='0';m.style.top='40px';m.style.minWidth='112px';m.style.background='#fff';m.style.padding='5px';m.style.zIndex='1000';m.querySelectorAll('button').forEach(function(x){x.style.display='block';x.style.width='100%';x.style.border='0';x.style.background='#fff';x.style.padding='7px 10px';x.style.textAlign='left';x.style.cursor='pointer';});
             b.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();m.style.display=m.style.display==='none'?'block':'none';});
             m.querySelectorAll('button[data-layer]').forEach(function(x){x.addEventListener('click',function(e){e.preventDefault();e.stopPropagation();const n=x.dataset.layer;Object.values(baseMaps).forEach(function(l){if(fleetMap.hasLayer(l))fleetMap.removeLayer(l);});(baseMaps[n]||streetLayer).addTo(fleetMap);try{localStorage.setItem('oo_map_layer',n);}catch(err){}m.style.display='none';});});
             fleetMap.on('click',function(){m.style.display='none';});
