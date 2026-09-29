@@ -4146,7 +4146,7 @@ def driver_dashboard():
       .driver-list{display:grid;gap:8px;margin-top:12px}.driver-stop{border:1px solid #d8e1e5;border-radius:12px;padding:11px;background:white;display:grid;grid-template-columns:36px 1fr;gap:9px}
       .driver-stop.current{border:2px solid #f59f00;background:#fff9db}.driver-stop.completed{opacity:.65;background:#f1f3f5}
       .driver-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e9ecef;font-weight:900}.driver-stop.current .driver-num{background:#f59f00;color:white}.driver-stop.completed .driver-num{background:#2f9e44;color:white}
-      .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-open{margin-top:8px;border:0;border-radius:9px;padding:8px 11px;background:#e7f5ff;font-weight:900;cursor:pointer}.driver-iq{display:none}.driver-iq-card{border:2px solid #7048e8;border-radius:16px;padding:16px;background:#f8f7ff}.driver-mic{width:100%;min-height:68px;border:0;border-radius:14px;background:#7048e8;color:#fff;font-size:20px;font-weight:900;cursor:pointer}.driver-mic.listening{background:#c2255c}.driver-iq-box{margin-top:12px;padding:12px;border-radius:12px;background:#fff;border:1px solid #ddd}.driver-iq-label{font-size:12px;font-weight:900;color:#68757d;text-transform:uppercase;margin-bottom:5px}.driver-iq-text{font-size:17px;font-weight:800;min-height:24px}.driver-iq-action{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}.driver-iq-action a,.driver-iq-action button{border:0;border-radius:10px;padding:10px 12px;background:#0b7285;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}
+      .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}.driver-job-open,.driver-job-nav{display:flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:9px;padding:8px 11px;font-weight:900;cursor:pointer;text-decoration:none}.driver-job-open{background:#e7f5ff;color:#0b4f6c}.driver-job-nav{background:#0b7285;color:#fff}.driver-back-active{display:none;background:#495057!important}.driver-stop-nav{display:inline-flex;margin-top:8px;padding:7px 9px;border-radius:8px;background:#0b7285;color:#fff!important;text-decoration:none;font-size:12px;font-weight:900}.driver-iq{display:none}.driver-iq-card{border:2px solid #7048e8;border-radius:16px;padding:16px;background:#f8f7ff}.driver-mic{width:100%;min-height:68px;border:0;border-radius:14px;background:#7048e8;color:#fff;font-size:20px;font-weight:900;cursor:pointer}.driver-mic.listening{background:#c2255c}.driver-iq-box{margin-top:12px;padding:12px;border-radius:12px;background:#fff;border:1px solid #ddd}.driver-iq-label{font-size:12px;font-weight:900;color:#68757d;text-transform:uppercase;margin-bottom:5px}.driver-iq-text{font-size:17px;font-weight:800;min-height:24px}.driver-iq-action{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}.driver-iq-action a,.driver-iq-action button{border:0;border-radius:10px;padding:10px 12px;background:#0b7285;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}
       .driver-tacho{display:none}.driver-tacho-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.driver-tacho-item{border:1px solid #d8e1e5;border-radius:12px;padding:12px;background:#fff}.driver-tacho-value{font-size:20px;font-weight:900;margin-top:4px}.driver-tacho-warn{margin-top:10px;padding:10px;border-radius:10px;background:#fff3bf;font-weight:800}.driver-tacho-ok{margin-top:10px;padding:10px;border-radius:10px;background:#d3f9d8;font-weight:800}
       @media(max-width:520px){.driver-tabs{grid-template-columns:1fr 1fr}.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}.driver-tacho-grid{grid-template-columns:1fr}}
     
@@ -4167,12 +4167,13 @@ def driver_dashboard():
       <div class="card" style="margin:10px 0"><a href="/documents" class="driver-btn driver-nav" style="width:100%;background:#7048e8;color:#fff">📷 SKANUJ DOKUMENT</a><div class="driver-small" style="margin-top:8px;text-align:center">CMR · Lieferschein · paragon paliwowy · inny dokument</div></div>
       <div class="card" style="margin:10px 0"><button id="driverMapTab" class="driver-btn driver-nav" type="button" style="width:100%">📍 MAPA GPS POJAZDÓW</button></div>
       <div id="driverNext" class="driver-next" style="display:none">
-        <div class="driver-kicker">NASTĘPNY PUNKT</div>
+        <div id="driverRouteKicker" class="driver-kicker">NASTĘPNY PUNKT</div>
         <div id="driverNextAddress" class="driver-address"></div>
         <div id="driverNextWindow" class="driver-window"></div>
         <div class="driver-actions">
           <a id="driverNavigate" class="driver-btn driver-nav" href="#" target="_blank" rel="noopener">🧭 NAWIGUJ</a>
           <button id="driverComplete" class="driver-btn driver-done" type="button">✓ ZAKOŃCZONO</button>
+          <button id="driverBackActive" class="driver-btn driver-back-active" type="button">↩ AKTUALNA TRASA</button>
         </div>
       </div>
 
@@ -4236,13 +4237,17 @@ def driver_dashboard():
       const emptyBox = document.getElementById('driverEmpty');
       const nextAddress = document.getElementById('driverNextAddress');
       const nextWindow = document.getElementById('driverNextWindow');
+      const routeKicker = document.getElementById('driverRouteKicker');
       const navigate = document.getElementById('driverNavigate');
       const complete = document.getElementById('driverComplete');
+      const backActive = document.getElementById('driverBackActive');
       const stopsBox = document.getElementById('driverStops');
       const jobsBox = document.getElementById('driverJobs');
+      const routeUi = __ROUTE_UI__;
       let savedRoute = null;
       let routeQueue = [];
       let previewRoute = null;
+      let previewQueueIndex = null;
       let lastStamp = '';
       let busy = false;
       const ownVehicleId = vehicleId;
@@ -4422,56 +4427,164 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const idx = stops.findIndex(s => (s.manual_status||'') !== 'completed');
         return idx < 0 ? -1 : idx;
       }
+      function routeStops(item){
+        const r=item&&item.delivery_route;
+        return r&&Array.isArray(r.stops)?r.stops:[];
+      }
       function routeSummary(item){
-        const r=item&&item.delivery_route; const stops=r&&Array.isArray(r.stops)?r.stops:[];
-        if(!stops.length) return 'Brak punktów';
-        const first=stops[0]&&stops[0].address||''; const last=stops[stops.length-1]&&stops[stops.length-1].address||'';
-        return first+(stops.length>1?' → '+last:'')+' · '+stops.length+' pkt.';
+        const stops=routeStops(item);
+        if(!stops.length) return routeUi.no_points;
+        const first=stops[0]&&stops[0].address||'';
+        const last=stops[stops.length-1]&&stops[stops.length-1].address||'';
+        return first+(stops.length>1?' → '+last:'')+' · '+stops.length+' '+routeUi.points;
+      }
+      function routeNavAddress(item,isActive){
+        const stops=routeStops(item);
+        if(!stops.length) return '';
+        if(isActive){
+          const idx=currentIndex(stops);
+          return (idx>=0?stops[idx]:stops[stops.length-1]).address||'';
+        }
+        return (stops[0]&&stops[0].address)||'';
+      }
+      function scrollRouteDetails(){
+        window.setTimeout(function(){
+          if(nextBox) nextBox.scrollIntoView({behavior:'smooth',block:'start'});
+        },30);
+      }
+      function showActiveRoute(){
+        previewQueueIndex=null;
+        previewRoute=null;
+        render();
+        scrollRouteDetails();
+      }
+      function showQueuedRoute(index){
+        const item=routeQueue[index]||null;
+        if(!item) return;
+        previewQueueIndex=index;
+        previewRoute=item;
+        renderPreview();
+        scrollRouteDetails();
+      }
+      function jobActionsHtml(item,index,isActive){
+        const address=routeNavAddress(item,isActive);
+        const previewAttr=isActive?'data-active-preview="1"':'data-q="'+index+'"';
+        const nav=address
+          ? '<a class="driver-job-nav" target="_blank" rel="noopener" href="'+googleMapsUrl(address)+'">'+routeUi.navigate+'</a>'
+          : '';
+        return '<div class="driver-job-actions"><button class="driver-job-open" type="button" '+previewAttr+'>'+routeUi.preview+'</button>'+nav+'</div>';
       }
       function renderJobs(){
         if(!jobsBox) return;
-        let html='<div class="driver-job"><div class="driver-job-title">TRASA 1 · W TRAKCIE</div><div class="driver-job-meta">'+esc(savedRoute?routeSummary(savedRoute):'Brak aktywnej trasy')+'</div></div>';
-        routeQueue.forEach(function(item,i){html+='<div class="driver-job next"><div class="driver-job-title">TRASA '+(i+2)+' · NASTĘPNA</div><div class="driver-job-meta">'+esc(routeSummary(item))+'</div><button class="driver-job-open" type="button" data-q="'+i+'">PODGLĄD TRASY</button></div>';});
+        let html='';
+        html+='<div class="driver-job"><div class="driver-job-title">'+routeUi.route+' 1 · '+routeUi.in_progress+'</div><div class="driver-job-meta">'+esc(savedRoute?routeSummary(savedRoute):routeUi.no_active)+'</div>';
+        if(savedRoute) html+=jobActionsHtml(savedRoute,0,true);
+        html+='</div>';
+
+        routeQueue.forEach(function(item,i){
+          html+='<div class="driver-job next"><div class="driver-job-title">'+routeUi.route+' '+(i+2)+' · '+routeUi.next+'</div><div class="driver-job-meta">'+esc(routeSummary(item))+'</div>'+jobActionsHtml(item,i,false)+'</div>';
+        });
+
         jobsBox.innerHTML=html;
-        jobsBox.querySelectorAll('[data-q]').forEach(function(btn){btn.addEventListener('click',function(){const i=Number(this.dataset.q);previewRoute=routeQueue[i]||null;renderPreview();});});
+        jobsBox.querySelectorAll('[data-active-preview]').forEach(function(btn){
+          btn.addEventListener('click',showActiveRoute);
+        });
+        jobsBox.querySelectorAll('[data-q]').forEach(function(btn){
+          btn.addEventListener('click',function(){
+            showQueuedRoute(Number(this.dataset.q));
+          });
+        });
       }
       function renderPreview(){
-        if(!previewRoute) return;
-        const stops=previewRoute.delivery_route&&Array.isArray(previewRoute.delivery_route.stops)?previewRoute.delivery_route.stops:[];
+        if(previewQueueIndex!==null && routeQueue[previewQueueIndex]){
+          previewRoute=routeQueue[previewQueueIndex];
+        }
+        if(!previewRoute){
+          showActiveRoute();
+          return;
+        }
+        const stops=routeStops(previewRoute);
         if(!stops.length) return;
-        nextBox.style.display='block'; emptyBox.style.display='none';
-        nextAddress.textContent='TRASA NASTĘPNA: '+(stops[0].address||'');
-        nextWindow.textContent=(stops[0].window_start&&stops[0].window_end)?('Okno: '+stops[0].window_start+'–'+stops[0].window_end):'Podgląd następnej pracy';
-        navigate.href=googleMapsUrl(stops[0].address||''); complete.disabled=true;
-        stopsBox.innerHTML=stops.map(function(stop,i){const time=(stop.window_start&&stop.window_end)?(stop.window_start+'–'+stop.window_end):'bez okna';return '<div class="driver-stop"><div class="driver-num">'+(i+1)+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+'</div></div></div>';}).join('');
+
+        renderJobs();
+        nextBox.style.display='block';
+        emptyBox.style.display='none';
+        routeKicker.textContent=routeUi.preview_next;
+        nextAddress.textContent=stops[0].address||'';
+        nextWindow.textContent=routeUi.route+' '+(previewQueueIndex===null?'':(previewQueueIndex+2))+' · '+stops.length+' '+routeUi.points;
+        navigate.href=googleMapsUrl(stops[0].address||'');
+
+        complete.style.display='none';
+        complete.disabled=true;
+        backActive.style.display='flex';
+
+        stopsBox.innerHTML=stops.map(function(stop,i){
+          const time=(stop.window_start&&stop.window_end)
+            ? (routeUi.window+': '+stop.window_start+'–'+stop.window_end)
+            : routeUi.no_window;
+          const nav=stop.address
+            ? '<a class="driver-stop-nav" target="_blank" rel="noopener" href="'+googleMapsUrl(stop.address)+'">'+routeUi.navigate+'</a>'
+            : '';
+          return '<div class="driver-stop"><div class="driver-num">'+(i+1)+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+'</div>'+nav+'</div></div>';
+        }).join('');
       }
       function render(){
-        previewRoute=null; renderJobs();
+        renderJobs();
+
+        // Keep the driver's chosen next-route preview open even while the page
+        // synchronizes every 5 seconds.
+        if(previewQueueIndex!==null && routeQueue[previewQueueIndex]){
+          previewRoute=routeQueue[previewQueueIndex];
+          renderPreview();
+          return;
+        }
+        if(previewQueueIndex!==null && !routeQueue[previewQueueIndex]){
+          previewQueueIndex=null;
+          previewRoute=null;
+        }
+
         const route = savedRoute && savedRoute.delivery_route;
         const stops = route && Array.isArray(route.stops) ? route.stops : [];
+
+        backActive.style.display='none';
+        complete.style.display='flex';
+        routeKicker.textContent=routeUi.next_point;
+
         if(!stops.length){
-          nextBox.style.display='none'; emptyBox.style.display='block'; stopsBox.innerHTML=''; return;
+          nextBox.style.display='none';
+          emptyBox.style.display='block';
+          stopsBox.innerHTML='';
+          return;
         }
+
         emptyBox.style.display='none';
         const idx=currentIndex(stops);
         if(idx >= 0){
           const stop=stops[idx];
           nextBox.style.display='block';
           nextAddress.textContent=stop.address||'';
-          nextWindow.textContent=(stop.window_start&&stop.window_end) ? ('Okno: '+stop.window_start+'–'+stop.window_end) : 'Bez okna czasowego';
+          nextWindow.textContent=(stop.window_start&&stop.window_end)
+            ? (routeUi.window+': '+stop.window_start+'–'+stop.window_end)
+            : routeUi.no_window;
           navigate.href=googleMapsUrl(stop.address||'');
           complete.disabled=false;
         }else{
-          nextBox.style.display='block'; nextAddress.textContent='Trasa zakończona'; nextWindow.textContent='Wszystkie punkty wykonane.'; navigate.href='#'; complete.disabled=true;
+          nextBox.style.display='block';
+          nextAddress.textContent=routeUi.route_finished;
+          nextWindow.textContent=routeUi.all_done;
+          navigate.href='#';
+          complete.disabled=true;
         }
+
         stopsBox.innerHTML=stops.map(function(stop,i){
           const done=(stop.manual_status||'')==='completed';
           const current=i===idx;
           const cls=done?' completed':(current?' current':'');
-          const time=(stop.window_start&&stop.window_end)?(stop.window_start+'–'+stop.window_end):'bez okna';
-          return '<div class="driver-stop'+cls+'"><div class="driver-num">'+(done?'✓':(i+1))+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+(current?' · NASTĘPNY':'')+'</div></div></div>';
+          const time=(stop.window_start&&stop.window_end)?(stop.window_start+'–'+stop.window_end):routeUi.no_window;
+          return '<div class="driver-stop'+cls+'"><div class="driver-num">'+(done?'✓':(i+1))+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+(current?' · '+routeUi.next_point:'')+'</div></div></div>';
         }).join('');
       }
+      backActive.addEventListener('click',showActiveRoute);
       async function loadRoute(){
         if(busy) return; busy=true;
         try{
@@ -4753,6 +4866,75 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
     driver_lang = current_language()
     speech_lang = {"uk": "uk-UA", "pl": "pl-PL", "en": "en-US", "de": "de-DE"}.get(driver_lang, "uk-UA")
     body = body.replace("__SPEECH_LANG__", json.dumps(speech_lang))
+
+    route_ui_by_lang = {
+        "uk": {
+            "route": "РЕЙС",
+            "in_progress": "В РОБОТІ",
+            "next": "НАСТУПНИЙ",
+            "preview": "ПЕРЕГЛЯД РЕЙСУ",
+            "navigate": "🧭 НАВІГУВАТИ",
+            "no_active": "Немає активного рейсу",
+            "no_points": "Немає точок",
+            "points": "точок",
+            "preview_next": "ПЕРЕГЛЯД НАСТУПНОГО РЕЙСУ",
+            "next_point": "НАСТУПНА ТОЧКА",
+            "window": "Часове вікно",
+            "no_window": "без часового вікна",
+            "route_finished": "Рейс завершено",
+            "all_done": "Усі точки виконано"
+        },
+        "pl": {
+            "route": "TRASA",
+            "in_progress": "W TRAKCIE",
+            "next": "NASTĘPNA",
+            "preview": "PODGLĄD TRASY",
+            "navigate": "🧭 NAWIGUJ",
+            "no_active": "Brak aktywnej trasy",
+            "no_points": "Brak punktów",
+            "points": "pkt.",
+            "preview_next": "PODGLĄD NASTĘPNEJ TRASY",
+            "next_point": "NASTĘPNY PUNKT",
+            "window": "Okno",
+            "no_window": "bez okna czasowego",
+            "route_finished": "Trasa zakończona",
+            "all_done": "Wszystkie punkty wykonane"
+        },
+        "en": {
+            "route": "ROUTE",
+            "in_progress": "IN PROGRESS",
+            "next": "NEXT",
+            "preview": "VIEW ROUTE",
+            "navigate": "🧭 NAVIGATE",
+            "no_active": "No active route",
+            "no_points": "No stops",
+            "points": "stops",
+            "preview_next": "NEXT ROUTE PREVIEW",
+            "next_point": "NEXT STOP",
+            "window": "Time window",
+            "no_window": "no time window",
+            "route_finished": "Route completed",
+            "all_done": "All stops completed"
+        },
+        "de": {
+            "route": "ROUTE",
+            "in_progress": "AKTIV",
+            "next": "NÄCHSTE",
+            "preview": "ROUTE ANSEHEN",
+            "navigate": "🧭 NAVIGIEREN",
+            "no_active": "Keine aktive Route",
+            "no_points": "Keine Stopps",
+            "points": "Stopps",
+            "preview_next": "VORSCHAU NÄCHSTE ROUTE",
+            "next_point": "NÄCHSTER STOPP",
+            "window": "Zeitfenster",
+            "no_window": "kein Zeitfenster",
+            "route_finished": "Route beendet",
+            "all_done": "Alle Stopps erledigt"
+        }
+    }
+    route_ui = route_ui_by_lang.get(driver_lang, route_ui_by_lang["uk"])
+    body = body.replace("__ROUTE_UI__", json.dumps(route_ui, ensure_ascii=False))
     driver_ui = {
         "uk": {
             "KIEROWCA · TRASA NA ŻYWO": "ВОДІЙ · МАРШРУТ НАЖИВО",
@@ -4761,6 +4943,9 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "🗺️ TRASA": "🗺️ МАРШРУТ", "⏱️ TACHOGRAF": "⏱️ ТАХОГРАФ", "💬 WIADOMOŚCI": "💬 ПОВІДОМЛЕННЯ",
             "TWOJE ZLECENIA": "ТВОЇ РЕЙСИ", "📍 MAPA GPS POJAZDÓW": "📍 GPS-КАРТА МАШИН",
             "NASTĘPNY PUNKT": "НАСТУПНА ТОЧКА", "🧭 NAWIGUJ": "🧭 НАВІГУВАТИ", "✓ ZAKOŃCZONO": "✓ ВИКОНАНО",
+            "↩ AKTUALNA TRASA": "↩ АКТУАЛЬНИЙ РЕЙС",
+            "📷 SKANUJ DOKUMENT": "📷 СКАНУВАТИ ДОКУМЕНТ",
+            "CMR · Lieferschein · paragon paliwowy · inny dokument": "CMR · Lieferschein · паливний чек · інший документ",
             "Czekam na aktywną trasę dla": "Очікую активний маршрут для", "Ładowanie pozycji GPS…": "Завантажую GPS-позиції…",
             "ТАХОГРАФ · SH 9203G": "ТАХОГРАФ · SH 9203G", "Отримання даних тахографа…": "Отримую дані тахографа…",
             "До наступної перерви": "До наступної перерви", "Залишок денного часу керування": "Денне водіння — залишилось",
