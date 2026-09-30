@@ -9424,6 +9424,63 @@ def gps():
     }});
 
     function parseDeliveryStopLines() {{
+
+        // Формат транспортного завдання:
+        // 2026-10-01 08:00
+        // COMPANY
+        // STREET 1
+        // DE 61440 CITY
+        //
+        // Наступна дата автоматично починає наступну точку.
+        const datedLineRe = /^(\d{{4}}-\d{{2}}-\d{{2}})(?:\s+(\d{{1,2}}:\d{{2}}))?\s*$/;
+        const datedLines = String(raw || '').replace(/\r/g, '').split('\n')
+            .map(function(x) {{ return x.trim(); }})
+            .filter(Boolean);
+
+        const datedStarts = [];
+        datedLines.forEach(function(line, idx) {{
+            if (datedLineRe.test(line)) datedStarts.push(idx);
+        }});
+
+        if (datedStarts.length >= 1) {{
+            const datedStops = [];
+
+            datedStarts.forEach(function(startIdx, n) {{
+                const endIdx = (n + 1 < datedStarts.length) ? datedStarts[n + 1] : datedLines.length;
+                const m = datedLines[startIdx].match(datedLineRe);
+                const body = datedLines.slice(startIdx + 1, endIdx);
+
+                // Назва фірми не є окремою адресою.
+                // Беремо останні адресні рядки блоку, а компанію лишаємо контекстом.
+                let addressRows = body.slice();
+                if (addressRows.length >= 3) {{
+                    addressRows = addressRows.slice(1);
+                }}
+
+                let address = addressRows.join(', ')
+                    .replace(/\bDE\s+(\d{{5}})\b/ig, '$1')
+                    .replace(/\bPL\s+(\d{{2}}-\d{{3}})\b/ig, '$1')
+                    .replace(/\s*,\s*/g, ', ')
+                    .trim();
+
+                if (address) {{
+                    datedStops.push({{
+                        address: address,
+                        date: m[1] || null,
+                        window_start: m[2] || null,
+                        window_end: m[2] || null,
+                        stop_type: null
+                    }});
+                }}
+            }});
+
+            if (datedStops.length) {{
+                if (datedStops.length > 24) {{
+                    throw new Error('За один раз можна додати до 24 точок.');
+                }}
+                return datedStops;
+            }}
+        }}
         const rawText = deliveryStopsInput.value.trim();
         if (!rawText) {{
             throw new Error('Вставте адреси або текст транспортного завдання.');
