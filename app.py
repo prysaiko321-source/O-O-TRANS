@@ -7772,6 +7772,7 @@ def gps():
             rememberManualVehicleSelection(vehicleSelect.value);
         }}
         updateFuelConsumption();
+        removePlannedRoute();
         restoreDeliveryRouteForVehicle(vehicleSelect.value);
     }});
     vehicleProfileSelect.addEventListener(
@@ -7890,16 +7891,25 @@ def gps():
             window.clearInterval(deliveryStatusTimer);
             deliveryStatusTimer = null;
         }}
+        const staleDeliveryLayers = [];
+        map.eachLayer(function(layer) {{
+            if (layer && layer._tranviqDeliveryOverlay) {{
+                staleDeliveryLayers.push(layer);
+            }}
+        }});
+        staleDeliveryLayers.forEach(function(layer) {{
+            if (map.hasLayer(layer)) map.removeLayer(layer);
+        }});
         if (plannedRouteLayer) {{
-            map.removeLayer(plannedRouteLayer);
+            if (map.hasLayer(plannedRouteLayer)) map.removeLayer(plannedRouteLayer);
             plannedRouteLayer = null;
         }}
         if (destinationMarker) {{
-            map.removeLayer(destinationMarker);
+            if (map.hasLayer(destinationMarker)) map.removeLayer(destinationMarker);
             destinationMarker = null;
         }}
         deliveryMarkers.forEach(function(marker) {{
-            map.removeLayer(marker);
+            if (map.hasLayer(marker)) map.removeLayer(marker);
         }});
         deliveryMarkers = [];
     }}
@@ -9058,6 +9068,7 @@ def gps():
                 index,
                 stop.manual_status || 'pending'
             ));
+            marker._tranviqDeliveryOverlay = true;
             deliveryMarkers.push(marker);
         }});
     }}
@@ -9072,6 +9083,9 @@ def gps():
         // У цьому випадку серверна версія є авторитетною і стара localStorage
         // копія в іншому браузері не може повернути карту назад.
         const saved = savedOverride || await readSavedDeliveryRoute(vehicleId);
+        if (vehicleSelect && vehicleSelect.value !== vehicleId) {{
+            return;
+        }}
         if (savedOverride) {{
             try {{
                 localStorage.setItem(
@@ -9116,6 +9130,7 @@ def gps():
                 weight: 6,
                 opacity: .9
             }}).addTo(map);
+            plannedRouteLayer._tranviqDeliveryOverlay = true;
             map.fitBounds(
                 plannedRouteLayer.getBounds(),
                 {{padding: [45, 45]}}
@@ -10110,6 +10125,7 @@ def gps():
                 weight: 6,
                 opacity: .9
             }}).addTo(map);
+            plannedRouteLayer._tranviqDeliveryOverlay = true;
             map.fitBounds(
                 plannedRouteLayer.getBounds(),
                 {{padding: [45, 45]}}
