@@ -7417,6 +7417,114 @@ def gps():
             popupFuelLabel + fuel + '<br>' + popupCoordinatesLabel + Number(vehicle.latitude).toFixed(6) + ', ' + Number(vehicle.longitude).toFixed(6);
     }}
 
+    // LIVE REROUTE:
+    // Stops/order stay fixed. Only the road geometry is recalculated from the
+    // vehicle's current GPS position when the selected vehicle has moved enough.
+    let liveRouteRerouteBusy = false;
+    let liveRouteLastOrigin = null;
+    let liveRouteLastAt = 0;
+    const LIVE_ROUTE_MIN_MOVE_METERS = 1500;
+    const LIVE_ROUTE_MIN_INTERVAL_MS = 60000;
+
+    function liveRouteDistanceMeters(aLat, aLon, bLat, bLon) {{
+        const R = 6371000;
+        const toRad = function(v) {{ return Number(v) * Math.PI / 180; }};
+        const dLat = toRad(Number(bLat) - Number(aLat));
+        const dLon = toRad(Number(bLon) - Number(aLon));
+        const lat1 = toRad(aLat);
+        const lat2 = toRad(bLat);
+        const h = Math.sin(dLat / 2) * Math.sin(dLat / 2) +
+            Math.cos(lat1) * Math.cos(lat2) *
+            Math.sin(dLon / 2) * Math.sin(dLon / 2);
+        return 2 * R * Math.asin(Math.min(1, Math.sqrt(h)));
+    }}
+
+    function remainingLiveRouteStops(route) {{
+        if (!route || !Array.isArray(route.stops)) return [];
+        const notCompleted = route.stops.filter(function(stop) {{
+            return String(stop.manual_status || '').toLowerCase() !== 'completed';
+        }});
+        // If status persistence has not yet updated, keep the full planned order.
+        return notCompleted.length ? notCompleted : route.stops.slice();
+    }}
+
+    async function rerouteSelectedVehicleFromLiveGps(vehicle, force) {{
+        if (liveRouteRerouteBusy || document.hidden || !vehicleSelect ||
+                !vehicle || vehicleSelect.value !== vehicle.id ||
+                !activeDeliveryRoute ||
+                activeDeliveryRoute.vehicle_id !== vehicle.id) {{
+            return;
+        }}
+
+        const now = Date.now();
+        if (!force && now - liveRouteLastAt < LIVE_ROUTE_MIN_INTERVAL_MS) return;
+
+        if (!force && liveRouteLastOrigin) {{
+            const moved = liveRouteDistanceMeters(
+                liveRouteLastOrigin.latitude,
+                liveRouteLastOrigin.longitude,
+                vehicle.latitude,
+                vehicle.longitude
+            );
+            if (moved < LIVE_ROUTE_MIN_MOVE_METERS) return;
+        }}
+
+        const stops = remainingLiveRouteStops(activeDeliveryRoute);
+        if (!stops.length) return;
+
+        const destination = stops[stops.length - 1];
+        const waypoints = stops.slice(0, -1).map(function(stop) {{
+            return {{
+                latitude: stop.latitude,
+                longitude: stop.longitude
+            }};
+        }});
+
+        liveRouteRerouteBusy = true;
+        try {{
+            const response = await fetch('/api/route', {{
+                method: 'POST',
+                headers: {{'Content-Type': 'application/json'}},
+                body: JSON.stringify({{
+                    origin: {{
+                        latitude: Number(vehicle.latitude),
+                        longitude: Number(vehicle.longitude)
+                    }},
+                    destination: {{
+                        latitude: destination.latitude,
+                        longitude: destination.longitude
+                    }},
+                    waypoints: waypoints,
+                    avoid_tolls: selectedRouteAvoidsTolls(),
+                    vehicle_profile: selectedVehicleProfile()
+                }})
+            }});
+            const routeData = await response.json();
+            if (!response.ok || !routeData.points || !routeData.points.length) return;
+
+            // Replace ONLY the road line. Stop markers/order/status stay untouched.
+            if (plannedRouteLayer && map.hasLayer(plannedRouteLayer)) {{
+                map.removeLayer(plannedRouteLayer);
+            }}
+            plannedRouteLayer = L.polyline(routeData.points, {{
+                color: '#087f8c',
+                weight: 6,
+                opacity: .9
+            }}).addTo(map);
+            plannedRouteLayer._tranviqDeliveryOverlay = true;
+
+            liveRouteLastOrigin = {{
+                latitude: Number(vehicle.latitude),
+                longitude: Number(vehicle.longitude)
+            }};
+            liveRouteLastAt = now;
+        }} catch (error) {{
+            // Keep the last valid line if routing is temporarily unavailable.
+        }} finally {{
+            liveRouteRerouteBusy = false;
+        }}
+    }}
+
     let liveGpsRefreshBusy = false;
     async function refreshLiveVehiclePositions() {{
         if (liveGpsRefreshBusy || document.hidden) return;
@@ -7488,6 +7596,11 @@ def gps():
                     marker.setLatLng([fresh.latitude, fresh.longitude]);
                     marker.setIcon(liveVehicleIcon(vehicle));
                 }}
+
+                // The GPS marker may leave the originally calculated road.
+                // Recalculate only the selected vehicle's line, at most once/minute
+                // and only after ~1.5 km of movement from the previous reroute.
+                rerouteSelectedVehicleFromLiveGps(vehicle, false);
 
                 const basePopup = liveVehiclePopup(vehicle);
                 vehiclePopupBaseById[vehicle.id] = basePopup;
@@ -9160,6 +9273,8 @@ def gps():
     }}
 
     async function restoreDeliveryRouteForVehicle(vehicleId, savedOverride) {{
+        liveRouteLastOrigin = null;
+        liveRouteLastAt = 0;
         removeMeasurementLayers();
         removePlannedRoute();
         activeDeliveryRoute = null;
