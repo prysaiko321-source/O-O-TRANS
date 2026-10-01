@@ -53,6 +53,19 @@ NAVIREC_ACCOUNT_ID = os.environ.get(
     "NAVIREC_ACCOUNT_ID",
     "5c980074-7a71-4c9b-b5a8-a7c45163adf5"
 )
+
+# Shared last-good Navirec cache for tachograph views.
+# This is intentionally small and in-memory: it prevents the dispatcher page
+# from making another burst of identical Navirec requests when the driver page
+# has already fetched the same data a few seconds earlier.
+NAVIREC_LIST_CACHE_TTL = 55
+NAVIREC_LIST_STALE_MAX = 15 * 60
+_NAVIREC_LIST_CACHE = {}
+_NAVIREC_LIST_CACHE_LOCK = threading.Lock()
+
+_LAST_GOOD_TACHO_VEHICLE_STATES = []
+_LAST_GOOD_TACHO_VEHICLE_STATES_AT = 0.0
+_LAST_GOOD_TACHO_LOCK = threading.Lock()
 GOOGLE_MAPS_API_KEY = os.environ.get(
     "GOOGLE_MAPS_API_KEY",
     ""
@@ -71,8 +84,8 @@ if DEFAULT_LANGUAGE not in LANGUAGES:
     DEFAULT_LANGUAGE = "uk"
 ADMIN_USER = os.environ.get("ADMIN_USER", "")
 ADMIN_PASSWORD = os.environ.get("ADMIN_PASSWORD", "")
-DISPATCHER_USER = os.environ.get("DISPATCHER_USER", "")
-DISPATCHER_PASSWORD = os.environ.get("DISPATCHER_PASSWORD", "")
+DISPATCHER_USER = os.environ.get("DISPATCHER_USER", "").strip()
+DISPATCHER_PASSWORD = os.environ.get("DISPATCHER_PASSWORD", "").strip()
 DRIVER_USER = (
     os.environ.get("DRIVER_USER")
     or os.environ.get("DRIVER_LOGIN")
@@ -558,54 +571,96 @@ def navirec_list(endpoint, params=None, timeout=25):
             "error": "NAVIREC_TOKEN не налаштований."
         }
 
+    params = params or {}
+    cache_key = (
+        endpoint.strip("/"),
+        tuple(sorted((str(k), str(v)) for k, v in params.items()))
+    )
+    now = time.time()
+
+    # Reuse a fresh response instead of hitting Navirec again for the same
+    # driver/card list from another role/page.
+    with _NAVIREC_LIST_CACHE_LOCK:
+        cached = _NAVIREC_LIST_CACHE.get(cache_key)
+        if cached and now - cached["time"] <= NAVIREC_LIST_CACHE_TTL:
+            return {
+                "ok": True,
+                "items": list(cached["items"]),
+                "error": None,
+                "cached": True,
+                "stale": False
+            }
+
     try:
         response = requests.get(
             f"{NAVIREC_API}/{endpoint.strip('/')}/",
             headers=navirec_headers(),
-            params=params or {},
+            params=params,
             timeout=timeout
         )
 
-        if response.status_code != 200:
-            return {
-                "ok": False,
-                "items": [],
-                "error": (
-                    f"Navirec HTTP {response.status_code}: "
-                    f"{response.text[:300]}"
+        if response.status_code == 200:
+            data = response.json()
+
+            if isinstance(data, list):
+                items = data
+            elif isinstance(data, dict):
+                items = (
+                    data.get("results")
+                    or data.get("items")
+                    or data.get("data")
+                    or []
                 )
-            }
+            else:
+                items = []
 
-        data = response.json()
-
-        if isinstance(data, list):
-            items = data
-        elif isinstance(data, dict):
-            items = (
-                data.get("results")
-                or data.get("items")
-                or data.get("data")
-                or []
-            )
-        else:
-            items = []
-
-        return {
-            "ok": True,
-            "items": [
+            items = [
                 item
                 for item in items
                 if isinstance(item, dict)
-            ],
-            "error": None
-        }
+            ]
+
+            with _NAVIREC_LIST_CACHE_LOCK:
+                _NAVIREC_LIST_CACHE[cache_key] = {
+                    "time": now,
+                    "items": list(items)
+                }
+
+            return {
+                "ok": True,
+                "items": items,
+                "error": None,
+                "cached": False,
+                "stale": False
+            }
+
+        live_error = (
+            f"Navirec HTTP {response.status_code}: "
+            f"{response.text[:300]}"
+        )
 
     except Exception as exc:
-        return {
-            "ok": False,
-            "items": [],
-            "error": f"Помилка Navirec: {exc}"
-        }
+        live_error = f"Помилка Navirec: {exc}"
+
+    # On 429/temporary failure do NOT turn a working tachograph into zeros.
+    # Show the last confirmed server-side values if they are still reasonably recent.
+    with _NAVIREC_LIST_CACHE_LOCK:
+        cached = _NAVIREC_LIST_CACHE.get(cache_key)
+        if cached and now - cached["time"] <= NAVIREC_LIST_STALE_MAX:
+            return {
+                "ok": True,
+                "items": list(cached["items"]),
+                "error": None,
+                "cached": True,
+                "stale": True,
+                "source_error": live_error
+            }
+
+    return {
+        "ok": False,
+        "items": [],
+        "error": live_error
+    }
 
 
 def get_driver_states_result():
@@ -3702,6 +3757,12 @@ def login(role):
         username = request.form.get("username", "")
         password = request.form.get("password", "")
 
+        # Login fields often arrive with a trailing space from phone/autofill.
+        # Normalize only the dispatcher login; do not change driver/director logic.
+        if role == "dispatcher":
+            username = username.strip()
+            password = password.strip()
+
         credentials_configured = bool(expected_user and expected_password)
         credentials_valid = False
         assigned_vehicle_id = ""
@@ -3731,11 +3792,21 @@ def login(role):
                 break
 
         else:
-            credentials_valid = (
-                credentials_configured
-                and hmac.compare_digest(username, expected_user)
-                and hmac.compare_digest(password, expected_password)
-            )
+            if role == "dispatcher":
+                credentials_valid = (
+                    credentials_configured
+                    and hmac.compare_digest(
+                        username.casefold(),
+                        expected_user.casefold()
+                    )
+                    and hmac.compare_digest(password, expected_password)
+                )
+            else:
+                credentials_valid = (
+                    credentials_configured
+                    and hmac.compare_digest(username, expected_user)
+                    and hmac.compare_digest(password, expected_password)
+                )
 
         if credentials_valid:
             session["logged_in"] = True
@@ -4105,7 +4176,22 @@ def driver_tachograph_api(vehicle_id):
     """
     vehicle_id = normalize_api_id(vehicle_id) or str(vehicle_id)
     # Use the same live vehicle-state source as the working GPS/tachograph view.
+    global _LAST_GOOD_TACHO_VEHICLE_STATES
+    global _LAST_GOOD_TACHO_VEHICLE_STATES_AT
+
     states = get_vehicle_states()
+    if states:
+        with _LAST_GOOD_TACHO_LOCK:
+            _LAST_GOOD_TACHO_VEHICLE_STATES = list(states)
+            _LAST_GOOD_TACHO_VEHICLE_STATES_AT = time.time()
+    else:
+        with _LAST_GOOD_TACHO_LOCK:
+            if (
+                _LAST_GOOD_TACHO_VEHICLE_STATES
+                and time.time() - _LAST_GOOD_TACHO_VEHICLE_STATES_AT <= NAVIREC_LIST_STALE_MAX
+            ):
+                states = list(_LAST_GOOD_TACHO_VEHICLE_STATES)
+
     snapshots = build_tachograph_snapshots(states)
     snapshot = snapshots.get(vehicle_id)
     if snapshot is None:
@@ -11609,7 +11695,23 @@ def fuel():
 @app.route("/tachograph")
 @app.route("/tachograph-test")
 def tachograph():
+    global _LAST_GOOD_TACHO_VEHICLE_STATES
+    global _LAST_GOOD_TACHO_VEHICLE_STATES_AT
+
     vehicle_states = get_vehicle_states()
+
+    if vehicle_states:
+        with _LAST_GOOD_TACHO_LOCK:
+            _LAST_GOOD_TACHO_VEHICLE_STATES = list(vehicle_states)
+            _LAST_GOOD_TACHO_VEHICLE_STATES_AT = time.time()
+    else:
+        with _LAST_GOOD_TACHO_LOCK:
+            if (
+                _LAST_GOOD_TACHO_VEHICLE_STATES
+                and time.time() - _LAST_GOOD_TACHO_VEHICLE_STATES_AT <= NAVIREC_LIST_STALE_MAX
+            ):
+                vehicle_states = list(_LAST_GOOD_TACHO_VEHICLE_STATES)
+
     vehicle_state_map = state_map_by_vehicle(
         vehicle_states
     )
