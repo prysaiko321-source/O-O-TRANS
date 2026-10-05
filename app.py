@@ -1187,39 +1187,114 @@ def _write_delivery_routes(data):
     os.replace(temporary, DELIVERY_ROUTES_FILE)
 
 
-# --- TRANVIQ multi-company pilot ---
-TENANT_ACCOUNTS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_tenant_accounts.json")
-TENANT_ACCOUNTS_LOCK = threading.Lock()
+# Company accounts, vehicles and GPS settings share one transactional store.
+TENANT_ACCOUNTS_FILE = os.environ.get('TENANT_ACCOUNTS_FILE') or os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), 'tranviq_tenant_accounts.json')
+_TENANT_DB_URL = os.environ.get('DATABASE_URL', '').strip()
+_TENANT_LOCAL = threading.local()
+
+class _TenantStoreLock:
+    def __init__(self):
+        self.lock = threading.RLock()
+    def __enter__(self):
+        self.lock.acquire()
+        try:
+            if _TENANT_DB_URL:
+                try:
+                    import psycopg
+                    connect = psycopg.connect
+                except ImportError:
+                    import psycopg2
+                    connect = psycopg2.connect
+                connection = connect(_TENANT_DB_URL, connect_timeout=10)
+                _TENANT_LOCAL.connection = connection
+                with connection.cursor() as cursor:
+                    # Serializes first migration and every read/modify/write across workers.
+                    cursor.execute('SELECT pg_advisory_xact_lock(814527306)')
+                    cursor.execute('CREATE TABLE IF NOT EXISTS tranviq_company_store (id INTEGER PRIMARY KEY, payload TEXT NOT NULL)')
+                    cursor.execute('SELECT payload FROM tranviq_company_store WHERE id=1')
+                    if cursor.fetchone() is None:
+                        initial = _tenant_read_local()
+                        cursor.execute('INSERT INTO tranviq_company_store(id,payload) VALUES (1,%s)', (json.dumps(initial, ensure_ascii=False),))
+            return self
+        except Exception:
+            connection = getattr(_TENANT_LOCAL, 'connection', None)
+            if connection: connection.close()
+            _TENANT_LOCAL.connection = None
+            self.lock.release()
+            raise
+    def __exit__(self, kind, value, traceback):
+        connection = getattr(_TENANT_LOCAL, 'connection', None)
+        try:
+            if connection:
+                if kind is None: connection.commit()
+                else: connection.rollback()
+        finally:
+            if connection: connection.close()
+            _TENANT_LOCAL.connection = None
+            self.lock.release()
+
+TENANT_ACCOUNTS_LOCK = _TenantStoreLock()
+
+def _tenant_read_local():
+    try:
+        with open(TENANT_ACCOUNTS_FILE, encoding='utf-8') as handle:
+            data = json.load(handle)
+        if not isinstance(data, dict): raise ValueError('Invalid company store')
+        return data
+    except FileNotFoundError:
+        return {'companies': {}, 'users': {}}
 
 def _load_tenant_accounts():
-    try:
-        with open(TENANT_ACCOUNTS_FILE, "r", encoding="utf-8") as handle:
-            data = json.load(handle)
-        return data if isinstance(data, dict) else {"companies": {}, "users": {}}
-    except (OSError, ValueError, TypeError):
-        return {"companies": {}, "users": {}}
+    connection = getattr(_TENANT_LOCAL, 'connection', None)
+    if _TENANT_DB_URL:
+        if connection is None: raise RuntimeError('Company store requires a transaction')
+        with connection.cursor() as cursor:
+            cursor.execute('SELECT payload FROM tranviq_company_store WHERE id=1')
+            return json.loads(cursor.fetchone()[0])
+    return _tenant_read_local()
 
 def _write_tenant_accounts(data):
+    connection = getattr(_TENANT_LOCAL, 'connection', None)
+    if _TENANT_DB_URL:
+        if connection is None: raise RuntimeError('Company store requires a transaction')
+        with connection.cursor() as cursor:
+            cursor.execute('UPDATE tranviq_company_store SET payload=%s WHERE id=1', (json.dumps(data, ensure_ascii=False),))
+        return
     folder = os.path.dirname(TENANT_ACCOUNTS_FILE)
     if folder: os.makedirs(folder, exist_ok=True)
-    temporary = TENANT_ACCOUNTS_FILE + ".tmp"
-    with open(temporary, "w", encoding="utf-8") as handle:
+    temporary = TENANT_ACCOUNTS_FILE + '.' + uuid.uuid4().hex + '.tmp'
+    with open(temporary, 'w', encoding='utf-8') as handle:
         json.dump(data, handle, ensure_ascii=False, indent=2)
+        handle.flush()
+        os.fsync(handle.fileno())
     os.replace(temporary, TENANT_ACCOUNTS_FILE)
 
 def _tenant_login_key(value):
-    return str(value or "").strip().casefold()
+    return str(value or '').strip().casefold()
 
 def _tenant_company():
-    company_id = str(session.get("tenant_company_id") or "").strip()
+    company_id = str(session.get('tenant_company_id') or '').strip()
     if not company_id: return None
-    with TENANT_ACCOUNTS_LOCK: data = _load_tenant_accounts()
-    company = data.get("companies", {}).get(company_id)
+    with TENANT_ACCOUNTS_LOCK:
+        data = _load_tenant_accounts()
+    user = data.get('users', {}).get(_tenant_login_key(session.get('username')))
+    if not isinstance(user, dict) or not user.get('enabled') or user.get('company_id') != company_id or user.get('id') != session.get('tenant_user_id'):
+        return None
+    company = data.get('companies', {}).get(company_id)
     return company if isinstance(company, dict) else None
 
 def _tenant_storage_is_persistent():
-    try: return os.path.abspath(TENANT_ACCOUNTS_FILE).startswith("/var/data/")
-    except Exception: return False
+    return bool(_TENANT_DB_URL) or os.path.abspath(TENANT_ACCOUNTS_FILE).startswith('/var/data/')
+
+def _tenant_csrf():
+    if not session.get('tenant_csrf'): session['tenant_csrf'] = secrets.token_hex(32)
+    return session['tenant_csrf']
+
+def _tenant_form_token():
+    return '<input type="hidden" name="csrf" value="'+escape(_tenant_csrf())+'">'
+
+def _tenant_check_csrf():
+    return hmac.compare_digest(str(session.get('tenant_csrf') or ''), str(request.form.get('csrf') or '')) and bool(session.get('tenant_csrf'))
 
 DRIVER_SETTINGS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_driver_settings.json")
 DRIVER_SETTINGS_LOCK = threading.Lock()
@@ -2299,7 +2374,7 @@ document.addEventListener('DOMContentLoaded', function () {{
     }.get(language, "🛣️ Оплата доріг")
 
     if tenant_company:
-        nav_items = [("company", "/company", "Кабінет компанії")]
+        nav_items = [("company", "/company", "Кабінет компанії"), ("company_vehicles", "/company/vehicles", "Автомобілі"), ("company_gps", "/company/gps", "GPS")]
         if role == "director":
             nav_items.append(("company_users", "/company/users", "Користувачі"))
     elif role == "driver":
@@ -3848,6 +3923,7 @@ def login(role):
                 )
 
         if credentials_valid:
+            session.clear()
             session["logged_in"] = True
             session["role"] = role
             session["username"] = username
@@ -3977,7 +4053,7 @@ def company_dashboard():
     role=current_role(); role_name="Директор" if role=="director" else "Логіст"
     note="" if _tenant_storage_is_persistent() else "<p class='error'>Тестовий акаунт тимчасовий до перезапуску Render.</p>"
     tools="<div class='card'><h2>Команда</h2><p>Створіть доступ для логіста цієї компанії.</p><a class='button' href='/company/users'>Користувачі та логіст</a></div>" if role=="director" else ""
-    body="""<div class="card"><h2>{name}</h2><p><strong>NIP/VAT:</strong> {nip}</p><p><strong>Роль:</strong> {role}</p>{note}<p class="ok">Окремий кабінет: дані O&amp;O TRANS недоступні.</p></div>{tools}<div class="card"><h2>Парк компанії</h2><p>Автомобілів: {count}</p><p class="small">Наступний етап — власні машини, GPS і водії цієї компанії.</p></div>""".format(name=escape(str(company.get("name") or "")),nip=escape(str(company.get("nip") or "—")),role=role_name,note=note,tools=tools,count=len(company.get("vehicles") or []))
+    body="""<div class="card"><h2>{name}</h2><p><strong>NIP/VAT:</strong> {nip}</p><p><strong>Роль:</strong> {role}</p>{note}<p class="ok">Окремий кабінет: дані O&amp;O TRANS недоступні.</p></div>{tools}<div class="card"><h2>Парк компанії</h2><p>Автомобілів: {count}</p><p class="small"><a class='button' href='/company/vehicles'>Автомобілі</a> <a class='button' href='/company/gps'>GPS</a></p></div>""".format(name=escape(str(company.get("name") or "")),nip=escape(str(company.get("nip") or "—")),role=role_name,note=note,tools=tools,count=len(company.get("vehicles") or []))
     return page("Кабінет компанії",body,"company")
 
 @app.route("/company/users", methods=["GET", "POST"])
@@ -3986,6 +4062,7 @@ def company_users():
     if not company or current_role()!="director": return redirect(url_for("company_dashboard"))
     message=""
     if request.method=="POST":
+        if not _tenant_check_csrf(): return Response("Оновіть сторінку та повторіть.", status=400)
         name=str(request.form.get("name") or "").strip(); login_value=str(request.form.get("login") or "").strip(); password=str(request.form.get("password") or ""); key=_tenant_login_key(login_value)
         if not name or not key or len(password)<8: message="Вкажіть ім’я, логін і пароль мінімум 8 символів."
         else:
@@ -4000,8 +4077,137 @@ def company_users():
         if isinstance(user,dict) and user.get("company_id")==company["id"]:
             rows.append("<tr><td>{}</td><td>{}</td><td>{}</td></tr>".format(escape(str(user.get("name") or "")),escape(str(user.get("login") or "")),"Директор" if user.get("role")=="director" else "Логіст"))
     msg="<p class='ok'>"+escape(message)+"</p>" if message else ""
-    body="""<div class="card"><h2>Користувачі — {company}</h2>{msg}<table><tr><th>Ім’я</th><th>Логін</th><th>Роль</th></tr>{rows}</table></div><div class="card"><h2>Додати логіста</h2><form method="post"><p><label>Ім’я</label><input name="name" required></p><p><label>E-mail або логін</label><input name="login" required></p><p><label>Пароль (мін. 8 символів)</label><input name="password" type="password" required></p><button type="submit">Створити логіста</button> <a class="button" href="/company">Назад</a></form></div>""".format(company=escape(str(company.get("name") or "")),msg=msg,rows="".join(rows))
+    body="""<div class="card"><h2>Користувачі — {company}</h2>{msg}<table><tr><th>Ім’я</th><th>Логін</th><th>Роль</th></tr>{rows}</table></div><div class="card"><h2>Додати логіста</h2><form method="post">{csrf}<p><label>Ім’я</label><input name="name" required></p><p><label>E-mail або логін</label><input name="login" required></p><p><label>Пароль (мін. 8 символів)</label><input name="password" type="password" required></p><button type="submit">Створити логіста</button> <a class="button" href="/company">Назад</a></form></div>""".format(company=escape(str(company.get("name") or "")),msg=msg,rows="".join(rows),csrf=_tenant_form_token())
     return page("Користувачі компанії",body,"company")
+
+@app.route('/company/vehicles', methods=['GET', 'POST'])
+def company_vehicles():
+    company = _tenant_company()
+    if not company: return redirect(url_for('company_login'))
+    message = ''
+    if request.method == 'POST':
+        if current_role() != 'director': return Response('Доступ лише для директора.', status=403)
+        if not _tenant_check_csrf(): return Response('Оновіть сторінку та повторіть.', status=400)
+        plate = str(request.form.get('plate') or '').strip().upper()[:32]
+        name = str(request.form.get('name') or '').strip()[:120]
+        navirec_id = normalize_api_id(request.form.get('navirec_id'))
+        vehicle_id = str(request.form.get('vehicle_id') or '')
+        lat_text = str(request.form.get('latitude') or '').strip()
+        lon_text = str(request.form.get('longitude') or '').strip()
+        lat, lon = safe_float(lat_text), safe_float(lon_text)
+        if not plate:
+            message = 'Вкажіть номер автомобіля.'
+        elif (lat_text or lon_text) and (lat is None or lon is None or not -90 <= lat <= 90 or not -180 <= lon <= 180):
+            message = 'Вкажіть обидві правильні координати.'
+        else:
+            with TENANT_ACCOUNTS_LOCK:
+                data = _load_tenant_accounts()
+                record = data['companies'][company['id']]
+                vehicles = record.setdefault('vehicles', [])
+                vehicle = next((v for v in vehicles if v.get('id') == vehicle_id), None) if vehicle_id else None
+                if vehicle_id and vehicle is None: return Response('Автомобіль не знайдено.', status=404)
+                if any(v.get('plate') == plate and v is not vehicle for v in vehicles):
+                    message = 'Такий номер уже є у вашому парку.'
+                else:
+                    if vehicle is None:
+                        vehicle = {'id': uuid.uuid4().hex}
+                        vehicles.append(vehicle)
+                    vehicle.update(plate=plate, name=name or plate, navirec_id=navirec_id)
+                    if lat is not None and lon is not None:
+                        vehicle.update(latitude=lat, longitude=lon, position_at=datetime.now(timezone.utc).isoformat())
+                    _write_tenant_accounts(data)
+                    return redirect(url_for('company_vehicles'))
+    company = _tenant_company()
+    rows = []
+    for vehicle in company.get('vehicles', []):
+        rows.append('<tr><td>'+escape(vehicle.get('plate', ''))+'</td><td>'+escape(vehicle.get('name', ''))+'</td><td>'+escape(vehicle.get('navirec_id', '') or 'Не підключено')+'</td><td><a href="/company/vehicles?edit='+escape(vehicle['id'])+'">Редагувати</a> · <a href="/company/gps?vehicle='+escape(vehicle['id'])+'">GPS</a></td></tr>')
+    edit_id = str(request.args.get('edit') or '')
+    selected = next((v for v in company.get('vehicles', []) if v.get('id') == edit_id), {})
+    if edit_id and not selected: return Response('Автомобіль не знайдено.', status=404)
+    form = ''
+    if current_role() == 'director':
+        fields = [('plate', 'Номер автомобіля', 'text'), ('name', 'Назва автомобіля', 'text'), ('navirec_id', 'ID автомобіля у Navirec', 'text'), ('latitude', 'Широта (для ручної позиції)', 'number'), ('longitude', 'Довгота (для ручної позиції)', 'number')]
+        inputs = ''.join('<p><label>'+label+'</label><input name="'+key+'" type="'+kind+'" step="any" value="'+escape(str(selected.get(key, '')))+'" '+('required' if key == 'plate' else '')+'></p>' for key,label,kind in fields)
+        form = '<div class="card"><h2>'+('Редагувати автомобіль' if selected else 'Додати автомобіль')+'</h2><form method="post">'+_tenant_form_token()+'<input type="hidden" name="vehicle_id" value="'+escape(selected.get('id', ''))+'">'+inputs+'<button>Зберегти</button></form></div>'
+    body = '<div class="card"><h2>Парк компанії</h2><p>'+escape(message)+'</p><table><tr><th>Номер</th><th>Назва</th><th>Navirec</th><th>Дії</th></tr>'+''.join(rows)+'</table>'+('' if rows else '<p>Додайте перший автомобіль.</p>')+'</div>'+form
+    return page('Автомобілі компанії', body, 'company_vehicles')
+
+@app.route('/company/gps/settings', methods=['GET', 'POST'])
+def company_gps_settings():
+    company = _tenant_company()
+    if not company: return redirect(url_for('company_login'))
+    if current_role() != 'director': return Response('Доступ лише для директора.', status=403)
+    if request.method == 'POST':
+        if not _tenant_check_csrf(): return Response('Оновіть сторінку та повторіть.', status=400)
+        account = normalize_api_id(request.form.get('account_id'))
+        token = str(request.form.get('navirec_token') or '').strip()
+        with TENANT_ACCOUNTS_LOCK:
+            data = _load_tenant_accounts()
+            settings = data['companies'][company['id']].setdefault('gps', {})
+            settings['account_id'] = account
+            if token: settings['token'] = token
+            _write_tenant_accounts(data)
+        return redirect(url_for('company_gps_settings'))
+    settings = company.get('gps', {})
+    body = '<div class="card"><h2>Navirec вашої компанії</h2><p>Токен: '+('збережено' if settings.get('token') else 'не налаштовано')+'</p><form method="post">'+_tenant_form_token()+'<p><label>ID акаунта Navirec</label><input name="account_id" required value="'+escape(str(settings.get('account_id', '')))+'"></p><p><label>Токен Navirec (залиште порожнім, щоб зберегти чинний)</label><input name="navirec_token" type="password" autocomplete="new-password"></p><button>Зберегти</button></form><p>У парку вкажіть ID кожного автомобіля з цього акаунта.</p></div>'
+    return page('Налаштування GPS', body, 'company_gps')
+
+def _tenant_vehicle_positions(company):
+    settings = company.get('gps', {})
+    states = []
+    warning = ''
+    if settings.get('token') and settings.get('account_id'):
+        try:
+            response = requests.get(NAVIREC_API+'/last_vehicle_states/', headers={'Authorization': 'Token '+settings['token'], 'Accept': 'application/json; version=1.52.1'}, params={'account': settings['account_id']}, timeout=15)
+            if response.status_code == 200:
+                raw = response.json()
+                states = raw if isinstance(raw, list) else raw.get('results', [])
+            else: warning = 'Navirec не надав позиції. Перевірте налаштування GPS.'
+        except (requests.RequestException, ValueError, TypeError, AttributeError):
+            warning = 'Не вдалося отримати GPS. Спробуйте оновити сторінку.'
+    else: warning = 'Navirec не підключено. Можна вказати ручні координати у парку.'
+    state_map = state_map_by_vehicle([s for s in states if isinstance(s, dict)])
+    result = []
+    for vehicle in company.get('vehicles', []):
+        state = state_map.get(vehicle.get('navirec_id'))
+        lat, lon = extract_coordinates(state.get('location')) if state else (None, None)
+        live = lat is not None and lon is not None
+        if not live: lat, lon = safe_float(vehicle.get('latitude')), safe_float(vehicle.get('longitude'))
+        result.append({'id': vehicle['id'], 'plate': vehicle.get('plate'), 'name': vehicle.get('name'), 'latitude': lat, 'longitude': lon, 'source': 'Navirec' if live else 'Ручна позиція', 'updated_at': state.get('time') if live else vehicle.get('position_at'), 'speed': safe_float(state.get('speed')) if live else None, 'fuel': safe_float(state.get('fuel_level')) if live else None})
+    return result, warning
+
+@app.route('/company/gps')
+def company_gps():
+    company = _tenant_company()
+    if not company: return redirect(url_for('company_login'))
+    vehicles, warning = _tenant_vehicle_positions(company)
+    selected_id = str(request.args.get('vehicle') or '')
+    if selected_id and not any(v['id'] == selected_id for v in vehicles): return Response('Автомобіль не знайдено.', status=404)
+    rows = []
+    for vehicle in vehicles:
+        position = 'Немає координат'
+        if vehicle['latitude'] is not None and vehicle['longitude'] is not None:
+            position = '{} · {}, {} · {}'.format(vehicle['source'], vehicle['latitude'], vehicle['longitude'], vehicle.get('updated_at') or 'Час невідомий')
+        rows.append('<tr><td>'+escape(str(vehicle['plate']))+'</td><td>'+escape(position)+'</td><td>'+escape(str(vehicle['speed']) if vehicle['speed'] is not None else '—')+'</td><td>'+escape(str(vehicle['fuel']) if vehicle['fuel'] is not None else '—')+'</td></tr>')
+    markers = json.dumps(vehicles, ensure_ascii=False).replace('<', '\\u003c').replace('>', '\\u003e').replace('&', '\\u0026')
+    selection = json.dumps(selected_id)
+    body = '<div class="card"><h2>GPS вашого парку</h2><p>'+escape(warning)+'</p><a class="button" href="/company/gps">Оновити</a> '+('<a class="button" href="/company/gps/settings">Налаштувати Navirec</a>' if current_role() == 'director' else '')+'<table><tr><th>Автомобіль</th><th>Позиція та час</th><th>км/год</th><th>Паливо, %</th></tr>'+''.join(rows)+'</table></div><div id="company-map" style="height:520px"></div>'
+    body += '''<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css"><script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script><script>
+const companyVehicles=MARKERS, selectedCompanyVehicle=SELECTION;
+const companyMap=L.map('company-map').setView([52,19],6);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'© OpenStreetMap'}).addTo(companyMap);
+const bounds=[]; let selectedPoint=null;
+companyVehicles.forEach(v=>{if(v.latitude===null||v.longitude===null)return;
+ const point=[v.latitude,v.longitude]; bounds.push(point);
+ const popup=document.createElement('div'); const title=document.createElement('strong');title.textContent=v.plate;popup.appendChild(title);
+ const detail=document.createElement('p');detail.textContent=v.source+' · '+(v.updated_at||'Час невідомий');popup.appendChild(detail);
+ L.marker(point).addTo(companyMap).bindPopup(popup);
+ if(v.id===selectedCompanyVehicle)selectedPoint=point;
+});
+if(selectedPoint)companyMap.setView(selectedPoint,13);else if(bounds.length)companyMap.fitBounds(bounds,{padding:[30,30],maxZoom:13});
+</script>'''.replace('MARKERS', markers).replace('SELECTION', selection)
+    return page('GPS компанії', body, 'company_gps')
+
 
 @app.route("/logout")
 def logout():
@@ -4029,7 +4235,12 @@ def require_login():
 
     # Hard company boundary: tenant sessions cannot reach legacy O&O data.
     if session.get("tenant_company_id"):
-        if request.endpoint in {"company_dashboard", "company_users", "logout", "change_language"}:
+        if not _tenant_company():
+            session.clear()
+            return redirect(url_for("company_login"))
+        if request.endpoint in {"gps", "vehicles"}:
+            return redirect(url_for("company_gps" if request.endpoint == "gps" else "company_vehicles"))
+        if request.endpoint in {"company_dashboard", "company_users", "company_vehicles", "company_gps", "company_gps_settings", "logout", "change_language"}:
             return None
         return redirect(url_for("company_dashboard"))
 
