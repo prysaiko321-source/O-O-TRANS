@@ -3925,11 +3925,11 @@ def company_register():
     error = ""
     if request.method == "POST":
         company_name = str(request.form.get("company_name") or "").strip()
-        nip = re.sub(r"[^0-9A-Za-z]", "", str(request.form.get("nip") or "")).upper()
+        nip = re.sub(r"[^0-9A-Za-z]", "", str(request.form.get("company_tax_id") or "")).upper()
         director_name = str(request.form.get("director_name") or "").strip()
-        login_value = str(request.form.get("login") or "").strip()
-        password = str(request.form.get("password") or "")
-        password2 = str(request.form.get("password2") or "")
+        login_value = str(request.form.get("company_director_login") or "").strip()
+        password = str(request.form.get("company_new_password") or "")
+        password2 = str(request.form.get("company_new_password2") or "")
         login_key = _tenant_login_key(login_value)
         if not company_name or not nip or not director_name or not login_key:
             error = "Заповніть усі поля."
@@ -3952,7 +3952,7 @@ def company_register():
                     return redirect(url_for("company_dashboard"))
     warning = "" if _tenant_storage_is_persistent() else "<p class='error'>Тестовий режим: після перезапуску Render реєстрація може зникнути.</p>"
     error_html = "<p class='error'>"+escape(error)+"</p>" if error else ""
-    body = """<div class="card" style="max-width:620px;margin:0 auto"><h2>Реєстрація компанії в TRANVIQ</h2>{warning}{error}<form method="post"><p><label>Назва компанії</label><input name="company_name" required></p><p><label>NIP / VAT ID</label><input name="nip" required></p><p><label>Ім’я директора</label><input name="director_name" required></p><p><label>E-mail або логін директора</label><input name="login" required></p><p><label>Пароль</label><input name="password" type="password" required></p><p><label>Повторіть пароль</label><input name="password2" type="password" required></p><button type="submit">Створити компанію</button> <a class="button" href="/company/login">Уже маю акаунт</a></form></div>""".format(warning=warning,error=error_html)
+    body = """<div class="card" style="max-width:620px;margin:0 auto"><h2>Реєстрація компанії в TRANVIQ</h2>{warning}{error}<form method="post" autocomplete="off"><p><label>Назва компанії</label><input name="company_name" autocomplete="organization" autocapitalize="words" required></p><p><label>NIP / VAT ID</label><input name="company_tax_id" id="company_tax_id" autocomplete="off" autocorrect="off" autocapitalize="characters" spellcheck="false" inputmode="text" required></p><p><label>Ім’я директора</label><input name="director_name" autocomplete="name" required></p><p><label>E-mail або логін директора</label><input name="company_director_login" autocomplete="username" required></p><p><label>Пароль</label><input name="company_new_password" type="password" autocomplete="new-password" required></p><p><label>Повторіть пароль</label><input name="company_new_password2" type="password" autocomplete="new-password" required></p><button type="submit">Створити компанію</button> <a class="button" href="/company/login">Уже маю акаунт</a></form></div>""".format(warning=warning,error=error_html)
     return page("Реєстрація компанії", body, "tenant_public")
 
 @app.route("/company/login", methods=["GET", "POST"])
