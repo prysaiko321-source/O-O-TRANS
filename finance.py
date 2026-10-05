@@ -1796,6 +1796,21 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         language = (session.get("language") or "uk").lower()
         return {"pl": pl, "en": en, "de": de}.get(language, uk)
 
+    def finance_labels():
+        return {
+            "section_add": finance_text("Додати операцію", "Dodaj operację", "Add transaction", "Buchung hinzufügen"),
+            "section_recent": finance_text("Останні операції", "Ostatnie operacje", "Recent transactions", "Letzte Buchungen"),
+            "section_mail": finance_text("Фактури та транспортні замовлення з пошти", "Faktury i zlecenia transportowe z poczty", "Invoices and transport orders from email", "Rechnungen und Transportaufträge aus E-Mails"),
+            "section_accounting_docs": finance_text("Документи бухгалтерії", "Dokumenty księgowe", "Accounting documents", "Buchhaltungsunterlagen"),
+            "open": finance_text("Відкрити", "Otwórz", "Open", "Öffnen"),
+            "date": finance_text("Дата", "Data", "Date", "Datum"),
+            "document": finance_text("Документ", "Dokument", "Document", "Dokument"),
+            "transaction": finance_text("Операція", "Operacja", "Transaction", "Buchung"),
+            "no_operations": finance_text("Операцій ще немає.", "Brak jeszcze operacji.", "No transactions yet.", "Noch keine Buchungen."),
+            "no_mail": finance_text("Документів із пошти ще немає.", "Brak jeszcze dokumentów z poczty.", "No documents from email yet.", "Noch keine Dokumente aus E-Mails."),
+            "no_accounting": finance_text("Бухгалтерських документів із пошти ще немає.", "Brak jeszcze dokumentów księgowych z poczty.", "No accounting documents from email yet.", "Noch keine Buchhaltungsunterlagen aus E-Mails."),
+        }
+
     @app.route("/finance/gmail/connect")
     def finance_gmail_connect():
         schema_ok, schema_error = ensure_finance_schema()
@@ -3377,55 +3392,60 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     </span>
                 """
 
+            labels = finance_labels()
+            vehicle_text = html_text(
+                vehicle_names.get(row["vehicle_id"]),
+                finance_text("Вся компанія", "Cała firma", "Entire company", "Gesamtes Unternehmen")
+            )
+            payment_text = (
+                finance_text("Оплачено", "Opłacone", "Paid", "Bezahlt")
+                if row["payment_status"] == "paid"
+                else finance_text("Не оплачено", "Nieopłacone", "Unpaid", "Unbezahlt")
+            )
             table_rows.append("""
-                <tr>
-                    <td>{date}</td>
-                    <td>{kind}</td>
-                    <td>
-                        <strong>{description}</strong><br>
-                        <span class="small">{document_details}</span>
-                        <br>
+                <details class="finance-fold finance-item">
+                    <summary>
+                        <span class="finance-arrow">›</span>
+                        <span class="finance-summary-main">
+                            <strong>{date}</strong>
+                            <span>{description}</span>
+                        </span>
+                        <span class="finance-summary-meta">{gross}</span>
+                    </summary>
+                    <div class="finance-fold-body">
+                        <div class="detail-grid">
+                            <div><span class="label">{kind_label_title}</span><strong>{kind}</strong></div>
+                            <div><span class="label">{category_title}</span><strong>{category}</strong></div>
+                            <div><span class="label">{vehicle_title}</span><strong>{vehicle}</strong></div>
+                            <div><span class="label">{payment_title}</span><strong>{payment}</strong></div>
+                        </div>
+                        <div class="invoice-description">{document_details}</div>
                         <a class="button"
                            href="/finance/entries/{id}/edit"
-                           style="margin-top:8px">
-                            Редагувати
-                        </a>
+                           style="margin-top:8px">{edit_label}</a>
                         {document_button}
-                    </td>
-                    <td>{category}</td>
-                    <td>{vehicle}</td>
-                    <td>{gross}</td>
-                    <td>{payment}</td>
-                </tr>
+                    </div>
+                </details>
             """.format(
                 id=escape(str(row["id"])),
                 date=html_text(row["entry_date"]),
                 kind=html_text(kind_label),
                 description=html_text(row["description"]),
-                document_details="<br>".join(document_details),
+                document_details="<br>".join(document_details) or "—",
                 document_button=document_button,
-                category=html_text(
-                    FINANCE_CATEGORIES.get(
-                        row["category"],
-                        row["category"]
-                    )
-                ),
-                vehicle=html_text(
-                    vehicle_names.get(row["vehicle_id"]),
-                    "Вся компанія"
-                ),
+                category=html_text(FINANCE_CATEGORIES.get(row["category"], row["category"])),
+                vehicle=vehicle_text,
                 gross=money(row["amount_gross"], row["currency"]),
-                payment=(
-                    "Оплачено"
-                    if row["payment_status"] == "paid"
-                    else "Не оплачено"
-                )
+                payment=payment_text,
+                kind_label_title=finance_text("Тип", "Typ", "Type", "Typ"),
+                category_title=finance_text("Категорія", "Kategoria", "Category", "Kategorie"),
+                vehicle_title=finance_text("Автомобіль", "Pojazd", "Vehicle", "Fahrzeug"),
+                payment_title=finance_text("Оплата", "Płatność", "Payment", "Zahlung"),
+                edit_label=finance_text("Редагувати", "Edytuj", "Edit", "Bearbeiten"),
             ))
 
         if not table_rows:
-            table_rows.append("""
-                <tr><td colspan="7">Операцій ще немає.</td></tr>
-            """)
+            table_rows.append('<div class="invoice-empty">' + finance_labels()["no_operations"] + '</div>')
 
         email_rows = []
         status_labels = {
@@ -3549,7 +3569,17 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 """.format(lines="<br>".join(route_lines))
 
             email_rows.append("""
-                <div class="invoice-card">
+                <details class="finance-fold finance-item">
+                    <summary>
+                        <span class="finance-arrow">›</span>
+                        <span class="finance-summary-main">
+                            <strong>{date}</strong>
+                            <span>{contractor}</span>
+                        </span>
+                        <span class="finance-summary-meta">{gross}</span>
+                    </summary>
+                    <div class="finance-fold-body">
+                    <div class="invoice-card">
                     {new_badge}
                     <div class="invoice-facts">
                         <div>
@@ -3596,6 +3626,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         {actions}
                     </div>
                 </div>
+                </div>
+                </details>
             """.format(
                 date=html_text(item["invoice_date"]),
                 new_badge=new_badge,
@@ -3622,9 +3654,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             ))
 
         if not email_rows:
-            email_rows.append("""
-                <div class="invoice-empty">Документів із пошти ще немає.</div>
-            """)
+            email_rows.append('<div class="invoice-empty">' + finance_labels()["no_mail"] + '</div>')
 
         accounting_provider_cards = []
         for provider in accounting_provider_rows:
@@ -3715,7 +3745,17 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 else "Суму ще не визначено"
             )
             accounting_document_cards.append("""
-                <div class="invoice-card">
+                <details class="finance-fold finance-item">
+                    <summary>
+                        <span class="finance-arrow">›</span>
+                        <span class="finance-summary-main">
+                            <strong>{period}</strong>
+                            <span>{attachment}</span>
+                        </span>
+                        <span class="finance-summary-meta">{amount}</span>
+                    </summary>
+                    <div class="finance-fold-body">
+                    <div class="invoice-card">
                     {new_badge}
                     <div class="invoice-facts">
                         <div>
@@ -3759,6 +3799,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         {actions}
                     </div>
                 </div>
+                </div>
+                </details>
             """.format(
                 id=escape(str(item["id"])),
                 new_badge=new_badge,
@@ -3789,11 +3831,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             ))
 
         if not accounting_document_cards:
-            accounting_document_cards.append("""
-                <div class="invoice-empty">
-                    Бухгалтерських документів із пошти ще немає.
-                </div>
-            """)
+            accounting_document_cards.append('<div class="invoice-empty">' + finance_labels()["no_accounting"] + '</div>')
 
         accounting_block = """
         <div class="card">
@@ -3829,13 +3867,16 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             </details>
         </div>
 
-        <div class="card">
-            <h2>Документи бухгалтерії</h2>
-            <p>
-                {accounting_docs_intro}
-            </p>
-            <div class="invoice-list">{documents}</div>
-        </div>
+        <details class="card finance-fold finance-section">
+            <summary>
+                <span class="finance-arrow">›</span>
+                <strong>{accounting_docs_title}</strong>
+            </summary>
+            <div class="finance-fold-body">
+                <p>{accounting_docs_intro}</p>
+                <div class="invoice-list">{documents}</div>
+            </div>
+        </details>
         """.format(
             providers="".join(accounting_provider_cards),
             documents="".join(accounting_document_cards),
@@ -3845,6 +3886,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 "Enter the accounting office name and the address or domain it uses to send documents. Multiple accounting offices can be connected.",
                 "Geben Sie den Namen des Buchhaltungsbüros sowie die Adresse oder Domain an, von der die Dokumente gesendet werden. Es können mehrere Buchhaltungsbüros verbunden werden."
             ),
+            accounting_docs_title=finance_labels()["section_accounting_docs"],
             accounting_docs_intro=finance_text(
                 "Податки, ZUS, зарплати, розрахунки водіїв та кадрові документи зберігаються окремо від фактур і транспортних замовлень.",
                 "Podatki, ZUS, wynagrodzenia, rozliczenia kierowców i dokumenty kadrowe są przechowywane oddzielnie od faktur i zleceń transportowych.",
@@ -3996,8 +4038,43 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
         {accounting_block}
 
-        <div class="card">
-            <h2>Додати операцію</h2>
+        <style>
+        .finance-fold { margin: 12px 0; }
+        .finance-fold > summary {
+            list-style: none;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            min-height: 52px;
+            padding: 12px 14px;
+            border-radius: 10px;
+            background: #f8fafb;
+            border: 1px solid #dfe5e8;
+        }
+        .finance-fold > summary::-webkit-details-marker { display:none; }
+        .finance-arrow {
+            display:inline-block;
+            font-size: 26px;
+            line-height: 1;
+            transition: transform .15s ease;
+            color:#44515a;
+        }
+        .finance-fold[open] > summary .finance-arrow { transform: rotate(90deg); }
+        .finance-fold-body { padding: 12px 4px 4px; }
+        .finance-item > summary { background:#fff; }
+        .finance-summary-main { display:flex; flex-direction:column; gap:3px; min-width:0; flex:1; }
+        .finance-summary-main span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+        .finance-summary-meta { font-weight:800; white-space:nowrap; }
+        .finance-section > summary strong { font-size:18px; }
+        </style>
+
+        <details class="card finance-fold finance-section">
+            <summary>
+                <span class="finance-arrow">›</span>
+                <strong>{add_section_title}</strong>
+            </summary>
+            <div class="finance-fold-body">
             <form method="post">
                 <div class="form-grid">
                     <p><label>Тип</label><select name="entry_kind" {disabled}>
@@ -4024,35 +4101,37 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 </div>
                 <button type="submit" {disabled}>Зберегти</button>
             </form>
-        </div>
-
-        <div class="card">
-            <h2>Останні операції</h2>
-            <div style="overflow-x:auto">
-                <table>
-                    <tr>
-                        <th>Дата</th><th>Тип</th><th>Опис</th>
-                        <th>Категорія</th><th>Автомобіль</th>
-                        <th>Brutto</th><th>Оплата</th>
-                    </tr>
-                    {rows}
-                </table>
             </div>
-        </div>
+        </details>
 
-        <div class="card">
-            <h2>Фактури та транспортні замовлення з пошти</h2>
-            <p>
-                Транспортне замовлення записується як дохід,
-                а вхідна фактура — як витрата. Перед підтвердженням
-                тип документа можна змінити через кнопку «Перевірити».
-            </p>
-            <p class="small">
-                Програма перевірятиме дублікати за контрагентом,
-                номером фактури, сумою та валютою.
-            </p>
-            <div class="invoice-list">{email_rows}</div>
-        </div>
+        <details class="card finance-fold finance-section">
+            <summary>
+                <span class="finance-arrow">›</span>
+                <strong>{recent_section_title}</strong>
+            </summary>
+            <div class="finance-fold-body">
+                <div class="invoice-list">{rows}</div>
+            </div>
+        </details>
+
+        <details class="card finance-fold finance-section">
+            <summary>
+                <span class="finance-arrow">›</span>
+                <strong>{mail_section_title}</strong>
+            </summary>
+            <div class="finance-fold-body">
+                <p>
+                    Транспортне замовлення записується як дохід,
+                    а вхідна фактура — як витрата. Перед підтвердженням
+                    тип документа можна змінити через кнопку «Перевірити».
+                </p>
+                <p class="small">
+                    Програма перевірятиме дублікати за контрагентом,
+                    номером фактури, сумою та валютою.
+                </p>
+                <div class="invoice-list">{email_rows}</div>
+            </div>
+        </details>
         """.format(
             database_alert=database_alert,
             message=message,
@@ -4060,6 +4139,9 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             gmail_block=gmail_block,
             accounting_block=accounting_block,
             disabled=form_disabled,
+            add_section_title=finance_labels()["section_add"],
+            recent_section_title=finance_labels()["section_recent"],
+            mail_section_title=finance_labels()["section_mail"],
             today=date.today().isoformat(),
             categories="".join(category_options),
             vehicles="".join(vehicle_options),
