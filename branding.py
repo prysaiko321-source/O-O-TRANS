@@ -45,8 +45,9 @@ def ensure_branding_table():
 
 
 def get_company_branding(company_id, default_name):
+    company_id = str(company_id)
     result = {
-        "company_name": default_name,
+        "company_name": str(default_name),
         "has_custom_logo": False
     }
     if not branding_db_available():
@@ -76,6 +77,7 @@ def get_company_branding(company_id, default_name):
 
 
 def get_company_logo(company_id):
+    company_id = str(company_id)
     if not branding_db_available():
         return None, None
     try:
@@ -110,6 +112,7 @@ def detect_logo_mime(data):
 
 
 def save_branding(company_id, company_name, logo_data, logo_mime_type):
+    company_id = str(company_id)
     ensure_branding_table()
     with branding_db() as connection:
         with connection.cursor() as cursor:
@@ -126,7 +129,7 @@ def save_branding(company_id, company_name, logo_data, logo_mime_type):
                     logo_mime_type = COALESCE(EXCLUDED.logo_mime_type, company_branding.logo_mime_type),
                     updated_at = NOW()
                 """,
-                (company_id, company_name, logo_data, logo_mime_type)
+                (company_id, str(company_name), logo_data, logo_mime_type)
             )
         connection.commit()
 

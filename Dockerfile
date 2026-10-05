@@ -6,6 +6,6 @@ COPY requirements.txt .
 
 RUN pip install --no-cache-dir -r requirements.txt
 
-COPY app.py finance.py branding.py i18n.py company_logo.py documents.py ./
+COPY app.py finance.py branding.py i18n.py company_logo.py documents.py tenancy.py gps_providers.py ./
 
 CMD ["sh", "-c", "gunicorn --bind 0.0.0.0:${PORT:-10000} --workers 1 --threads 4 --timeout 120 app:app"]

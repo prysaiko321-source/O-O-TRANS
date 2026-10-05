@@ -1,4 +1,6 @@
 """Role-scoped trip document upload and inbox."""
+import tenancy
+from werkzeug.local import LocalProxy
 import io
 import json
 import os
@@ -24,7 +26,9 @@ _TYPES = {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Paragon paliwow
 
 def register_document_routes(app, page, routes_file, vehicles):
     root = os.environ.get("DOCUMENTS_DIR", "").strip() or os.path.join(os.path.dirname(routes_file), "tranviq_documents")
-    index_path = os.path.join(root, "index.json")
+    base_root = root
+    root = LocalProxy(lambda: tenancy.file_path(base_root))
+    index_path = LocalProxy(lambda: os.path.join(str(root), "index.json"))
     def current_driver_vehicle_id():
         """Return the vehicle assigned to the current driver session."""
         assigned = str(session.get("driver_vehicle_id") or "").strip()
@@ -35,26 +39,26 @@ def register_document_routes(app, page, routes_file, vehicles):
 
     database_url = os.environ.get("DATABASE_URL", "").strip()
     use_database = bool(database_url and psycopg)
-    durable_files = bool(os.environ.get("DOCUMENTS_DIR", "").strip() or os.path.realpath(root).startswith("/var/data/"))
-    schema_ready = False
+    durable_files = bool(os.environ.get("DOCUMENTS_DIR", "").strip() or os.path.realpath(str(root)).startswith("/var/data/"))
+    schema_ready = set()
 
     def ensure_schema():
         nonlocal schema_ready
-        if not use_database or schema_ready:
+        if not use_database or tenancy.schema_name() in schema_ready:
             return
         with _LOCK:
-            if schema_ready:
+            if tenancy.schema_name() in schema_ready:
                 return
-            with psycopg.connect(database_url, connect_timeout=8) as connection:
+            with tenancy.scoped_connect(database_url, connect_timeout=8) as connection:
                 connection.execute("""CREATE TABLE IF NOT EXISTS tranviq_trip_documents (
                     id text PRIMARY KEY, metadata jsonb NOT NULL, content bytea NOT NULL
                 )""")
-            schema_ready = True
+            schema_ready.add(tenancy.schema_name())
 
     def store_document(item, content):
         if use_database:
             ensure_schema()
-            with psycopg.connect(database_url, connect_timeout=8) as connection:
+            with tenancy.scoped_connect(database_url, connect_timeout=8) as connection:
                 connection.execute(
                     "INSERT INTO tranviq_trip_documents (id, metadata, content) VALUES (%s, %s::jsonb, %s)",
                     (item["id"], json.dumps(item, ensure_ascii=False), content),
@@ -62,8 +66,8 @@ def register_document_routes(app, page, routes_file, vehicles):
             return
         if not durable_files:
             raise RuntimeError("Brak trwałego miejsca na dokumenty. Skontaktuj się z administratorem.")
-        os.makedirs(root, exist_ok=True)
-        path = os.path.join(root, item["filename"])
+        os.makedirs(str(root), exist_ok=True)
+        path = os.path.join(str(root), item["filename"])
         with open(path, "xb") as handle:
             handle.write(content)
         items = read_index()
@@ -77,12 +81,12 @@ def register_document_routes(app, page, routes_file, vehicles):
     def file_content(item):
         if use_database:
             ensure_schema()
-            with psycopg.connect(database_url, connect_timeout=8) as connection:
+            with tenancy.scoped_connect(database_url, connect_timeout=8) as connection:
                 row = connection.execute("SELECT content FROM tranviq_trip_documents WHERE id = %s", (item["id"],)).fetchone()
             if row is None:
                 abort(404)
             return io.BytesIO(bytes(row[0]))
-        return os.path.join(root, item["filename"])
+        return os.path.join(str(root), item["filename"])
 
     def role():
         return session.get("role") if session.get("logged_in") else None
@@ -90,22 +94,22 @@ def register_document_routes(app, page, routes_file, vehicles):
     def read_index():
         if use_database:
             ensure_schema()
-            with psycopg.connect(database_url, connect_timeout=8) as connection:
+            with tenancy.scoped_connect(database_url, connect_timeout=8) as connection:
                 rows = connection.execute("SELECT metadata FROM tranviq_trip_documents ORDER BY metadata->>'created_at'").fetchall()
             return [row[0] for row in rows]
         try:
-            with open(index_path, encoding="utf-8") as handle:
+            with open(str(index_path), encoding="utf-8") as handle:
                 data = json.load(handle)
             return data if isinstance(data, list) else []
         except (OSError, ValueError):
             return []
 
     def save_index(items):
-        os.makedirs(root, exist_ok=True)
+        os.makedirs(str(root), exist_ok=True)
         temporary = index_path + "." + uuid.uuid4().hex + ".tmp"
         with open(temporary, "w", encoding="utf-8") as handle:
             json.dump(items, handle, ensure_ascii=False)
-        os.replace(temporary, index_path)
+        os.replace(temporary, str(index_path))
 
     def visible(item):
         if role() == "director":
@@ -115,6 +119,9 @@ def register_document_routes(app, page, routes_file, vehicles):
         return role() == "driver" and item.get("vehicle_id") == current_driver_vehicle_id()
 
     def current_trip(vehicle_id):
+        if tenancy.company():
+            route = tenancy.json_read("routes", {}).get(vehicle_id, {})
+            return str(route.get("saved_at") or route.get("updated_at") or "active")[:80]
         try:
             with open(routes_file, encoding="utf-8") as handle:
                 route = json.load(handle).get(vehicle_id) or {}
@@ -238,7 +245,7 @@ def register_document_routes(app, page, routes_file, vehicles):
           form.onsubmit=async(e)=>{e.preventDefault();status.textContent='Wysyłanie…';try{let fd=new FormData(form);if(capturedBlob){fd.delete('file');fd.append('file',capturedBlob,'scan.jpg')}let r=await fetch('/api/documents',{method:'POST',body:fd}),d=await r.json();if(!r.ok)throw Error(d.error||'Błąd');status.textContent='Dokument zapisany.'+(d.document.cropped?' Krawędzie poprawione.':'');form.reset();capturedBlob=null;captureBox=null;preview.removeAttribute('src');preview.style.display='none';ready();loadDocs()}catch(err){status.textContent=err.message}};
         })();
         </script>
-        """.replace("__VEHICLE_SELECT__", vehicle_select) if role() in {"driver", "dispatcher"} else ""
+        """.replace("__VEHICLE_SELECT__", vehicle_select) if role() in {"driver", "dispatcher", "director"} else ""
         body = upload + '<div class="card"><h2>Dokumenty z trasy <span id="docCount"></span></h2><div id="docList">Ładowanie…</div></div>' + '''<script>
         async function loadDocs(){let r=await fetch('/api/documents',{cache:'no-store'});if(!r.ok)return;let d=await r.json(),box=document.getElementById('docList');document.getElementById('docCount').textContent='('+d.documents.length+')';box.replaceChildren();for(let x of d.documents){let p=document.createElement('p'),a=document.createElement('a');a.href='/api/documents/'+encodeURIComponent(x.id)+'/file';a.textContent=x.label+' · '+x.vehicle_label+' · '+new Date(x.created_at).toLocaleString()+' · otwórz';a.target='_blank';p.appendChild(a);let download=document.createElement('a');download.href='/api/documents/'+encodeURIComponent(x.id)+'/file?download=1';download.textContent=' ⬇ Pobierz';download.style.marginLeft='14px';download.style.fontWeight='bold';p.appendChild(download);box.appendChild(p)}if(!d.documents.length)box.textContent='Brak dokumentów.'}loadDocs();setInterval(loadDocs,30000);</script>'''
         return page("Dokumenty", body, "documents")
@@ -251,7 +258,7 @@ def register_document_routes(app, page, routes_file, vehicles):
             with _LOCK:
                 items = [dict(x) for x in read_index() if visible(x)]
             return jsonify({"documents": [{k: v for k, v in x.items() if k != "filename"} for x in items[-300:][::-1]]})
-        if role() not in {"driver", "dispatcher"}:
+        if role() not in {"driver", "dispatcher", "director"}:
             abort(403)
         vehicle_id = current_driver_vehicle_id() if role() == "driver" else str(request.form.get("vehicle_id") or "")
         vehicle = next((v for v in vehicles if str(v["id"]) == vehicle_id), None)

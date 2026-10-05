@@ -1,3 +1,4 @@
+import tenancy
 import os
 import uuid
 import hmac
@@ -129,12 +130,18 @@ VEHICLE_IDS_BY_REGISTRATION = {
 }
 
 
+def _vehicle_registration_map():
+    company = tenancy.company()
+    if company:
+        return {normalized_vehicle_registration(v.get("plate")): v["id"] for v in company.get("vehicles", [])}
+    return VEHICLE_IDS_BY_REGISTRATION
+
 def database_available():
     return bool(DATABASE_URL and psycopg)
 
 
 def connect_database():
-    return psycopg.connect(
+    return tenancy.scoped_connect(
         DATABASE_URL,
         row_factory=dict_row,
         connect_timeout=8
@@ -378,7 +385,8 @@ def ensure_finance_schema():
                     WHERE active = TRUE
                 """)
                 if (
-                    DEFAULT_ACCOUNTING_PROVIDER_NAME
+                    not tenancy.company()
+                    and DEFAULT_ACCOUNTING_PROVIDER_NAME
                     and DEFAULT_ACCOUNTING_PROVIDER_MATCHERS
                 ):
                     cursor.execute("""
@@ -1290,7 +1298,7 @@ def invoice_data_from_text(
         "vehicle_registration": order_details.get(
             "vehicle_registration"
         ),
-        "vehicle_id": VEHICLE_IDS_BY_REGISTRATION.get(
+        "vehicle_id": _vehicle_registration_map().get(
             order_details.get("vehicle_registration")
         )
     }
@@ -1740,7 +1748,7 @@ def sync_gmail_invoices():
         _gmail_sync_lock.release()
 
 
-def start_gmail_auto_sync():
+def start_gmail_auto_sync(app):
     """Запускає безпечну фонову перевірку всіх підключених Gmail."""
     global _gmail_auto_sync_started
 
@@ -1758,6 +1766,16 @@ def start_gmail_auto_sync():
         while not _gmail_auto_sync_stop.is_set():
             try:
                 sync_gmail_invoices()
+                with app.app_context():
+                    with app.config["TENANT_STORE_LOCK"]:
+                        companies = list(app.config["TENANT_STORE_READ"]().get("companies", {}).values())
+                    for company in companies:
+                        try:
+                            with tenancy.company_scope(company):
+                                ready, _ = ensure_finance_schema()
+                                if ready: sync_gmail_invoices()
+                        except Exception:
+                            pass
             except Exception:
                 # Помилка однієї перевірки не повинна зупиняти наступні.
                 pass
@@ -4055,4 +4073,4 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             "finance"
         )
 
-    start_gmail_auto_sync()
+    start_gmail_auto_sync(app)
