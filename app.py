@@ -1400,30 +1400,121 @@ def driver_fleet_visibility():
 def driver_settings():
     if current_role() != "director":
         return redirect(role_home_url())
+
+    lang = current_language()
+    labels = {
+        "uk": {
+            "title": "Налаштування водіїв",
+            "empty": "Немає доданих водіїв.",
+            "drivers": "Водії компанії",
+            "allow": "Дозволити водіям бачити інші автомобілі",
+            "note": "Зміна застосовується автоматично на телефоні водія.",
+            "saving": "Зберігаю…",
+            "on": "УВІМКНЕНО — водії бачать інші автомобілі.",
+            "off": "ВИМКНЕНО — водії бачать лише свій автомобіль.",
+            "error": "Не вдалося зберегти налаштування.",
+        },
+        "pl": {
+            "title": "Ustawienia kierowców",
+            "empty": "Brak dodanych kierowców.",
+            "drivers": "Kierowcy firmy",
+            "allow": "Zezwól kierowcom widzieć inne pojazdy",
+            "note": "Zmiana działa automatycznie na telefonie kierowcy.",
+            "saving": "Zapisywanie…",
+            "on": "WŁĄCZONE — kierowcy widzą inne pojazdy.",
+            "off": "WYŁĄCZONE — kierowcy widzą tylko swój pojazd.",
+            "error": "Nie udało się zapisać ustawienia.",
+        },
+        "en": {
+            "title": "Driver settings",
+            "empty": "No drivers have been added.",
+            "drivers": "Company drivers",
+            "allow": "Allow drivers to see other vehicles",
+            "note": "The change is applied automatically on the driver's phone.",
+            "saving": "Saving…",
+            "on": "ON — drivers can see other vehicles.",
+            "off": "OFF — drivers can see only their own vehicle.",
+            "error": "Could not save the setting.",
+        },
+        "de": {
+            "title": "Fahrereinstellungen",
+            "empty": "Es wurden noch keine Fahrer hinzugefügt.",
+            "drivers": "Fahrer des Unternehmens",
+            "allow": "Fahrern erlauben, andere Fahrzeuge zu sehen",
+            "note": "Die Änderung wird automatisch auf dem Telefon des Fahrers übernommen.",
+            "saving": "Speichern…",
+            "on": "EIN — Fahrer sehen andere Fahrzeuge.",
+            "off": "AUS — Fahrer sehen nur ihr eigenes Fahrzeug.",
+            "error": "Die Einstellung konnte nicht gespeichert werden.",
+        },
+    }[lang if lang in {"uk", "pl", "en", "de"} else "uk"]
+
+    tenant_drivers = []
+    company = _tenant_company()
+    if company:
+        with TENANT_ACCOUNTS_LOCK:
+            tenant_data = _load_tenant_accounts()
+        for user in tenant_data.get("users", {}).values():
+            if not isinstance(user, dict):
+                continue
+            if str(user.get("company_id") or "") != str(company.get("id") or ""):
+                continue
+            if str(user.get("role") or "") != "driver" or not user.get("enabled", True):
+                continue
+            vehicle = vehicle_by_id(str(user.get("vehicle_id") or ""))
+            tenant_drivers.append({
+                "name": str(user.get("name") or user.get("login") or "").strip(),
+                "vehicle": str((vehicle or {}).get("plate") or (vehicle or {}).get("name") or "").strip(),
+            })
+
+        if not tenant_drivers:
+            body = (
+                '<div class="card" style="max-width:760px;margin:0 auto">'
+                '<h2>' + escape(labels["title"]) + '</h2>'
+                '<p>' + escape(labels["empty"]) + '</p>'
+                '</div>'
+            )
+            return page(labels["title"], body, "driver_settings")
+
     enabled = driver_can_see_other_vehicles()
+    driver_list = ""
+    if tenant_drivers:
+        items = []
+        for item in tenant_drivers:
+            suffix = (" — " + escape(item["vehicle"])) if item["vehicle"] else ""
+            items.append("<li><strong>" + escape(item["name"]) + "</strong>" + suffix + "</li>")
+        driver_list = (
+            "<p><strong>" + escape(labels["drivers"]) + ":</strong></p>"
+            "<ul>" + "".join(items) + "</ul>"
+        )
+
     body = f"""
     <div class="card" style="max-width:760px;margin:0 auto">
-      <h2>Ustawienia kierowców</h2>
-      <p>Kontrola widoczności GPS innych pojazdów dla kierowcy testowego SH 9203G.</p>
+      <h2>{escape(labels["title"])}</h2>
+      {driver_list}
       <label style="display:flex;align-items:center;gap:12px;font-size:18px;font-weight:800;margin:20px 0">
         <input id="fleetVisibility" type="checkbox" {'checked' if enabled else ''} style="width:24px;height:24px">
-        Kierowca SH może widzieć inne pojazdy
+        {escape(labels["allow"])}
       </label>
-      <div id="fleetVisibilityStatus" class="small">Zmiana działa automatycznie na telefonie kierowcy.</div>
+      <div id="fleetVisibilityStatus" class="small">{escape(labels["note"])}</div>
     </div>
     <script>
+    const fleetVisibilityText = {json.dumps(labels, ensure_ascii=False)};
     document.getElementById('fleetVisibility').addEventListener('change', async function() {{
       const status=document.getElementById('fleetVisibilityStatus');
-      status.textContent='Zapisywanie…';
+      status.textContent=fleetVisibilityText.saving;
       try {{
         const r=await fetch('/api/driver-fleet-visibility', {{method:'PUT',headers:{{'Content-Type':'application/json'}},body:JSON.stringify({{show_other_vehicles:this.checked}})}});
         if(!r.ok) throw new Error('HTTP '+r.status);
-        status.textContent=this.checked?'WŁĄCZONE — kierowca widzi inne pojazdy.':'WYŁĄCZONE — kierowca widzi tylko swój pojazd.';
-      }} catch(e) {{ this.checked=!this.checked; status.textContent='Nie udało się zapisać ustawienia.'; }}
+        status.textContent=this.checked?fleetVisibilityText.on:fleetVisibilityText.off;
+      }} catch(e) {{
+        this.checked=!this.checked;
+        status.textContent=fleetVisibilityText.error;
+      }}
     }});
     </script>
     """
-    return page("Ustawienia kierowców", body, "driver_settings")
+    return page(labels["title"], body, "driver_settings")
 
 
 @app.route("/api/delivery-route/<vehicle_id>/queue", methods=["GET", "POST", "DELETE"])
@@ -2300,6 +2391,161 @@ GLOBAL_UI_TRANSLATIONS.setdefault('pl', {}).update({'Картка водія': '
 GLOBAL_UI_TRANSLATIONS.setdefault('en', {}).update({'Нова компанія': 'New company', 'Створити окремий кабінет у TRANVIQ.': 'Create a separate company workspace in TRANVIQ.', 'Зареєструвати компанію': 'Register company', 'Вхід компанії': 'Company sign-in', 'Для цієї машини пароль ще не встановлено. Директор має встановити його в розділі «🔐 Паролі».': 'No password has been set for this vehicle yet. The director must set it in the “🔐 Passwords” section.', 'Заповніть усі поля.': 'Fill in all fields.', 'Пароль має містити щонайменше 8 символів.': 'The password must contain at least 8 characters.', 'Паролі не співпадають.': 'The passwords do not match.', 'Такий логін уже використовується.': 'This login is already in use.', 'Компанія з таким NIP уже зареєстрована.': 'A company with this NIP is already registered.', 'Тестовий режим: після перезапуску Render реєстрація може зникнути.': 'Test mode: registration may disappear after Render restarts.', 'Реєстрація компанії в TRANVIQ': 'Company registration in TRANVIQ', 'Назва компанії': 'Company name', 'Ім’я директора': 'Director name', 'E-mail або логін директора': 'Director email or login', 'Повторіть пароль': 'Repeat password', 'Створити компанію': 'Create company', 'Уже маю акаунт': 'I already have an account', 'Реєстрація компанії': 'Company registration', 'E-mail або логін': 'Email or login', 'Реєстрація': 'Register', 'TRANVIQ — вхід': 'TRANVIQ — sign in', 'Оновіть сторінку та повторіть.': 'Refresh the page and try again.', 'Вкажіть ім’я, логін та пароль мінімум 8 символів.': 'Enter a name, login and a password of at least 8 characters.', 'Оберіть роль.': 'Select a role.', 'Призначте автомобіль водію.': 'Assign a vehicle to the driver.', 'Доступ створено.': 'Access created.', 'Команда': 'Team', 'Ім’я': 'Name', 'Автомобіль': 'Vehicle', 'Додати користувача': 'Add user', 'Автомобіль для водія': 'Driver vehicle', 'Оберіть': 'Select', 'Створити доступ': 'Create access', 'Команда компанії': 'Company team', 'Доступ лише для директора.': 'Director access only.', 'Вкажіть номер автомобіля.': 'Enter the vehicle registration number.', 'Вкажіть обидві правильні координати.': 'Enter both valid coordinates.', 'Автомобіль не знайдено.': 'Vehicle not found.', 'Такий номер уже є у вашому парку.': 'This registration number is already in your fleet.', 'Не підключено': 'Not connected', 'Редагувати': 'Edit', 'Номер автомобіля': 'Registration number', 'Назва автомобіля': 'Vehicle name', 'GPS-ID (заповнюється після імпорту)': 'GPS ID (filled after import)', 'Широта (для ручної позиції)': 'Latitude (manual position)', 'Довгота (для ручної позиції)': 'Longitude (manual position)', 'Редагувати автомобіль': 'Edit vehicle', 'Додати автомобіль': 'Add vehicle', 'Зберегти': 'Save', 'Парк компанії': 'Company fleet', 'Вибрати машини з GPS': 'Choose vehicles from GPS', 'Номер': 'Number', 'Назва': 'Name', 'Дії': 'Actions', 'Додайте перший автомобіль.': 'Add the first vehicle.', 'Автомобілі компанії': 'Company vehicles', 'Оберіть автомобілі зі списку.': 'Select vehicles from the list.', 'Список змінився. Оновіть його.': 'The list has changed. Refresh it.', 'Оберіть постачальника GPS.': 'Select a GPS provider.', 'Оберіть регіон.': 'Select a region.', 'Підключення збережено. Оберіть машини нижче.': 'Connection saved. Select vehicles below.', 'Ручні позиції увімкнено.': 'Manual positions enabled.', 'Назву GPS збережено. Для цього постачальника ще потрібно додати інтеграцію.': 'GPS name saved. An integration still needs to be added for this provider.', 'Підключити GPS': 'Connect GPS', 'Постачальник GPS': 'GPS provider', 'Назва іншого GPS': 'Other GPS name', 'ID акаунта (тільки Navirec)': 'Account ID (Navirec only)', 'Сервер Wialon (як у вашому кабінеті)': 'Wialon server (as in your account)', 'API-токен (порожнє поле зберігає чинний токен цього постачальника)': 'API token (leave blank to keep the current token for this provider)', 'Підключити та отримати список машин': 'Connect and get vehicle list', 'Іншого постачальника підключаємо через його API. Паливо, тахограф та історія залежать від даних, які він надає.': 'Other providers are connected through their API. Fuel, tachograph and history depend on the data they provide.', 'Машини з вашого GPS-акаунта': 'Vehicles from your GPS account', 'Додати вибрані автомобілі': 'Add selected vehicles', 'Підключення GPS': 'GPS connection', 'Пароль має містити мінімум 8 символів.': 'The password must contain at least 8 characters.', 'Користувача не знайдено.': 'User not found.', 'Доступ збережено.': 'Access saved.', 'Логін:': 'Login:', 'увімкнено': 'enabled', 'вимкнено': 'disabled', 'Новий пароль': 'New password', 'Зберегти пароль': 'Save password', 'Вимкнути доступ': 'Disable access', 'Паролі та доступи': 'Passwords and access', 'Додати водія або логіста': 'Add driver or dispatcher', 'База компаній тимчасово недоступна. Спробуйте пізніше.': 'The company database is temporarily unavailable. Try again later.', 'Без GPS / ручна позиція': 'No GPS / manual position', 'Інший GPS (потрібне підключення)': 'Other GPS (integration required)', 'Вкажіть токен та ID акаунта Navirec.': 'Enter the Navirec token and account ID.', 'Navirec не надав дані. Перевірте токен і доступ до акаунта.': 'Navirec returned no data. Check the token and account access.', 'Акаунт містить більше 500 записів. Потрібне додаткове налаштування імпорту.': 'The account contains more than 500 records. Additional import configuration is required.', 'Вкажіть API-токен Wialon.': 'Enter the Wialon API token.', 'Wialon тимчасово недоступний.': 'Wialon is temporarily unavailable.', 'Wialon відхилив запит. Перевірте токен і права доступу.': 'Wialon rejected the request. Check the token and permissions.', 'Не вдалося відкрити сесію Wialon.': 'Could not open a Wialon session.', 'Цей постачальник ще не підключений.': 'This provider is not connected yet.', 'Не вдалося отримати список автомобілів. Спробуйте ще раз.': 'Could not retrieve the vehicle list. Try again.', 'Не вдалося отримати позиції GPS.': 'Could not retrieve GPS positions.'})
 GLOBAL_UI_TRANSLATIONS.setdefault('de', {}).update({'Нова компанія': 'Neues Unternehmen', 'Створити окремий кабінет у TRANVIQ.': 'Einen separaten Unternehmensbereich in TRANVIQ erstellen.', 'Зареєструвати компанію': 'Unternehmen registrieren', 'Вхід компанії': 'Unternehmensanmeldung', 'Для цієї машини пароль ще не встановлено. Директор має встановити його в розділі «🔐 Паролі».': 'Für dieses Fahrzeug wurde noch kein Passwort festgelegt. Die Geschäftsleitung muss es im Bereich „🔐 Passwörter“ festlegen.', 'Заповніть усі поля.': 'Füllen Sie alle Felder aus.', 'Пароль має містити щонайменше 8 символів.': 'Das Passwort muss mindestens 8 Zeichen enthalten.', 'Паролі не співпадають.': 'Die Passwörter stimmen nicht überein.', 'Такий логін уже використовується.': 'Dieser Benutzername wird bereits verwendet.', 'Компанія з таким NIP уже зареєстрована.': 'Ein Unternehmen mit dieser NIP ist bereits registriert.', 'Тестовий режим: після перезапуску Render реєстрація може зникнути.': 'Testmodus: Nach einem Neustart von Render kann die Registrierung verloren gehen.', 'Реєстрація компанії в TRANVIQ': 'Unternehmensregistrierung in TRANVIQ', 'Назва компанії': 'Unternehmensname', 'Ім’я директора': 'Name der Geschäftsleitung', 'E-mail або логін директора': 'E-Mail oder Benutzername der Geschäftsleitung', 'Повторіть пароль': 'Passwort wiederholen', 'Створити компанію': 'Unternehmen erstellen', 'Уже маю акаунт': 'Ich habe bereits ein Konto', 'Реєстрація компанії': 'Unternehmensregistrierung', 'E-mail або логін': 'E-Mail oder Benutzername', 'Реєстрація': 'Registrieren', 'TRANVIQ — вхід': 'TRANVIQ — Anmeldung', 'Оновіть сторінку та повторіть.': 'Aktualisieren Sie die Seite und versuchen Sie es erneut.', 'Вкажіть ім’я, логін та пароль мінімум 8 символів.': 'Geben Sie Name, Benutzername und ein Passwort mit mindestens 8 Zeichen ein.', 'Оберіть роль.': 'Wählen Sie eine Rolle.', 'Призначте автомобіль водію.': 'Weisen Sie dem Fahrer ein Fahrzeug zu.', 'Доступ створено.': 'Zugang erstellt.', 'Команда': 'Team', 'Ім’я': 'Name', 'Автомобіль': 'Fahrzeug', 'Додати користувача': 'Benutzer hinzufügen', 'Автомобіль для водія': 'Fahrzeug für den Fahrer', 'Оберіть': 'Auswählen', 'Створити доступ': 'Zugang erstellen', 'Команда компанії': 'Unternehmensteam', 'Доступ лише для директора.': 'Zugriff nur für die Geschäftsleitung.', 'Вкажіть номер автомобіля.': 'Geben Sie das Kennzeichen ein.', 'Вкажіть обидві правильні координати.': 'Geben Sie beide gültigen Koordinaten ein.', 'Автомобіль не знайдено.': 'Fahrzeug nicht gefunden.', 'Такий номер уже є у вашому парку.': 'Dieses Kennzeichen ist bereits in Ihrem Fuhrpark vorhanden.', 'Не підключено': 'Nicht verbunden', 'Редагувати': 'Bearbeiten', 'Номер автомобіля': 'Kennzeichen', 'Назва автомобіля': 'Fahrzeugname', 'GPS-ID (заповнюється після імпорту)': 'GPS-ID (wird nach dem Import ausgefüllt)', 'Широта (для ручної позиції)': 'Breitengrad (manuelle Position)', 'Довгота (для ручної позиції)': 'Längengrad (manuelle Position)', 'Редагувати автомобіль': 'Fahrzeug bearbeiten', 'Додати автомобіль': 'Fahrzeug hinzufügen', 'Зберегти': 'Speichern', 'Парк компанії': 'Fuhrpark', 'Вибрати машини з GPS': 'Fahrzeuge aus GPS auswählen', 'Номер': 'Nummer', 'Назва': 'Name', 'Дії': 'Aktionen', 'Додайте перший автомобіль.': 'Fügen Sie das erste Fahrzeug hinzu.', 'Автомобілі компанії': 'Unternehmensfahrzeuge', 'Оберіть автомобілі зі списку.': 'Wählen Sie Fahrzeuge aus der Liste.', 'Список змінився. Оновіть його.': 'Die Liste hat sich geändert. Aktualisieren Sie sie.', 'Оберіть постачальника GPS.': 'Wählen Sie einen GPS-Anbieter.', 'Оберіть регіон.': 'Wählen Sie eine Region.', 'Підключення збережено. Оберіть машини нижче.': 'Verbindung gespeichert. Wählen Sie unten die Fahrzeuge aus.', 'Ручні позиції увімкнено.': 'Manuelle Positionen aktiviert.', 'Назву GPS збережено. Для цього постачальника ще потрібно додати інтеграцію.': 'Der GPS-Name wurde gespeichert. Für diesen Anbieter muss noch eine Integration hinzugefügt werden.', 'Підключити GPS': 'GPS verbinden', 'Постачальник GPS': 'GPS-Anbieter', 'Назва іншого GPS': 'Name des anderen GPS', 'ID акаунта (тільки Navirec)': 'Konto-ID (nur Navirec)', 'Сервер Wialon (як у вашому кабінеті)': 'Wialon-Server (wie in Ihrem Konto)', 'API-токен (порожнє поле зберігає чинний токен цього постачальника)': 'API-Token (leer lassen, um den aktuellen Token dieses Anbieters zu behalten)', 'Підключити та отримати список машин': 'Verbinden und Fahrzeugliste laden', 'Іншого постачальника підключаємо через його API. Паливо, тахограф та історія залежать від даних, які він надає.': 'Andere Anbieter werden über ihre API angebunden. Kraftstoff, Tachograph und Verlauf hängen von den bereitgestellten Daten ab.', 'Машини з вашого GPS-акаунта': 'Fahrzeuge aus Ihrem GPS-Konto', 'Додати вибрані автомобілі': 'Ausgewählte Fahrzeuge hinzufügen', 'Підключення GPS': 'GPS-Verbindung', 'Пароль має містити мінімум 8 символів.': 'Das Passwort muss mindestens 8 Zeichen enthalten.', 'Користувача не знайдено.': 'Benutzer nicht gefunden.', 'Доступ збережено.': 'Zugang gespeichert.', 'Логін:': 'Benutzername:', 'увімкнено': 'aktiviert', 'вимкнено': 'deaktiviert', 'Новий пароль': 'Neues Passwort', 'Зберегти пароль': 'Passwort speichern', 'Вимкнути доступ': 'Zugang deaktivieren', 'Паролі та доступи': 'Passwörter und Zugänge', 'Додати водія або логіста': 'Fahrer oder Disponenten hinzufügen', 'База компаній тимчасово недоступна. Спробуйте пізніше.': 'Die Unternehmensdatenbank ist vorübergehend nicht verfügbar. Versuchen Sie es später erneut.', 'Без GPS / ручна позиція': 'Ohne GPS / manuelle Position', 'Інший GPS (потрібне підключення)': 'Anderes GPS (Integration erforderlich)', 'Вкажіть токен та ID акаунта Navirec.': 'Geben Sie den Navirec-Token und die Konto-ID ein.', 'Navirec не надав дані. Перевірте токен і доступ до акаунта.': 'Navirec hat keine Daten geliefert. Prüfen Sie Token und Kontozugriff.', 'Акаунт містить більше 500 записів. Потрібне додаткове налаштування імпорту.': 'Das Konto enthält mehr als 500 Einträge. Eine zusätzliche Importkonfiguration ist erforderlich.', 'Вкажіть API-токен Wialon.': 'Geben Sie den Wialon-API-Token ein.', 'Wialon тимчасово недоступний.': 'Wialon ist vorübergehend nicht verfügbar.', 'Wialon відхилив запит. Перевірте токен і права доступу.': 'Wialon hat die Anfrage abgelehnt. Prüfen Sie Token und Berechtigungen.', 'Не вдалося відкрити сесію Wialon.': 'Die Wialon-Sitzung konnte nicht geöffnet werden.', 'Цей постачальник ще не підключений.': 'Dieser Anbieter ist noch nicht verbunden.', 'Не вдалося отримати список автомобілів. Спробуйте ще раз.': 'Die Fahrzeugliste konnte nicht geladen werden. Versuchen Sie es erneut.', 'Не вдалося отримати позиції GPS.': 'GPS-Positionen konnten nicht geladen werden.'})
 
+
+# Final UI language pass. These values override older fallback entries above.
+FINAL_UI_FIXES = {
+    "pl": {
+        "Пароль": "Hasło",
+        "Повторіть пароль": "Powtórz hasło",
+        "Команда": "Zespół",
+        "Підключення GPS": "Połączenie GPS",
+        "Компанія:": "Firma:",
+        "Автомобілів:": "Pojazdy:",
+        "Збереження:": "Przechowywanie:",
+        "постійне": "trwałe",
+        "тимчасове": "tymczasowe",
+        "Додайте автомобілі, щоб відкрити історію.": "Dodaj pojazd, aby otworzyć historię.",
+        "Не вдалося отримати стани водіїв:": "Nie udało się pobrać stanów kierowców:",
+        "Не вдалося отримати список водіїв:": "Nie udało się pobrać listy kierowców:",
+        "Не вдалося отримати картки тахографа:": "Nie udało się pobrać kart tachografu:",
+        "NAVIREC_TOKEN не налаштований.": "NAVIREC_TOKEN nie jest skonfigurowany.",
+        "Оберіть регіон Wialon.": "Wybierz region Wialon.",
+        "Кожна точка з нового рядка: адреса | 08:00 | 10:00": "Każdy punkt w osobnym wierszu: adres | 08:00 | 10:00",
+        "Для цього автомобіля активного розвізного маршруту немає.": "Dla tego pojazdu nie ma aktywnej trasy dostaw.",
+        "Не вдалося відкрити фактуру:": "Nie udało się otworzyć faktury:",
+        "Помилка Gmail:": "Błąd Gmail:",
+        "Операцію збережено.": "Operację zapisano.",
+        "Документ підтверджено та додано у фінансовий облік.": "Dokument zatwierdzono i dodano do ewidencji finansowej.",
+        "Фактуру відхилено. У фінанси її не додано.": "Fakturę odrzucono. Nie dodano jej do finansów.",
+        "Перевірені дані фактури збережено.": "Zweryfikowane dane faktury zapisano.",
+        "Фінансову операцію оновлено. Результат перераховано.": "Operację finansową zaktualizowano. Wynik przeliczono.",
+        "Gmail успішно підключено. Тепер можна завантажити фактури.": "Gmail został podłączony. Można teraz pobierać faktury.",
+        "Gmail відключено від програми.": "Gmail został odłączony od programu.",
+        "Спочатку потрібно додати в Render ключі Google Gmail API.": "Najpierw dodaj w Render klucze Google Gmail API.",
+        "Налаштування бухгалтерії збережено.": "Ustawienia księgowości zapisano.",
+        "Бухгалтерію відключено. Раніше отримані документи збережені.": "Księgowość odłączono. Wcześniej odebrane dokumenty zostały zachowane.",
+        "Документ збережено в бухгалтерському архіві.": "Dokument zapisano w archiwum księgowym.",
+        "Не вдалося зберегти бухгалтерію:": "Nie udało się zapisać ustawień księgowości:",
+        "Основна пошта": "Główna skrzynka",
+        "Не визначено": "Nie określono",
+        "Ще не перевірялося": "Jeszcze nie sprawdzano",
+        "Підтверджено": "Zatwierdzono",
+        "В архіві": "W archiwum",
+        "Відхилено": "Odrzucono",
+        "Дублікат": "Duplikat",
+        "Контрагент:": "Kontrahent:",
+        "Документ №": "Dokument nr",
+        "Номер замовника:": "Numer klienta:",
+        "Маршрут:": "Trasa:",
+        "Дати:": "Daty:",
+        "Автомобіль:": "Pojazd:",
+        "Оплата:": "Płatność:",
+        "Відправник:": "Nadawca:",
+        "Файл:": "Plik:",
+    },
+    "en": {
+        "Пароль": "Password",
+        "Повторіть пароль": "Repeat password",
+        "Команда": "Team",
+        "Підключення GPS": "GPS connection",
+        "Компанія:": "Company:",
+        "Автомобілів:": "Vehicles:",
+        "Збереження:": "Storage:",
+        "постійне": "persistent",
+        "тимчасове": "temporary",
+        "Додайте автомобілі, щоб відкрити історію.": "Add a vehicle to open history.",
+        "Не вдалося отримати стани водіїв:": "Could not retrieve driver states:",
+        "Не вдалося отримати список водіїв:": "Could not retrieve the driver list:",
+        "Не вдалося отримати картки тахографа:": "Could not retrieve tachograph cards:",
+        "NAVIREC_TOKEN не налаштований.": "NAVIREC_TOKEN is not configured.",
+        "Оберіть регіон Wialon.": "Select the Wialon region.",
+        "Кожна точка з нового рядка: адреса | 08:00 | 10:00": "One point per line: address | 08:00 | 10:00",
+        "Для цього автомобіля активного розвізного маршруту немає.": "This vehicle has no active delivery route.",
+        "Не вдалося відкрити фактуру:": "Could not open the invoice:",
+        "Помилка Gmail:": "Gmail error:",
+        "Операцію збережено.": "Transaction saved.",
+        "Документ підтверджено та додано у фінансовий облік.": "Document approved and added to financial records.",
+        "Фактуру відхилено. У фінанси її не додано.": "Invoice rejected. It was not added to finances.",
+        "Перевірені дані фактури збережено.": "Verified invoice data saved.",
+        "Фінансову операцію оновлено. Результат перераховано.": "Financial transaction updated. Result recalculated.",
+        "Gmail успішно підключено. Тепер можна завантажити фактури.": "Gmail connected successfully. Invoices can now be imported.",
+        "Gmail відключено від програми.": "Gmail disconnected from the app.",
+        "Спочатку потрібно додати в Render ключі Google Gmail API.": "First add the Google Gmail API keys in Render.",
+        "Налаштування бухгалтерії збережено.": "Accounting settings saved.",
+        "Бухгалтерію відключено. Раніше отримані документи збережені.": "Accounting was disconnected. Previously received documents were kept.",
+        "Документ збережено в бухгалтерському архіві.": "Document saved to the accounting archive.",
+        "Не вдалося зберегти бухгалтерію:": "Could not save accounting settings:",
+        "Основна пошта": "Primary mailbox",
+        "Не визначено": "Not specified",
+        "Ще не перевірялося": "Not checked yet",
+        "Підтверджено": "Approved",
+        "В архіві": "Archived",
+        "Відхилено": "Rejected",
+        "Дублікат": "Duplicate",
+        "Контрагент:": "Counterparty:",
+        "Документ №": "Document no.",
+        "Номер замовника:": "Customer number:",
+        "Маршрут:": "Route:",
+        "Дати:": "Dates:",
+        "Автомобіль:": "Vehicle:",
+        "Оплата:": "Payment:",
+        "Відправник:": "Sender:",
+        "Файл:": "File:",
+    },
+    "de": {
+        "Пароль": "Passwort",
+        "Повторіть пароль": "Passwort wiederholen",
+        "Команда": "Team",
+        "Підключення GPS": "GPS-Verbindung",
+        "Компанія:": "Unternehmen:",
+        "Автомобілів:": "Fahrzeuge:",
+        "Збереження:": "Speicherung:",
+        "постійне": "dauerhaft",
+        "тимчасове": "temporär",
+        "Додайте автомобілі, щоб відкрити історію.": "Fügen Sie ein Fahrzeug hinzu, um den Verlauf zu öffnen.",
+        "Не вдалося отримати стани водіїв:": "Fahrerstatus konnten nicht abgerufen werden:",
+        "Не вдалося отримати список водіїв:": "Fahrerliste konnte nicht abgerufen werden:",
+        "Не вдалося отримати картки тахографа:": "Tachographenkarten konnten nicht abgerufen werden:",
+        "NAVIREC_TOKEN не налаштований.": "NAVIREC_TOKEN ist nicht konfiguriert.",
+        "Оберіть регіон Wialon.": "Wählen Sie die Wialon-Region.",
+        "Кожна точка з нового рядка: адреса | 08:00 | 10:00": "Ein Punkt pro Zeile: Adresse | 08:00 | 10:00",
+        "Для цього автомобіля активного розвізного маршруту немає.": "Für dieses Fahrzeug gibt es keine aktive Liefertour.",
+        "Не вдалося відкрити фактуру:": "Rechnung konnte nicht geöffnet werden:",
+        "Помилка Gmail:": "Gmail-Fehler:",
+        "Операцію збережено.": "Buchung gespeichert.",
+        "Документ підтверджено та додано у фінансовий облік.": "Dokument bestätigt und zur Finanzbuchhaltung hinzugefügt.",
+        "Фактуру відхилено. У фінанси її не додано.": "Rechnung abgelehnt. Sie wurde nicht in die Finanzen übernommen.",
+        "Перевірені дані фактури збережено.": "Geprüfte Rechnungsdaten gespeichert.",
+        "Фінансову операцію оновлено. Результат перераховано.": "Finanzbuchung aktualisiert. Ergebnis neu berechnet.",
+        "Gmail успішно підключено. Тепер можна завантажити фактури.": "Gmail erfolgreich verbunden. Rechnungen können jetzt importiert werden.",
+        "Gmail відключено від програми.": "Gmail wurde von der App getrennt.",
+        "Спочатку потрібно додати в Render ключі Google Gmail API.": "Fügen Sie zuerst die Google-Gmail-API-Schlüssel in Render hinzu.",
+        "Налаштування бухгалтерії збережено.": "Buchhaltungseinstellungen gespeichert.",
+        "Бухгалтерію відключено. Раніше отримані документи збережені.": "Die Buchhaltung wurde getrennt. Bereits empfangene Dokumente bleiben erhalten.",
+        "Документ збережено в бухгалтерському архіві.": "Dokument im Buchhaltungsarchiv gespeichert.",
+        "Не вдалося зберегти бухгалтерію:": "Buchhaltungseinstellungen konnten nicht gespeichert werden:",
+        "Основна пошта": "Hauptpostfach",
+        "Не визначено": "Nicht angegeben",
+        "Ще не перевірялося": "Noch nicht geprüft",
+        "Підтверджено": "Bestätigt",
+        "В архіві": "Archiviert",
+        "Відхилено": "Abgelehnt",
+        "Дублікат": "Duplikat",
+        "Контрагент:": "Geschäftspartner:",
+        "Документ №": "Dokument Nr.",
+        "Номер замовника:": "Kundennummer:",
+        "Маршрут:": "Route:",
+        "Дати:": "Daten:",
+        "Автомобіль:": "Fahrzeug:",
+        "Оплата:": "Zahlung:",
+        "Відправник:": "Absender:",
+        "Файл:": "Datei:",
+    },
+}
+for _lang, _items in FINAL_UI_FIXES.items():
+    GLOBAL_UI_TRANSLATIONS.setdefault(_lang, {}).update(_items)
+
+
 def translate_full_app_body(language, body, preserve_scripts=False):
     if language == "uk":
         return body
@@ -2347,7 +2593,7 @@ def page(title, body, active=""):
             body = body.replace(source, target)
 
     # Localized custom file picker for Branding; upload behavior stays unchanged.
-    if active == "branding":
+    if active in {"branding", "documents"}:
         file_picker_text = {
             "uk": ("Вибрати файл", "Файл не вибрано"),
             "pl": ("Wybierz plik", "Nie wybrano pliku"),
@@ -2470,7 +2716,16 @@ document.addEventListener('DOMContentLoaded', function () {{
         nav_items = []
 
     if tenant_company and role == "director":
-        nav_items.extend([("company_users", "/company/users", "Команда"), ("company_gps_settings", "/company/gps/settings", "Підключення GPS")])
+        tenant_nav_labels = {
+            "uk": ("Команда", "Підключення GPS"),
+            "pl": ("Zespół", "Połączenie GPS"),
+            "en": ("Team", "GPS connection"),
+            "de": ("Team", "GPS-Verbindung"),
+        }.get(language, ("Команда", "Підключення GPS"))
+        nav_items.extend([
+            ("company_users", "/company/users", tenant_nav_labels[0]),
+            ("company_gps_settings", "/company/gps/settings", tenant_nav_labels[1]),
+        ])
     nav_links = []
 
     for item_active, href, label in nav_items:
@@ -11309,13 +11564,13 @@ def gps():
             "Планований виїзд:": "Planowany wyjazd:",
             "Сьогодні вже пройдено:": "Dzisiaj już przejechano:",
             "керування:": "jazda:",
-            "Паливо: даних немає": "Paliwo: Немає даних",
+            "Паливо: даних немає": "Paliwo: brak danych",
             "Перерв 45 хв:": "Przerw 45 min:",
             "добових відпочинків:": "odpoczynków dobowych:",
             "Фізично вільний:": "Fizycznie wolny:",
             "Наступне завантаження можна планувати:": "Następny załadunek można planować:",
             "Рекомендований наступний виїзд:": "Zalecany następny wyjazd:",
-            "Оплата доріг: даних про платні ділянки немає.": "Opłaty drogowe: Немає даних o płatnych odcinkach.",
+            "Оплата доріг: даних про платні ділянки немає.": "Opłaty drogowe: brak danych o płatnych odcinkach.",
             "Орієнтовна оплата доріг:": "Szacunkowe opłaty drogowe:",
             "Спочатку виберіть місто": "Najpierw wybierz miasto",
             "Шукаю міста...": "Szukam miast...",
@@ -11546,6 +11801,13 @@ def gps():
             "керування.": "Fahrzeit.",  " л ": " l ",  "хв": "Min."
         }
     }
+
+    for source_text, target_text in sorted(
+        gps_dynamic_i18n.get(lang, {}).items(),
+        key=lambda item: len(item[0]),
+        reverse=True
+    ):
+        body = body.replace(source_text, target_text)
 
     return page(
         "GPS",
