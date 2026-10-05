@@ -11686,7 +11686,7 @@ def gps():
             "Маршрут узгоджено з актуальним тахографом.": "Route is consistent with current tachograph data.",
             "без часового вікна": "no time window", "виїзд": "departure", "від попередньої точки": "from previous stop",
             "До наступної вигрузки:": "To next unloading:", "До останньої вигрузки:": "To final unloading:",
-            "Їде": "Driving", "Стоїть": "Stopped", "Статус:": "Status:", "Швидкість:": "Speed:",
+            "Їде": "Driving", "Заведена": "Engine on", "Стоїть": "Stopped", "Статус:": "Status:", "Швидкість:": "Speed:",
             " год ": " h ", " хв": " min"
         },
         "de": {
@@ -11717,7 +11717,7 @@ def gps():
             "Маршрут узгоджено з актуальним тахографом.": "Route stimmt mit den aktuellen Tachographendaten überein.",
             "без часового вікна": "ohne Zeitfenster", "виїзд": "Abfahrt", "від попередньої точки": "vom vorherigen Stopp",
             "До наступної вигрузки:": "Bis zur nächsten Entladung:", "До останньої вигрузки:": "Bis zur letzten Entladung:",
-            "Їде": "Fährt", "Стоїть": "Steht", "Статус:": "Status:", "Швидкість:": "Geschwindigkeit:",
+            "Їде": "Fährt", "Заведена": "Motor an", "Стоїть": "Steht", "Статус:": "Status:", "Швидкість:": "Geschwindigkeit:",
             " год ": " Std. ", " хв": " Min."
         }
     }
@@ -11817,12 +11817,89 @@ def gps():
         }
     }
 
-    for source_text, target_text in sorted(
-        gps_dynamic_i18n.get(lang, {}).items(),
-        key=lambda item: len(item[0]),
-        reverse=True
-    ):
-        body = body.replace(source_text, target_text)
+    gps_dynamic_map = gps_dynamic_i18n.get(lang, {})
+    if gps_dynamic_map:
+        body += """
+<script>
+(function () {
+    const translations = __GPS_DYNAMIC_I18N__;
+    const entries = Object.entries(translations)
+        .sort((a, b) => b[0].length - a[0].length);
+
+    function translateText(value) {
+        let result = value || '';
+        for (const [source, target] of entries) {
+            if (result.includes(source)) {
+                result = result.split(source).join(target);
+            }
+        }
+        return result;
+    }
+
+    function translateNode(root) {
+        if (!root) return;
+
+        if (root.nodeType === Node.TEXT_NODE) {
+            const parent = root.parentElement;
+            if (!parent || /^(SCRIPT|STYLE|TEXTAREA)$/i.test(parent.tagName)) return;
+            const translated = translateText(root.nodeValue);
+            if (translated !== root.nodeValue) root.nodeValue = translated;
+            return;
+        }
+
+        if (root.nodeType !== Node.ELEMENT_NODE && root.nodeType !== Node.DOCUMENT_NODE) return;
+
+        const walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT);
+        let node;
+        while ((node = walker.nextNode())) {
+            const parent = node.parentElement;
+            if (!parent || /^(SCRIPT|STYLE|TEXTAREA)$/i.test(parent.tagName)) continue;
+            const translated = translateText(node.nodeValue);
+            if (translated !== node.nodeValue) node.nodeValue = translated;
+        }
+
+        if (root.querySelectorAll) {
+            root.querySelectorAll('[placeholder],[title],[aria-label]').forEach((el) => {
+                ['placeholder', 'title', 'aria-label'].forEach((attr) => {
+                    if (!el.hasAttribute(attr)) return;
+                    const before = el.getAttribute(attr) || '';
+                    const after = translateText(before);
+                    if (after !== before) el.setAttribute(attr, after);
+                });
+            });
+        }
+    }
+
+    function startDynamicTranslation() {
+        translateNode(document.body);
+        const observer = new MutationObserver((mutations) => {
+            for (const mutation of mutations) {
+                if (mutation.type === 'characterData') {
+                    translateNode(mutation.target);
+                }
+                for (const node of mutation.addedNodes || []) {
+                    translateNode(node);
+                }
+            }
+        });
+        observer.observe(document.body, {
+            subtree: true,
+            childList: true,
+            characterData: true
+        });
+    }
+
+    if (document.readyState === 'loading') {
+        document.addEventListener('DOMContentLoaded', startDynamicTranslation, {once: true});
+    } else {
+        startDynamicTranslation();
+    }
+})();
+</script>
+""".replace(
+            "__GPS_DYNAMIC_I18N__",
+            json.dumps(gps_dynamic_map, ensure_ascii=False)
+        )
 
     return page(
         "GPS",
