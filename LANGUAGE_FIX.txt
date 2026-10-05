@@ -1,0 +1,18 @@
+TRANVIQ — 4-language interface update
+
+Languages:
+- Ukrainian (uk)
+- Polish (pl)
+- English (en)
+- German (de)
+
+Changed:
+- multi-company registration/login/company settings localized
+- GPS provider/settings screens localized
+- Polish tachograph labels that were still mixed with Ukrainian fixed
+- selected language is preserved through login/logout/session reset
+- document scanner, document list, document type labels and document API errors localized
+- Ukrainian 'Health' menu label corrected to 'Стан системи'
+
+Main deployment files are named canonically:
+app.py, documents.py, finance.py, i18n.py, etc.

@@ -51,7 +51,7 @@ TRANSLATIONS = {
         "tachograph": "Тахограф",
         "finance": "Фінанси",
         "branding": "Брендинг",
-        "health": "Health",
+        "health": "Стан системи",
         "my_trips": "Мої рейси",
         "work_panel": "Робоча панель",
         "director": "Директор",

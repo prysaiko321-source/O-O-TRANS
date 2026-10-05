@@ -21,10 +21,86 @@ except ImportError:
 
 _LOCK = threading.RLock()
 _MAX_BYTES = 12 * 1024 * 1024
-_TYPES = {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Paragon paliwowy", "other": "Inny dokument"}
+_TYPES = {"cmr", "lieferschein", "fuel", "other"}
+
+_TYPE_LABELS = {
+    "uk": {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Паливний чек", "other": "Інший документ"},
+    "pl": {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Paragon paliwowy", "other": "Inny dokument"},
+    "en": {"cmr": "CMR", "lieferschein": "Delivery note", "fuel": "Fuel receipt", "other": "Other document"},
+    "de": {"cmr": "CMR", "lieferschein": "Lieferschein", "fuel": "Tankbeleg", "other": "Anderes Dokument"},
+}
+
+_DOC_TEXT = {
+    "storage_unavailable": {"uk": "Немає постійного сховища для документів. Зверніться до адміністратора.", "pl": "Brak trwałego miejsca na dokumenty. Skontaktuj się z administratorem.", "en": "No persistent document storage is available. Contact the administrator.", "de": "Kein dauerhafter Dokumentspeicher verfügbar. Wenden Sie sich an den Administrator."},
+    "photo_small": {"uk": "Фото занадто мале. Зробіть його ще раз.", "pl": "Zdjęcie jest zbyt małe. Zrób je ponownie.", "en": "The photo is too small. Take it again.", "de": "Das Foto ist zu klein. Nehmen Sie es erneut auf."},
+    "photo_blurry": {"uk": "Фото нечітке. Зробіть його ще раз.", "pl": "Zdjęcie jest niewyraźne. Zrób je ponownie.", "en": "The photo is blurry. Take it again.", "de": "Das Foto ist unscharf. Nehmen Sie es erneut auf."},
+    "choose_vehicle": {"uk": "Оберіть автомобіль.", "pl": "Wybierz pojazd.", "en": "Select a vehicle.", "de": "Wählen Sie ein Fahrzeug."},
+    "unknown_type": {"uk": "Невідомий тип документа.", "pl": "Nieznany rodzaj dokumentu.", "en": "Unknown document type.", "de": "Unbekannter Dokumenttyp."},
+    "choose_file": {"uk": "Оберіть файл.", "pl": "Wybierz plik.", "en": "Choose a file.", "de": "Wählen Sie eine Datei."},
+    "too_large": {"uk": "Файл перевищує 12 МБ.", "pl": "Plik przekracza 12 MB.", "en": "The file exceeds 12 MB.", "de": "Die Datei ist größer als 12 MB."},
+    "pdf_pages": {"uk": "PDF має містити 1–20 сторінок.", "pl": "PDF musi mieć 1–20 stron.", "en": "The PDF must contain 1–20 pages.", "de": "Die PDF-Datei muss 1–20 Seiten enthalten."},
+    "read_failed": {"uk": "Не вдалося прочитати фото або PDF.", "pl": "Nie można odczytać zdjęcia lub PDF.", "en": "The photo or PDF could not be read.", "de": "Das Foto oder die PDF-Datei konnte nicht gelesen werden."},
+    "save_failed": {"uk": "Не вдалося зберегти документ.", "pl": "Nie udało się zapisać dokumentu.", "en": "The document could not be saved.", "de": "Das Dokument konnte nicht gespeichert werden."},
+}
+
+_DOC_REPLACEMENTS = {
+    "Pojazd / trasa": {"uk": "Автомобіль / маршрут", "en": "Vehicle / route", "de": "Fahrzeug / Route"},
+    "Skanuj dokument": {"uk": "Сканувати документ", "en": "Scan document", "de": "Dokument scannen"},
+    "Skieruj kamerę na dokument. Gdy wszystkie 4 krawędzie są widoczne i obraz jest stabilny, skan wykona się automatycznie.": {"uk": "Наведіть камеру на документ. Коли всі 4 краї видно і зображення стабільне, сканування виконається автоматично.", "en": "Point the camera at the document. When all 4 edges are visible and the image is stable, the scan will be taken automatically.", "de": "Richten Sie die Kamera auf das Dokument. Sobald alle 4 Kanten sichtbar sind und das Bild stabil ist, wird der Scan automatisch aufgenommen."},
+    "Rodzaj dokumentu": {"uk": "Тип документа", "en": "Document type", "de": "Dokumenttyp"},
+    "Paragon paliwowy": {"uk": "Паливний чек", "en": "Fuel receipt", "de": "Tankbeleg"},
+    "Inny dokument": {"uk": "Інший документ", "en": "Other document", "de": "Anderes Dokument"},
+    "Uruchom skaner": {"uk": "Запустити сканер", "en": "Open scanner", "de": "Scanner starten"},
+    "albo wybierz gotowy plik": {"uk": "або виберіть готовий файл", "en": "or choose an existing file", "de": "oder eine vorhandene Datei auswählen"},
+    "Podgląd": {"uk": "Попередній перегляд", "en": "Preview", "de": "Vorschau"},
+    "Usuń / zrób ponownie": {"uk": "Видалити / зробити ще раз", "en": "Delete / retake", "de": "Löschen / erneut aufnehmen"},
+    "Zapisz dokument": {"uk": "Зберегти документ", "en": "Save document", "de": "Dokument speichern"},
+    "Wyślij dokument": {"uk": "Надіслати документ", "en": "Send document", "de": "Dokument senden"},
+    "Szukam dokumentu…": {"uk": "Шукаю документ…", "en": "Looking for document…", "de": "Dokument wird gesucht…"},
+    "Zrób ręcznie": {"uk": "Зняти вручну", "en": "Capture manually", "de": "Manuell aufnehmen"},
+    "AUTO: WŁ.": {"uk": "АВТО: УВІМК.", "en": "AUTO: ON", "de": "AUTO: AN"},
+    "Nie udało się uruchomić kamery. Sprawdź uprawnienia przeglądarki.": {"uk": "Не вдалося запустити камеру. Перевірте дозволи браузера.", "en": "Could not start the camera. Check the browser permissions.", "de": "Die Kamera konnte nicht gestartet werden. Prüfen Sie die Browser-Berechtigungen."},
+    "Dokument wykryty — skanuję…": {"uk": "Документ знайдено — сканую…", "en": "Document detected — scanning…", "de": "Dokument erkannt — Scan läuft…"},
+    "Dokument wykryty — przytrzymaj chwilę": {"uk": "Документ знайдено — потримайте нерухомо", "en": "Document detected — hold still", "de": "Dokument erkannt — kurz ruhig halten"},
+    "Pokaż cały dokument w kadrze": {"uk": "Покажіть увесь документ у кадрі", "en": "Fit the whole document in the frame", "de": "Zeigen Sie das gesamte Dokument im Bild"},
+    "Skanuję…": {"uk": "Сканую…", "en": "Scanning…", "de": "Scannen…"},
+    "Skan gotowy. Sprawdź podgląd i wyślij.": {"uk": "Скан готовий. Перевірте попередній перегляд і надішліть.", "en": "Scan ready. Check the preview and send it.", "de": "Scan fertig. Prüfen Sie die Vorschau und senden Sie ihn."},
+    "WŁ.": {"uk": "УВІМК.", "en": "ON", "de": "AN"},
+    "WYŁ.": {"uk": "ВИМК.", "en": "OFF", "de": "AUS"},
+    "Wysyłanie…": {"uk": "Надсилання…", "en": "Sending…", "de": "Wird gesendet…"},
+    "Błąd": {"uk": "Помилка", "en": "Error", "de": "Fehler"},
+    "Dokument zapisany.": {"uk": "Документ збережено.", "en": "Document saved.", "de": "Dokument gespeichert."},
+    "Krawędzie poprawione.": {"uk": "Краї виправлено.", "en": "Edges corrected.", "de": "Kanten korrigiert."},
+    "Dokumenty z trasy": {"uk": "Документи з траси", "en": "Trip documents", "de": "Dokumente der Tour"},
+    "Ładowanie…": {"uk": "Завантаження…", "en": "Loading…", "de": "Wird geladen…"},
+    "otwórz": {"uk": "відкрити", "en": "open", "de": "öffnen"},
+    "Pobierz": {"uk": "Завантажити", "en": "Download", "de": "Herunterladen"},
+    "Brak dokumentów.": {"uk": "Документів немає.", "en": "No documents.", "de": "Keine Dokumente."},
+    "Dokumenty": {"uk": "Документи", "en": "Documents", "de": "Dokumente"},
+}
 
 
 def register_document_routes(app, page, routes_file, vehicles):
+    def current_language():
+        value = str(session.get("language") or "uk").lower()
+        return value if value in {"uk", "pl", "en", "de"} else "uk"
+
+    def dt(key):
+        values = _DOC_TEXT[key]
+        return values.get(current_language(), values["uk"])
+
+    def type_label(kind):
+        labels = _TYPE_LABELS.get(current_language(), _TYPE_LABELS["uk"])
+        return labels.get(kind, kind or "—")
+
+    def localize_doc_markup(text):
+        lang = current_language()
+        if lang == "pl":
+            return text
+        for source, targets in sorted(_DOC_REPLACEMENTS.items(), key=lambda item: len(item[0]), reverse=True):
+            text = text.replace(source, targets.get(lang, source))
+        return text
+
     root = os.environ.get("DOCUMENTS_DIR", "").strip() or os.path.join(os.path.dirname(routes_file), "tranviq_documents")
     base_root = root
     root = LocalProxy(lambda: tenancy.file_path(base_root))
@@ -65,7 +141,7 @@ def register_document_routes(app, page, routes_file, vehicles):
                 )
             return
         if not durable_files:
-            raise RuntimeError("Brak trwałego miejsca na dokumenty. Skontaktuj się z administratorem.")
+            raise RuntimeError(dt("storage_unavailable"))
         os.makedirs(str(root), exist_ok=True)
         path = os.path.join(str(root), item["filename"])
         with open(path, "xb") as handle:
@@ -135,11 +211,11 @@ def register_document_routes(app, page, routes_file, vehicles):
         if image.width * image.height > 36_000_000:
             image.thumbnail((6000, 6000))
         if min(image.size) < 600:
-            raise ValueError("Zdjęcie jest zbyt małe. Zrób je ponownie.")
+            raise ValueError(dt("photo_small"))
         array = np.array(image)
         gray = cv2.cvtColor(array, cv2.COLOR_RGB2GRAY)
         if cv2.Laplacian(gray, cv2.CV_64F).var() < 35:
-            raise ValueError("Zdjęcie jest niewyraźne. Zrób je ponownie.")
+            raise ValueError(dt("photo_blurry"))
         reduced = cv2.resize(array, (min(1200, image.width), round(image.height * min(1200, image.width) / image.width)))
         scale = image.width / reduced.shape[1]
         mono = cv2.cvtColor(reduced, cv2.COLOR_RGB2GRAY)
@@ -176,7 +252,7 @@ def register_document_routes(app, page, routes_file, vehicles):
                 '<option value="{}">{}</option>'.format(escape(str(v["id"])), escape(str(v.get("plate") or v.get("name") or v["id"])))
                 for v in vehicles
             )
-            vehicle_select = '<label>Pojazd / trasa</label><select name="vehicle_id" required>' + options + '</select>'
+            vehicle_select = localize_doc_markup('<label>Pojazd / trasa</label><select name="vehicle_id" required>' + options + '</select>')
         upload = r"""
         <div class="card"><h2>Skanuj dokument</h2>
         <p>Skieruj kamerę na dokument. Gdy wszystkie 4 krawędzie są widoczne i obraz jest stabilny, skan wykona się automatycznie.</p>
@@ -246,9 +322,10 @@ def register_document_routes(app, page, routes_file, vehicles):
         })();
         </script>
         """.replace("__VEHICLE_SELECT__", vehicle_select) if role() in {"driver", "dispatcher", "director"} else ""
-        body = upload + '<div class="card"><h2>Dokumenty z trasy <span id="docCount"></span></h2><div id="docList">Ładowanie…</div></div>' + '''<script>
-        async function loadDocs(){let r=await fetch('/api/documents',{cache:'no-store'});if(!r.ok)return;let d=await r.json(),box=document.getElementById('docList');document.getElementById('docCount').textContent='('+d.documents.length+')';box.replaceChildren();for(let x of d.documents){let p=document.createElement('p'),a=document.createElement('a');a.href='/api/documents/'+encodeURIComponent(x.id)+'/file';a.textContent=x.label+' · '+x.vehicle_label+' · '+new Date(x.created_at).toLocaleString()+' · otwórz';a.target='_blank';p.appendChild(a);let download=document.createElement('a');download.href='/api/documents/'+encodeURIComponent(x.id)+'/file?download=1';download.textContent=' ⬇ Pobierz';download.style.marginLeft='14px';download.style.fontWeight='bold';p.appendChild(download);box.appendChild(p)}if(!d.documents.length)box.textContent='Brak dokumentów.'}loadDocs();setInterval(loadDocs,30000);</script>'''
-        return page("Dokumenty", body, "documents")
+        upload = localize_doc_markup(upload)
+        body = upload + localize_doc_markup('<div class="card"><h2>Dokumenty z trasy <span id="docCount"></span></h2><div id="docList">Ładowanie…</div></div>' + '''<script>
+        async function loadDocs(){let r=await fetch('/api/documents',{cache:'no-store'});if(!r.ok)return;let d=await r.json(),box=document.getElementById('docList');document.getElementById('docCount').textContent='('+d.documents.length+')';box.replaceChildren();for(let x of d.documents){let p=document.createElement('p'),a=document.createElement('a');a.href='/api/documents/'+encodeURIComponent(x.id)+'/file';a.textContent=x.label+' · '+x.vehicle_label+' · '+new Date(x.created_at).toLocaleString()+' · otwórz';a.target='_blank';p.appendChild(a);let download=document.createElement('a');download.href='/api/documents/'+encodeURIComponent(x.id)+'/file?download=1';download.textContent=' ⬇ Pobierz';download.style.marginLeft='14px';download.style.fontWeight='bold';p.appendChild(download);box.appendChild(p)}if(!d.documents.length)box.textContent='Brak dokumentów.'}loadDocs();setInterval(loadDocs,30000);</script>''')
+        return page(localize_doc_markup("Dokumenty"), body, "documents")
 
     @app.route("/api/documents", methods=["GET", "POST"])
     def trip_documents_api():
@@ -257,38 +334,43 @@ def register_document_routes(app, page, routes_file, vehicles):
         if request.method == "GET":
             with _LOCK:
                 items = [dict(x) for x in read_index() if visible(x)]
-            return jsonify({"documents": [{k: v for k, v in x.items() if k != "filename"} for x in items[-300:][::-1]]})
+            documents = []
+            for x in items[-300:][::-1]:
+                visible_item = {k: v for k, v in x.items() if k != "filename"}
+                visible_item["label"] = type_label(x.get("type"))
+                documents.append(visible_item)
+            return jsonify({"documents": documents})
         if role() not in {"driver", "dispatcher", "director"}:
             abort(403)
         vehicle_id = current_driver_vehicle_id() if role() == "driver" else str(request.form.get("vehicle_id") or "")
         vehicle = next((v for v in vehicles if str(v["id"]) == vehicle_id), None)
         if vehicle is None:
-            return jsonify({"error": "Wybierz pojazd."}), 400
+            return jsonify({"error": dt("choose_vehicle")}), 400
         kind = request.form.get("type", "")
         if kind not in _TYPES:
-            return jsonify({"error": "Nieznany rodzaj dokumentu."}), 400
+            return jsonify({"error": dt("unknown_type")}), 400
         upload = request.files.get("file")
         if not upload:
-            return jsonify({"error": "Wybierz plik."}), 400
+            return jsonify({"error": dt("choose_file")}), 400
         raw = upload.stream.read(_MAX_BYTES + 1)
         if len(raw) > _MAX_BYTES:
-            return jsonify({"error": "Plik przekracza 12 MB."}), 413
+            return jsonify({"error": dt("too_large")}), 413
         is_pdf = raw.startswith(b"%PDF-")
         try:
             if is_pdf:
                 from pypdf import PdfReader
                 reader = PdfReader(io.BytesIO(raw))
                 if not 1 <= len(reader.pages) <= 20:
-                    raise ValueError("PDF musi mieć 1–20 stron.")
+                    raise ValueError(dt("pdf_pages"))
                 result, cropped, suffix, mime = raw, False, ".pdf", "application/pdf"
             else:
                 result, cropped = scan_image(raw)
                 suffix, mime = ".jpg", "image/jpeg"
         except Exception as exc:
-            return jsonify({"error": str(exc) if isinstance(exc, ValueError) else "Nie można odczytać zdjęcia lub PDF."}), 400
+            return jsonify({"error": str(exc) if isinstance(exc, ValueError) else dt("read_failed")}), 400
         item_id = uuid.uuid4().hex
         filename = item_id + suffix
-        item = {"id": item_id, "type": kind, "label": _TYPES[kind], "vehicle_id": vehicle_id,
+        item = {"id": item_id, "type": kind, "label": type_label(kind), "vehicle_id": vehicle_id,
                 "vehicle_label": vehicle.get("plate") or vehicle.get("name"),
                 "uploaded_by": role(), "trip": current_trip(vehicle_id), "created_at": datetime.now(timezone.utc).isoformat(),
                 "cropped": cropped, "mime": mime, "filename": filename}
@@ -297,7 +379,7 @@ def register_document_routes(app, page, routes_file, vehicles):
                 store_document(item, result)
         except Exception as exc:
             app.logger.exception("Document storage failed")
-            return jsonify({"error": str(exc) if isinstance(exc, RuntimeError) else "Nie udało się zapisać dokumentu."}), 503
+            return jsonify({"error": str(exc) if isinstance(exc, RuntimeError) else dt("save_failed")}), 503
         return jsonify({"ok": True, "document": {k: v for k, v in item.items() if k != "filename"}}), 201
 
     @app.route("/api/documents/unread")
@@ -326,4 +408,4 @@ def register_document_routes(app, page, routes_file, vehicles):
         filename = item.get("filename", "")
         if filename not in {item_id + ".jpg", item_id + ".pdf"}:
             abort(404)
-        return send_file(file_content(item), mimetype=item["mime"], as_attachment=request.args.get("download") == "1", download_name=item["label"].replace(" ", "-") + "-" + item["vehicle_label"].replace(" ", "-") + "-" + filename)
+        return send_file(file_content(item), mimetype=item["mime"], as_attachment=request.args.get("download") == "1", download_name=type_label(item.get("type")).replace(" ", "-") + "-" + item["vehicle_label"].replace(" ", "-") + "-" + filename)
