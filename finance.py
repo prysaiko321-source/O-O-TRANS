@@ -751,7 +751,33 @@ def gmail_access_token(account_email=""):
         },
         timeout=30
     )
-    response.raise_for_status()
+    if not response.ok:
+        try:
+            error_data = response.json()
+            error_name = clean_text(error_data.get("error"), 80)
+            error_description = clean_text(
+                error_data.get("error_description"),
+                300
+            )
+        except Exception:
+            error_name = ""
+            error_description = clean_text(response.text, 300)
+
+        if error_name in {"invalid_grant", "invalid_client"}:
+            raise RuntimeError(
+                "GMAIL_RECONNECT_REQUIRED:"
+                + clean_text(integration["account_email"], 300)
+            )
+
+        detail = ": ".join(
+            value
+            for value in (error_name, error_description)
+            if value
+        )
+        raise RuntimeError(
+            detail or f"Google OAuth HTTP {response.status_code}"
+        )
+
     token_data = response.json()
     token_data["refresh_token"] = refresh_token
     store_gmail_tokens(
@@ -2205,9 +2231,22 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 max_age=0
             )
         except Exception as exc:
+            raw_error = clean_text(exc, 180)
+            if raw_error.startswith("GMAIL_RECONNECT_REQUIRED:"):
+                account_email = raw_error.split(":", 1)[1].strip()
+                raw_error = finance_text(
+                    "Авторизація Gmail для цієї пошти закінчилася. Відключіть і підключіть пошту знову"
+                    + (f": {account_email}" if account_email else "."),
+                    "Autoryzacja Gmail dla tej skrzynki wygasła. Odłącz i podłącz skrzynkę ponownie"
+                    + (f": {account_email}" if account_email else "."),
+                    "Gmail authorization for this mailbox has expired. Disconnect and reconnect the mailbox"
+                    + (f": {account_email}" if account_email else "."),
+                    "Die Gmail-Autorisierung für dieses Postfach ist abgelaufen. Trennen und verbinden Sie das Postfach erneut"
+                    + (f": {account_email}" if account_email else "."),
+                )
             return redirect(url_for(
                 "finance_dashboard",
-                document_error=clean_text(exc, 180)
+                document_error=raw_error
             ))
 
     @app.route(
