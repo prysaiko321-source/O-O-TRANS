@@ -4347,6 +4347,21 @@ def company_login():
         if isinstance(user,dict) and user.get("enabled") and check_password_hash(str(user.get("password_hash") or ""),password):
             clear_session_keep_language(); session["logged_in"]=True; session["role"]=str(user.get("role") or "dispatcher"); session["username"]=str(user.get("login") or login_value); session["tenant_company_id"]=str(user.get("company_id") or ""); session["tenant_user_id"]=str(user.get("id") or "")
             return redirect(url_for("company_dashboard"))
+
+        # Also allow the original O&O TRANS director account to enter through
+        # the public "login or register company" screen.
+        legacy_director_ok = (
+            bool(ADMIN_USER and ADMIN_PASSWORD)
+            and hmac.compare_digest(login_value, ADMIN_USER)
+            and hmac.compare_digest(password, ADMIN_PASSWORD)
+        )
+        if legacy_director_ok:
+            clear_session_keep_language()
+            session["logged_in"] = True
+            session["role"] = "director"
+            session["username"] = login_value
+            return redirect(role_home_url("director"))
+
         error="Неправильний логін або пароль."
     error_html="<p class='error'>"+escape(error)+"</p>" if error else ""
     body="""<div class="card" style="max-width:440px;margin:0 auto"><h2>Вхід компанії</h2>{error}<form method="post"><p><label>E-mail або логін</label><input name="login" required></p><p><label>Пароль</label><input name="password" type="password" required></p><button type="submit">Увійти</button> <a class="button" href="/company/register">Реєстрація</a></form></div>""".format(error=error_html)
