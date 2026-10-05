@@ -4039,8 +4039,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         {accounting_block}
 
         <style>
-        .finance-fold { margin: 12px 0; }
-        .finance-fold > summary {
+        .finance-fold {{ margin: 12px 0; }}
+        .finance-fold > summary {{
             list-style: none;
             cursor: pointer;
             display: flex;
@@ -4051,22 +4051,22 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             border-radius: 10px;
             background: #f8fafb;
             border: 1px solid #dfe5e8;
-        }
-        .finance-fold > summary::-webkit-details-marker { display:none; }
-        .finance-arrow {
+        }}
+        .finance-fold > summary::-webkit-details-marker {{ display:none; }}
+        .finance-arrow {{
             display:inline-block;
             font-size: 26px;
             line-height: 1;
             transition: transform .15s ease;
             color:#44515a;
-        }
-        .finance-fold[open] > summary .finance-arrow { transform: rotate(90deg); }
-        .finance-fold-body { padding: 12px 4px 4px; }
-        .finance-item > summary { background:#fff; }
-        .finance-summary-main { display:flex; flex-direction:column; gap:3px; min-width:0; flex:1; }
-        .finance-summary-main span { white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
-        .finance-summary-meta { font-weight:800; white-space:nowrap; }
-        .finance-section > summary strong { font-size:18px; }
+        }}
+        .finance-fold[open] > summary .finance-arrow {{ transform: rotate(90deg); }}
+        .finance-fold-body {{ padding: 12px 4px 4px; }}
+        .finance-item > summary {{ background:#fff; }}
+        .finance-summary-main {{ display:flex; flex-direction:column; gap:3px; min-width:0; flex:1; }}
+        .finance-summary-main span {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
+        .finance-summary-meta {{ font-weight:800; white-space:nowrap; }}
+        .finance-section > summary strong {{ font-size:18px; }}
         </style>
 
         <details class="card finance-fold finance-section">
