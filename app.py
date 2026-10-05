@@ -1187,6 +1187,40 @@ def _write_delivery_routes(data):
     os.replace(temporary, DELIVERY_ROUTES_FILE)
 
 
+# --- TRANVIQ multi-company pilot ---
+TENANT_ACCOUNTS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_tenant_accounts.json")
+TENANT_ACCOUNTS_LOCK = threading.Lock()
+
+def _load_tenant_accounts():
+    try:
+        with open(TENANT_ACCOUNTS_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {"companies": {}, "users": {}}
+    except (OSError, ValueError, TypeError):
+        return {"companies": {}, "users": {}}
+
+def _write_tenant_accounts(data):
+    folder = os.path.dirname(TENANT_ACCOUNTS_FILE)
+    if folder: os.makedirs(folder, exist_ok=True)
+    temporary = TENANT_ACCOUNTS_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+    os.replace(temporary, TENANT_ACCOUNTS_FILE)
+
+def _tenant_login_key(value):
+    return str(value or "").strip().casefold()
+
+def _tenant_company():
+    company_id = str(session.get("tenant_company_id") or "").strip()
+    if not company_id: return None
+    with TENANT_ACCOUNTS_LOCK: data = _load_tenant_accounts()
+    company = data.get("companies", {}).get(company_id)
+    return company if isinstance(company, dict) else None
+
+def _tenant_storage_is_persistent():
+    try: return os.path.abspath(TENANT_ACCOUNTS_FILE).startswith("/var/data/")
+    except Exception: return False
+
 DRIVER_SETTINGS_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_driver_settings.json")
 DRIVER_SETTINGS_LOCK = threading.Lock()
 
@@ -2246,13 +2280,16 @@ document.addEventListener('DOMContentLoaded', function () {{
 '''
 
     page_class = "page-gps" if active == "gps" else ""
-    branding = get_company_branding(
-        COMPANY_ID,
-        COMPANY_NAME
-    )
-    company_display_name = escape(
-        branding["company_name"]
-    )
+    tenant_company = _tenant_company()
+    branding = get_company_branding(COMPANY_ID, COMPANY_NAME)
+    if tenant_company or active == "tenant_public":
+        company_display_name = escape(str((tenant_company or {}).get("name") or "TRANVIQ"))
+        company_logo_html = ""
+        company_watermark_html = ""
+    else:
+        company_display_name = escape(branding["company_name"])
+        company_logo_html = '<img class="company-logo" src="/assets/company-logo.jpg" alt="'+company_display_name+'">'
+        company_watermark_html = '<div class="page-watermark" aria-hidden="true"><img src="/assets/company-logo.jpg" alt=""></div>' 
 
     road_payments_label = {
         "uk": "🛣️ Оплата доріг",
@@ -2261,7 +2298,11 @@ document.addEventListener('DOMContentLoaded', function () {{
         "de": "🛣️ Maut",
     }.get(language, "🛣️ Оплата доріг")
 
-    if role == "driver":
+    if tenant_company:
+        nav_items = [("company", "/company", "Кабінет компанії")]
+        if role == "director":
+            nav_items.append(("company_users", "/company/users", "Користувачі"))
+    elif role == "driver":
         driver_gps_label = {
             "uk": "📍 GPS машин",
             "pl": "📍 GPS pojazdów",
@@ -3533,11 +3574,7 @@ body.page-gps .powered-by {{
         <div class="brand-divider"></div>
 
         <div class="company-brand">
-            <img
-                class="company-logo"
-                src="/assets/company-logo.jpg"
-                alt="{company}"
-            >
+            {company_logo_html}
             <div>
                 <div class="company-caption">{company_label}</div>
                 <div class="company-name">{company}</div>
@@ -3550,12 +3587,7 @@ body.page-gps .powered-by {{
     {nav}
 </div>
 
-<div class="page-watermark" aria-hidden="true">
-    <img
-        src="/assets/company-logo.jpg"
-        alt=""
-    >
-</div>
+{company_watermark_html}
 
 <div class="wrap">
     <h1>{title}</h1>
@@ -3573,6 +3605,8 @@ body.page-gps .powered-by {{
         language=language,
         page_class=page_class,
         company=company_display_name,
+        company_logo_html=company_logo_html,
+        company_watermark_html=company_watermark_html,
         company_label=escape(t("company")),
         platform=PLATFORM_NAME,
         platform_tagline=PLATFORM_TAGLINE,
@@ -3726,6 +3760,11 @@ def login(role):
                 <h2>{driver}</h2>
                 <p>{driver_desc}</p>
                 <a class="button" href="/login/driver">{sign_in}</a>
+            </div>
+            <div class="card" style="border:2px solid #25a86b">
+                <h2>Нова компанія</h2><p>Створити окремий кабінет у TRANVIQ.</p>
+                <a class="button" href="/company/register">Зареєструвати компанію</a>
+                <a class="button" href="/company/login">Вхід компанії</a>
             </div>
         </div>
         """.format(
@@ -3881,6 +3920,89 @@ def login(role):
     )
 
 
+@app.route("/company/register", methods=["GET", "POST"])
+def company_register():
+    error = ""
+    if request.method == "POST":
+        company_name = str(request.form.get("company_name") or "").strip()
+        nip = re.sub(r"[^0-9A-Za-z]", "", str(request.form.get("nip") or "")).upper()
+        director_name = str(request.form.get("director_name") or "").strip()
+        login_value = str(request.form.get("login") or "").strip()
+        password = str(request.form.get("password") or "")
+        password2 = str(request.form.get("password2") or "")
+        login_key = _tenant_login_key(login_value)
+        if not company_name or not nip or not director_name or not login_key:
+            error = "Заповніть усі поля."
+        elif len(password) < 8:
+            error = "Пароль має містити щонайменше 8 символів."
+        elif password != password2:
+            error = "Паролі не співпадають."
+        else:
+            with TENANT_ACCOUNTS_LOCK:
+                data = _load_tenant_accounts(); companies=data.setdefault("companies",{}); users=data.setdefault("users",{})
+                duplicate_nip = any(str(x.get("nip") or "").upper()==nip for x in companies.values() if isinstance(x,dict))
+                if login_key in users: error = "Такий логін уже використовується."
+                elif duplicate_nip: error = "Компанія з таким NIP уже зареєстрована."
+                else:
+                    company_id=uuid.uuid4().hex; user_id=uuid.uuid4().hex
+                    companies[company_id]={"id":company_id,"name":company_name,"nip":nip,"created_at":datetime.now(timezone.utc).isoformat(),"vehicles":[]}
+                    users[login_key]={"id":user_id,"company_id":company_id,"name":director_name,"login":login_value,"role":"director","password_hash":generate_password_hash(password),"enabled":True}
+                    _write_tenant_accounts(data)
+                    session.clear(); session["logged_in"]=True; session["role"]="director"; session["username"]=login_value; session["tenant_company_id"]=company_id; session["tenant_user_id"]=user_id
+                    return redirect(url_for("company_dashboard"))
+    warning = "" if _tenant_storage_is_persistent() else "<p class='error'>Тестовий режим: після перезапуску Render реєстрація може зникнути.</p>"
+    error_html = "<p class='error'>"+escape(error)+"</p>" if error else ""
+    body = """<div class="card" style="max-width:620px;margin:0 auto"><h2>Реєстрація компанії в TRANVIQ</h2>{warning}{error}<form method="post"><p><label>Назва компанії</label><input name="company_name" required></p><p><label>NIP / VAT ID</label><input name="nip" required></p><p><label>Ім’я директора</label><input name="director_name" required></p><p><label>E-mail або логін директора</label><input name="login" required></p><p><label>Пароль</label><input name="password" type="password" required></p><p><label>Повторіть пароль</label><input name="password2" type="password" required></p><button type="submit">Створити компанію</button> <a class="button" href="/company/login">Уже маю акаунт</a></form></div>""".format(warning=warning,error=error_html)
+    return page("Реєстрація компанії", body, "tenant_public")
+
+@app.route("/company/login", methods=["GET", "POST"])
+def company_login():
+    error=""
+    if request.method=="POST":
+        login_value=str(request.form.get("login") or "").strip(); password=str(request.form.get("password") or "")
+        with TENANT_ACCOUNTS_LOCK: data=_load_tenant_accounts()
+        user=data.get("users",{}).get(_tenant_login_key(login_value))
+        if isinstance(user,dict) and user.get("enabled") and check_password_hash(str(user.get("password_hash") or ""),password):
+            session.clear(); session["logged_in"]=True; session["role"]=str(user.get("role") or "dispatcher"); session["username"]=str(user.get("login") or login_value); session["tenant_company_id"]=str(user.get("company_id") or ""); session["tenant_user_id"]=str(user.get("id") or "")
+            return redirect(url_for("company_dashboard"))
+        error="Неправильний логін або пароль."
+    error_html="<p class='error'>"+escape(error)+"</p>" if error else ""
+    body="""<div class="card" style="max-width:440px;margin:0 auto"><h2>Вхід компанії</h2>{error}<form method="post"><p><label>E-mail або логін</label><input name="login" required></p><p><label>Пароль</label><input name="password" type="password" required></p><button type="submit">Увійти</button> <a class="button" href="/company/register">Реєстрація</a></form></div>""".format(error=error_html)
+    return page("TRANVIQ — вхід",body,"tenant_public")
+
+@app.route("/company")
+def company_dashboard():
+    company=_tenant_company()
+    if not company: return redirect(url_for("company_login"))
+    role=current_role(); role_name="Директор" if role=="director" else "Логіст"
+    note="" if _tenant_storage_is_persistent() else "<p class='error'>Тестовий акаунт тимчасовий до перезапуску Render.</p>"
+    tools="<div class='card'><h2>Команда</h2><p>Створіть доступ для логіста цієї компанії.</p><a class='button' href='/company/users'>Користувачі та логіст</a></div>" if role=="director" else ""
+    body="""<div class="card"><h2>{name}</h2><p><strong>NIP/VAT:</strong> {nip}</p><p><strong>Роль:</strong> {role}</p>{note}<p class="ok">Окремий кабінет: дані O&amp;O TRANS недоступні.</p></div>{tools}<div class="card"><h2>Парк компанії</h2><p>Автомобілів: {count}</p><p class="small">Наступний етап — власні машини, GPS і водії цієї компанії.</p></div>""".format(name=escape(str(company.get("name") or "")),nip=escape(str(company.get("nip") or "—")),role=role_name,note=note,tools=tools,count=len(company.get("vehicles") or []))
+    return page("Кабінет компанії",body,"company")
+
+@app.route("/company/users", methods=["GET", "POST"])
+def company_users():
+    company=_tenant_company()
+    if not company or current_role()!="director": return redirect(url_for("company_dashboard"))
+    message=""
+    if request.method=="POST":
+        name=str(request.form.get("name") or "").strip(); login_value=str(request.form.get("login") or "").strip(); password=str(request.form.get("password") or ""); key=_tenant_login_key(login_value)
+        if not name or not key or len(password)<8: message="Вкажіть ім’я, логін і пароль мінімум 8 символів."
+        else:
+            with TENANT_ACCOUNTS_LOCK:
+                data=_load_tenant_accounts(); users=data.setdefault("users",{})
+                if key in users: message="Такий логін уже використовується."
+                else:
+                    users[key]={"id":uuid.uuid4().hex,"company_id":company["id"],"name":name,"login":login_value,"role":"dispatcher","password_hash":generate_password_hash(password),"enabled":True}; _write_tenant_accounts(data); message="Логіста створено. Можна передати йому логін і пароль."
+    with TENANT_ACCOUNTS_LOCK: data=_load_tenant_accounts()
+    rows=[]
+    for user in data.get("users",{}).values():
+        if isinstance(user,dict) and user.get("company_id")==company["id"]:
+            rows.append("<tr><td>{}</td><td>{}</td><td>{}</td></tr>".format(escape(str(user.get("name") or "")),escape(str(user.get("login") or "")),"Директор" if user.get("role")=="director" else "Логіст"))
+    msg="<p class='ok'>"+escape(message)+"</p>" if message else ""
+    body="""<div class="card"><h2>Користувачі — {company}</h2>{msg}<table><tr><th>Ім’я</th><th>Логін</th><th>Роль</th></tr>{rows}</table></div><div class="card"><h2>Додати логіста</h2><form method="post"><p><label>Ім’я</label><input name="name" required></p><p><label>E-mail або логін</label><input name="login" required></p><p><label>Пароль (мін. 8 символів)</label><input name="password" type="password" required></p><button type="submit">Створити логіста</button> <a class="button" href="/company">Назад</a></form></div>""".format(company=escape(str(company.get("name") or "")),msg=msg,rows="".join(rows))
+    return page("Користувачі компанії",body,"company")
+
 @app.route("/logout")
 def logout():
     session.clear()
@@ -3896,12 +4018,20 @@ def require_login():
         or request.path == "/assets/company-logo.jpg"
         or request.path == "/language"
         or request.path == "/callback"
+        or request.path == "/company/register"
+        or request.path == "/company/login"
         or request.path == "/api/finance/email-invoices/import"
     ):
         return None
 
     if not is_logged_in():
         return redirect(url_for("login"))
+
+    # Hard company boundary: tenant sessions cannot reach legacy O&O data.
+    if session.get("tenant_company_id"):
+        if request.endpoint in {"company_dashboard", "company_users", "logout", "change_language"}:
+            return None
+        return redirect(url_for("company_dashboard"))
 
     role = current_role()
 
