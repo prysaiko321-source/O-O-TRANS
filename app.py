@@ -5487,6 +5487,16 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
       function googleMapsUrl(address){
         return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address) + '&travelmode=driving';
       }
+      function googleMapsStopUrl(stop){
+        if(stop){
+          const lat=Number(stop.latitude),lon=Number(stop.longitude);
+          if(Number.isFinite(lat)&&Number.isFinite(lon)&&Math.abs(lat)<=90&&Math.abs(lon)<=180&&!(lat===0&&lon===0)){
+            return navToCoords(lat,lon);
+          }
+          if(stop.address) return googleMapsUrl(stop.address);
+        }
+        return '#';
+      }
       function currentIndex(stops){
         const idx = stops.findIndex(function(stop){
           const status=String(stop.manual_status||'').toLowerCase();
@@ -5505,14 +5515,14 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const last=stops[stops.length-1]&&stops[stops.length-1].address||'';
         return first+(stops.length>1?' → '+last:'')+' · '+stops.length+' '+routeUi.points;
       }
-      function routeNavAddress(item,isActive){
+      function routeNavStop(item,isActive){
         const stops=routeStops(item);
-        if(!stops.length) return '';
+        if(!stops.length) return null;
         if(isActive){
           const idx=currentIndex(stops);
-          return (idx>=0?stops[idx]:stops[stops.length-1]).address||'';
+          return idx>=0?stops[idx]:stops[stops.length-1];
         }
-        return (stops[0]&&stops[0].address)||'';
+        return stops[0]||null;
       }
       function scrollRouteDetails(){
         window.setTimeout(function(){
@@ -5534,10 +5544,10 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         scrollRouteDetails();
       }
       function jobActionsHtml(item,index,isActive){
-        const address=routeNavAddress(item,isActive);
+        const stop=routeNavStop(item,isActive);
         const previewAttr=isActive?'data-active-preview="1"':'data-q="'+index+'"';
-        const nav=address
-          ? '<a class="driver-job-nav" target="_blank" rel="noopener" href="'+googleMapsUrl(address)+'">'+routeUi.navigate+'</a>'
+        const nav=stop
+          ? '<a class="driver-job-nav" target="_blank" rel="noopener" href="'+googleMapsStopUrl(stop)+'">'+routeUi.navigate+'</a>'
           : '';
         return '<div class="driver-job-actions"><button class="driver-job-open" type="button" '+previewAttr+'>'+routeUi.preview+'</button>'+nav+'</div>';
       }
@@ -5579,7 +5589,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         routeKicker.textContent=routeUi.preview_next;
         nextAddress.textContent=stops[0].address||'';
         nextWindow.textContent=routeUi.route+' '+(previewQueueIndex===null?'':(previewQueueIndex+2))+' · '+stops.length+' '+routeUi.points;
-        navigate.href=googleMapsUrl(stops[0].address||'');
+        navigate.href=googleMapsStopUrl(stops[0]);
 
         statusActions.style.display='none';
         complete.disabled=true;
@@ -5591,8 +5601,8 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           const time=(stop.window_start&&stop.window_end)
             ? (routeUi.window+': '+stop.window_start+'–'+stop.window_end)
             : routeUi.no_window;
-          const nav=stop.address
-            ? '<a class="driver-stop-nav" target="_blank" rel="noopener" href="'+googleMapsUrl(stop.address)+'">'+routeUi.navigate+'</a>'
+          const nav=(stop.address || (stop.latitude!=null && stop.longitude!=null))
+            ? '<a class="driver-stop-nav" target="_blank" rel="noopener" href="'+googleMapsStopUrl(stop)+'">'+routeUi.navigate+'</a>'
             : '';
           return '<div class="driver-stop"><div class="driver-num">'+(i+1)+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+'</div>'+nav+'</div></div>';
         }).join('');
@@ -5638,7 +5648,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           nextWindow.textContent=(stop.window_start&&stop.window_end)
             ? (routeUi.window+': '+stop.window_start+'–'+stop.window_end)
             : routeUi.no_window;
-          navigate.href=googleMapsUrl(stop.address||'');
+          navigate.href=googleMapsStopUrl(stop);
           complete.disabled=false;
           refusedButton.disabled=false;
           pendingButton.disabled=false;
@@ -5857,7 +5867,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           const eta=iqFormatEta(secs);
           const windowText=(stop.window_start&&stop.window_end)?(' Okno punktu: '+stop.window_start+'–'+stop.window_end+'.'):'';
           iqResult.textContent=(unloading?'Następny rozładunek: ':'Następny punkt: ')+stop.address+'. Zostało '+km.toFixed(1)+' km, około '+iqFormatDriveTime(secs)+(eta?'. Przewidywany przyjazd: '+eta:'')+'.'+windowText;
-          const a=document.createElement('a');a.href=googleMapsUrl(stop.address);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
+          const a=document.createElement('a');a.href=googleMapsStopUrl(stop);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
         }catch(e){
           const reason=String((e&&e.message)||e||'unknown');
           iqResult.textContent=reason==='gps'
@@ -5865,7 +5875,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             : (reason==='geocode'
               ? 'Nie udało się ustalić współrzędnych punktu trasy. Sprawdź adres.'
               : 'Serwis tras nie obliczył drogi. Nie mogę podać dokładnych kilometrów ani czasu jazdy.');
-          const a=document.createElement('a');a.href=googleMapsUrl(stop.address);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
+          const a=document.createElement('a');a.href=googleMapsStopUrl(stop);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);
           console.error('TRANVIQ IQ ETA error:',e);
         }
       }
@@ -5892,7 +5902,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         if(tachoWord && has(['скільки','ile','ще','jeszcze','можу','mogę','сьогодні','dzisiaj','зміні','zmian'])){iqTachoAnswer('daily');return;}
         if(has(['тахо','tachograf'])){iqTachoAnswer('all');return;}
         if((has(['наступн','następn'])) && has(['адрес','adres'])){iqResult.textContent=stop?('IQ zrozumiał: następny adres. '+(stop.address||'')):'Brak aktywnego następnego punktu.';return;}
-        if(navWord && has(['наступ','następ'])){if(!stop){iqResult.textContent='Brak aktywnego następnego punktu.';return;}iqResult.textContent='IQ zrozumiał: nawigacja do następnego punktu.';const a=document.createElement('a');a.href=googleMapsUrl(stop.address||'');a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);return;}
+        if(navWord && has(['наступ','następ'])){if(!stop){iqResult.textContent='Brak aktywnego następnego punktu.';return;}iqResult.textContent='IQ zrozumiał: nawigacja do następnego punktu.';const a=document.createElement('a');a.href=googleMapsStopUrl(stop);a.target='_blank';a.rel='noopener';a.textContent='🧭 NAWIGUJ';iqAction.appendChild(a);return;}
         if(has(['наступн','następn']) && has(['рейс','маршрут','tras'])){if(routeQueue.length){iqResult.textContent='IQ zrozumiał: pokaż następną trasę. '+routeSummary(routeQueue[0]);const b=document.createElement('button');b.type='button';b.textContent='POKAŻ TRASĘ 2';b.onclick=function(){previewRoute=routeQueue[0];openRouteTab();renderPreview();};iqAction.appendChild(b);}else iqResult.textContent='Nie ma jeszcze następnej trasy.';return;}
         iqResult.textContent='Nie mam pewności, jakie polecenie robocze miałeś na myśli. Niczego nie wykonałem. Spróbuj: „Nawiguj do DXF”, „Ile mam czasu do pauzy?” albo „Jaki jest następny adres?”.';
       }
