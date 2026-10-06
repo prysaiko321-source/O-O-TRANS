@@ -49,6 +49,7 @@ if not SESSION_SECRET:
     SESSION_SECRET = secrets.token_hex(32)
 
 app.secret_key = SESSION_SECRET
+app.permanent_session_lifetime = timedelta(days=30)
 
 NAVIREC_API = "https://api.navirec.com"
 NAVIREC_TOKEN = os.environ.get("NAVIREC_TOKEN", "")
@@ -1632,7 +1633,7 @@ def delivery_stop_status():
             if latitude is None or longitude is None:
                 continue
             manual_status = str(raw_stop.get("manual_status") or "").strip().lower()
-            if manual_status not in ("completed", "pending"):
+            if manual_status not in ("completed", "refused", "pending"):
                 manual_status = ""
             stops.append({
                 "latitude": latitude,
@@ -1692,7 +1693,7 @@ def delivery_stop_status():
 
     for stop in stops:
         manual_status = stop.get("manual_status") or ""
-        if manual_status == "completed":
+        if manual_status in ("completed", "refused"):
             statuses.append(manual_status)
             continue
 
@@ -2778,6 +2779,26 @@ document.addEventListener('DOMContentLoaded', function () {{
             )
         )
 
+    extra_head = ""
+    if active == "driver":
+        extra_head = """
+<link rel="manifest" href="/driver-manifest.webmanifest">
+<meta name="theme-color" content="#0b1724">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<meta name="apple-mobile-web-app-title" content="TRANVIQ Driver">
+<link rel="apple-touch-icon" href="/assets/tranviq-driver-icon.svg">
+<script>
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/driver-service-worker.js', {scope: '/'})
+      .catch(function () {});
+  });
+}
+</script>
+"""
+
     language_picker = """
     <form class="language-picker" method="post" action="/language">
         <input type="hidden" name="next" value="{next_url}">
@@ -3374,6 +3395,7 @@ body.page-gps .powered-by {{
 
 .delivery-stop-pending {{ background: #d63b32; }}
 .delivery-stop-current {{ background: #f2ad16; color: #17202a; }}
+.delivery-stop-refused {{ background: #f2ad16; color: #17202a; box-shadow: 0 0 0 3px rgba(242,173,22,.24), 0 3px 8px rgba(0,0,0,.30); }}
 .delivery-stop-completed {{ background: #149447; }}
 
 .gps-status-legend {{
@@ -3977,8 +3999,112 @@ body.page-gps .powered-by {{
         nav=nav,
         role_badge=role_badge,
         body=body,
-        extra_head=""
+        extra_head=extra_head
     )
+
+
+@app.route("/driver-manifest.webmanifest")
+def driver_manifest():
+    manifest = {
+        "name": "TRANVIQ Driver",
+        "short_name": "TRANVIQ",
+        "description": "TRANVIQ driver application",
+        "start_url": "/driver",
+        "scope": "/",
+        "display": "standalone",
+        "background_color": "#f1f3f5",
+        "theme_color": "#0b1724",
+        "orientation": "portrait-primary",
+        "icons": [
+            {
+                "src": "/assets/tranviq-driver-icon.svg",
+                "sizes": "any",
+                "type": "image/svg+xml",
+                "purpose": "any maskable"
+            }
+        ],
+        "shortcuts": [
+            {"name": "Route", "url": "/driver"},
+            {"name": "GPS", "url": "/driver#gps"},
+            {"name": "Documents", "url": "/documents"}
+        ]
+    }
+    response = Response(
+        json.dumps(manifest, ensure_ascii=False),
+        mimetype="application/manifest+json"
+    )
+    response.headers["Cache-Control"] = "public, max-age=300"
+    return response
+
+
+@app.route("/driver-service-worker.js")
+def driver_service_worker():
+    script = r"""
+const CACHE_NAME = 'tranviq-driver-shell-v1';
+const STATIC_FILES = [
+  '/assets/tranviq-driver-icon.svg',
+  '/driver-manifest.webmanifest'
+];
+
+self.addEventListener('install', (event) => {
+  event.waitUntil(
+    caches.open(CACHE_NAME)
+      .then((cache) => cache.addAll(STATIC_FILES))
+      .catch(() => null)
+      .then(() => self.skipWaiting())
+  );
+});
+
+self.addEventListener('activate', (event) => {
+  event.waitUntil(
+    caches.keys()
+      .then((keys) => Promise.all(
+        keys.filter((key) => key !== CACHE_NAME).map((key) => caches.delete(key))
+      ))
+      .then(() => self.clients.claim())
+  );
+});
+
+self.addEventListener('fetch', (event) => {
+  if (event.request.method !== 'GET') return;
+
+  const url = new URL(event.request.url);
+  if (url.origin !== self.location.origin) return;
+
+  // Driver data, routes, messages, documents and GPS always come from the
+  // network. We intentionally do not cache authenticated company data.
+  event.respondWith(
+    fetch(event.request).catch(async () => {
+      const cached = await caches.match(event.request);
+      if (cached) return cached;
+      if (event.request.mode === 'navigate') {
+        return new Response(
+          'TRANVIQ Driver requires an internet connection.',
+          {status: 503, headers: {'Content-Type': 'text/plain; charset=utf-8'}}
+        );
+      }
+      return Response.error();
+    })
+  );
+});
+"""
+    response = Response(script, mimetype="application/javascript")
+    response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
+    response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+
+@app.route("/assets/tranviq-driver-icon.svg")
+def driver_app_icon():
+    svg = """<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 512 512">
+<rect width="512" height="512" rx="112" fill="#0b1724"/>
+<path d="M92 143h328v74H294v208h-76V217H92z" fill="#fff"/>
+<rect x="302" y="256" width="118" height="118" rx="24" fill="#63e6be"/>
+<text x="361" y="334" text-anchor="middle" font-family="Arial,sans-serif" font-size="64" font-weight="900" fill="#07131f">IQ</text>
+</svg>"""
+    response = Response(svg, mimetype="image/svg+xml")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
 
 
 @app.route("/assets/company-logo.jpg")
@@ -4235,6 +4361,7 @@ def login(role):
             session["username"] = username
             if role == "driver":
                 session["driver_vehicle_id"] = assigned_vehicle_id
+                session.permanent = True
             return redirect(role_home_url(role))
 
         if not credentials_configured:
@@ -4346,6 +4473,8 @@ def company_login():
         user=data.get("users",{}).get(_tenant_login_key(login_value))
         if isinstance(user,dict) and user.get("enabled") and check_password_hash(str(user.get("password_hash") or ""),password):
             clear_session_keep_language(); session["logged_in"]=True; session["role"]=str(user.get("role") or "dispatcher"); session["username"]=str(user.get("login") or login_value); session["tenant_company_id"]=str(user.get("company_id") or ""); session["tenant_user_id"]=str(user.get("id") or "")
+            if session["role"] == "driver":
+                session.permanent = True
             return redirect(url_for("company_dashboard"))
 
         # Also allow the original O&O TRANS director account to enter through
@@ -4605,6 +4734,9 @@ def require_login():
         or request.path == "/login"
         or request.path.startswith("/login/")
         or request.path == "/assets/company-logo.jpg"
+        or request.path == "/assets/tranviq-driver-icon.svg"
+        or request.path == "/driver-manifest.webmanifest"
+        or request.path == "/driver-service-worker.js"
         or request.path == "/language"
         or request.path == "/callback"
         or request.path == "/company/register"
@@ -4957,9 +5089,12 @@ def driver_dashboard():
       .driver-actions{display:grid;grid-template-columns:1fr 1fr;gap:10px}
       .driver-btn{display:flex;align-items:center;justify-content:center;min-height:54px;border-radius:12px;border:0;font-size:16px;font-weight:900;text-decoration:none;cursor:pointer}
       .driver-nav{background:#0b7285;color:white}.driver-done{background:#2f9e44;color:white}.driver-done:disabled{opacity:.45}
+      .driver-status-actions{display:grid;grid-template-columns:1fr;gap:7px;margin-top:10px}.driver-status-choice{min-height:46px;border:0;border-radius:11px;padding:9px 10px;font-weight:900;cursor:pointer}.driver-status-choice:disabled{opacity:.55;cursor:default}.driver-status-done{background:#2f9e44;color:#fff}.driver-status-refused{background:#f2ad16;color:#17202a}.driver-status-pending{background:#d63b32;color:#fff}
       .driver-list{display:grid;gap:8px;margin-top:12px}.driver-stop{border:1px solid #d8e1e5;border-radius:12px;padding:11px;background:white;display:grid;grid-template-columns:36px 1fr;gap:9px}
-      .driver-stop.current{border:2px solid #f59f00;background:#fff9db}.driver-stop.completed{opacity:.65;background:#f1f3f5}
-      .driver-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e9ecef;font-weight:900}.driver-stop.current .driver-num{background:#f59f00;color:white}.driver-stop.completed .driver-num{background:#2f9e44;color:white}
+      .driver-stop.current{border:2px solid #f59f00;background:#fff9db}.driver-stop.refused{border:2px solid #f2ad16;background:#fff3bf}.driver-stop.completed{opacity:.78;background:#f1f3f5}
+      .driver-num{width:32px;height:32px;border-radius:50%;display:flex;align-items:center;justify-content:center;background:#e9ecef;font-weight:900}.driver-stop.current .driver-num,.driver-stop.refused .driver-num{background:#f59f00;color:#17202a}.driver-stop.completed .driver-num{background:#2f9e44;color:white}
+      .driver-stop-status{display:grid;grid-template-columns:1fr;gap:5px;margin-top:8px}.driver-stop-status button{border:0;border-radius:8px;padding:8px 9px;font-size:12px;font-weight:900;cursor:pointer}.driver-stop-status button.active{outline:3px solid rgba(11,114,133,.18)}
+      .driver-install{display:none;border:2px solid #7048e8}.driver-install-row{display:flex;gap:10px;align-items:center;justify-content:space-between;flex-wrap:wrap}.driver-install-btn{border:0;border-radius:11px;background:#7048e8;color:#fff;padding:12px 16px;font-weight:900;cursor:pointer}.driver-install-note{font-size:12px;color:#68757d;margin-top:6px}
       .driver-small{font-size:12px;color:#68757d}.driver-empty{padding:22px;text-align:center;border:1px dashed #adb5bd;border-radius:14px;background:#fff}.driver-jobs{display:grid;gap:10px;margin:12px 0}.driver-job{border:1px solid #d8e1e5;border-radius:14px;padding:12px;background:#fff}.driver-job.next{border-left:5px solid #1971c2}.driver-job-title{font-weight:900;font-size:16px}.driver-job-meta{font-size:12px;color:#68757d;margin-top:4px}.driver-job-actions{display:grid;grid-template-columns:1fr 1fr;gap:8px;margin-top:9px}.driver-job-open,.driver-job-nav{display:flex;align-items:center;justify-content:center;min-height:42px;border:0;border-radius:9px;padding:8px 11px;font-weight:900;cursor:pointer;text-decoration:none}.driver-job-open{background:#e7f5ff;color:#0b4f6c}.driver-job-nav{background:#0b7285;color:#fff}.driver-back-active{display:none;background:#495057!important}.driver-stop-nav{display:inline-flex;margin-top:8px;padding:7px 9px;border-radius:8px;background:#0b7285;color:#fff!important;text-decoration:none;font-size:12px;font-weight:900}.driver-iq{display:none}.driver-iq-card{border:2px solid #7048e8;border-radius:16px;padding:16px;background:#f8f7ff}.driver-mic{width:100%;min-height:68px;border:0;border-radius:14px;background:#7048e8;color:#fff;font-size:20px;font-weight:900;cursor:pointer}.driver-mic.listening{background:#c2255c}.driver-iq-box{margin-top:12px;padding:12px;border-radius:12px;background:#fff;border:1px solid #ddd}.driver-iq-label{font-size:12px;font-weight:900;color:#68757d;text-transform:uppercase;margin-bottom:5px}.driver-iq-text{font-size:17px;font-weight:800;min-height:24px}.driver-iq-action{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}.driver-iq-action a,.driver-iq-action button{border:0;border-radius:10px;padding:10px 12px;background:#0b7285;color:#fff;text-decoration:none;font-weight:900;cursor:pointer}
       .driver-tacho{display:none}.driver-tacho-grid{display:grid;grid-template-columns:1fr 1fr;gap:10px}.driver-tacho-item{border:1px solid #d8e1e5;border-radius:12px;padding:12px;background:#fff}.driver-tacho-value{font-size:20px;font-weight:900;margin-top:4px}.driver-tacho-warn{margin-top:10px;padding:10px;border-radius:10px;background:#fff3bf;font-weight:800}.driver-tacho-ok{margin-top:10px;padding:10px;border-radius:10px;background:#d3f9d8;font-weight:800}
       @media(max-width:520px){.driver-tabs{grid-template-columns:1fr 1fr}.driver-actions{grid-template-columns:1fr}.driver-address{font-size:19px}.driver-tacho-grid{grid-template-columns:1fr}}
@@ -4967,6 +5102,12 @@ def driver_dashboard():
 
 </style>
     <div class="driver-shell">
+      <div id="driverInstallCard" class="card driver-install">
+        <div class="driver-install-row">
+          <div><strong id="driverInstallTitle"></strong><div id="driverInstallNote" class="driver-install-note"></div></div>
+          <button id="driverInstallButton" class="driver-install-btn" type="button"></button>
+        </div>
+      </div>
       <div class="card">
         <div class="driver-head">
           <div><div class="driver-kicker">KIEROWCA · TRASA NA ŻYWO</div><div class="driver-plate">__PLATE__</div></div>
@@ -4986,8 +5127,12 @@ def driver_dashboard():
         <div id="driverNextWindow" class="driver-window"></div>
         <div class="driver-actions">
           <a id="driverNavigate" class="driver-btn driver-nav" href="#" target="_blank" rel="noopener">🧭 NAWIGUJ</a>
-          <button id="driverComplete" class="driver-btn driver-done" type="button">✓ ZAKOŃCZONO</button>
           <button id="driverBackActive" class="driver-btn driver-back-active" type="button">↩ AKTUALNA TRASA</button>
+        </div>
+        <div id="driverStatusActions" class="driver-status-actions">
+          <button id="driverComplete" class="driver-status-choice driver-status-done" type="button"></button>
+          <button id="driverRefused" class="driver-status-choice driver-status-refused" type="button"></button>
+          <button id="driverPending" class="driver-status-choice driver-status-pending" type="button"></button>
         </div>
       </div>
 
@@ -5054,8 +5199,17 @@ def driver_dashboard():
       const routeKicker = document.getElementById('driverRouteKicker');
       const navigate = document.getElementById('driverNavigate');
       const complete = document.getElementById('driverComplete');
+      const refusedButton = document.getElementById('driverRefused');
+      const pendingButton = document.getElementById('driverPending');
+      const statusActions = document.getElementById('driverStatusActions');
       const backActive = document.getElementById('driverBackActive');
       const stopsBox = document.getElementById('driverStops');
+      const pwaUi = __PWA_UI__;
+      const installCard = document.getElementById('driverInstallCard');
+      const installButton = document.getElementById('driverInstallButton');
+      const installTitle = document.getElementById('driverInstallTitle');
+      const installNote = document.getElementById('driverInstallNote');
+      let deferredInstallPrompt = null;
       const jobsBox = document.getElementById('driverJobs');
       const routeUi = __ROUTE_UI__;
       let savedRoute = null;
@@ -5090,6 +5244,49 @@ def driver_dashboard():
       let audioUnlocked=false;
       const tachoStatus=document.getElementById('driverTachoStatus');
       let latestTacho=null;
+
+      function setupDriverInstall(){
+        const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+        const iosStandalone = window.navigator.standalone === true;
+        if (standalone || iosStandalone) return;
+
+        installTitle.textContent = pwaUi.title;
+        installButton.textContent = pwaUi.install;
+        installNote.textContent = pwaUi.browser_help;
+
+        const ua = navigator.userAgent || '';
+        const isIos = /iphone|ipad|ipod/i.test(ua);
+        if (isIos) {
+          installCard.style.display='block';
+          installButton.textContent=pwaUi.how_to;
+          installButton.addEventListener('click',function(){
+            installNote.textContent=pwaUi.ios_help;
+          });
+        }
+
+        window.addEventListener('beforeinstallprompt',function(event){
+          event.preventDefault();
+          deferredInstallPrompt=event;
+          installCard.style.display='block';
+          installButton.textContent=pwaUi.install;
+          installNote.textContent=pwaUi.install_note;
+        });
+
+        installButton.addEventListener('click',async function(){
+          if(!deferredInstallPrompt) return;
+          const prompt=deferredInstallPrompt;
+          deferredInstallPrompt=null;
+          await prompt.prompt();
+          try{await prompt.userChoice;}catch(e){}
+        });
+
+        window.addEventListener('appinstalled',function(){
+          installCard.style.display='none';
+          deferredInstallPrompt=null;
+        });
+      }
+      setupDriverInstall();
+
       const micBtn=document.getElementById('driverMic');
       const transcriptBox=document.getElementById('driverTranscript');
       const iqResult=document.getElementById('driverIqResult');
@@ -5238,7 +5435,10 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         return 'https://www.google.com/maps/dir/?api=1&destination=' + encodeURIComponent(address) + '&travelmode=driving';
       }
       function currentIndex(stops){
-        const idx = stops.findIndex(s => (s.manual_status||'') !== 'completed');
+        const idx = stops.findIndex(function(stop){
+          const status=String(stop.manual_status||'').toLowerCase();
+          return status!=='completed' && status!=='refused';
+        });
         return idx < 0 ? -1 : idx;
       }
       function routeStops(item){
@@ -5328,8 +5528,10 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         nextWindow.textContent=routeUi.route+' '+(previewQueueIndex===null?'':(previewQueueIndex+2))+' · '+stops.length+' '+routeUi.points;
         navigate.href=googleMapsUrl(stops[0].address||'');
 
-        complete.style.display='none';
+        statusActions.style.display='none';
         complete.disabled=true;
+        refusedButton.disabled=true;
+        pendingButton.disabled=true;
         backActive.style.display='flex';
 
         stopsBox.innerHTML=stops.map(function(stop,i){
@@ -5361,8 +5563,11 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         const stops = route && Array.isArray(route.stops) ? route.stops : [];
 
         backActive.style.display='none';
-        complete.style.display='flex';
+        statusActions.style.display='grid';
         routeKicker.textContent=routeUi.next_point;
+        complete.textContent=routeUi.status_unloaded;
+        refusedButton.textContent=routeUi.status_refused;
+        pendingButton.textContent=routeUi.status_pending;
 
         if(!stops.length){
           nextBox.style.display='none';
@@ -5382,20 +5587,33 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             : routeUi.no_window;
           navigate.href=googleMapsUrl(stop.address||'');
           complete.disabled=false;
+          refusedButton.disabled=false;
+          pendingButton.disabled=false;
         }else{
           nextBox.style.display='block';
           nextAddress.textContent=routeUi.route_finished;
           nextWindow.textContent=routeUi.all_done;
           navigate.href='#';
           complete.disabled=true;
+          refusedButton.disabled=true;
+          pendingButton.disabled=true;
         }
 
         stopsBox.innerHTML=stops.map(function(stop,i){
-          const done=(stop.manual_status||'')==='completed';
+          const manual=String(stop.manual_status||'').toLowerCase();
+          const done=manual==='completed';
+          const refused=manual==='refused';
+          const pending=!done&&!refused;
           const current=i===idx;
-          const cls=done?' completed':(current?' current':'');
+          const cls=done?' completed':(refused?' refused':(current?' current':''));
           const time=(stop.window_start&&stop.window_end)?(stop.window_start+'–'+stop.window_end):routeUi.no_window;
-          return '<div class="driver-stop'+cls+'"><div class="driver-num">'+(done?'✓':(i+1))+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+(current?' · '+routeUi.next_point:'')+'</div></div></div>';
+          const statusText=done?routeUi.unloaded_label:(refused?routeUi.refused_label:routeUi.pending_label);
+          const buttons='<div class="driver-stop-status">'+
+            '<button type="button" class="driver-status-done '+(done?'active':'')+'" data-stop-status-index="'+i+'" data-stop-status="completed">'+routeUi.status_unloaded+'</button>'+
+            '<button type="button" class="driver-status-refused '+(refused?'active':'')+'" data-stop-status-index="'+i+'" data-stop-status="refused">'+routeUi.status_refused+'</button>'+
+            '<button type="button" class="driver-status-pending '+(pending?'active':'')+'" data-stop-status-index="'+i+'" data-stop-status="pending">'+routeUi.status_pending+'</button>'+
+            '</div>';
+          return '<div class="driver-stop'+cls+'"><div class="driver-num">'+(done?'✓':(refused?'!':(i+1)))+'</div><div><strong>'+esc(stop.address||'')+'</strong><div class="driver-small">'+esc(time)+(current?' · '+routeUi.next_point:'')+'</div><div class="driver-small"><strong>'+esc(statusText)+'</strong></div>'+buttons+'</div></div>';
         }).join('');
       }
       backActive.addEventListener('click',showActiveRoute);
@@ -5525,7 +5743,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
         if(unloading){
           const next=stops.findIndex(function(s,i){
             return i>=start && String(s.stop_type||'').toLowerCase()==='unloading' &&
-              String(s.manual_status||'').toLowerCase()!=='completed';
+              !['completed','refused'].includes(String(s.manual_status||'').toLowerCase());
           });
           if(next>=0) target=next;
         }
@@ -5649,25 +5867,46 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
       }
       micBtn.addEventListener('click',startDriverVoice);
 
-      async function finishCurrent(){
+      async function setDriverStopStatus(index,status){
         if(!savedRoute || !savedRoute.delivery_route || !Array.isArray(savedRoute.delivery_route.stops)) return;
+        if(!['completed','refused','pending'].includes(status)) return;
         const stops=savedRoute.delivery_route.stops;
-        const idx=currentIndex(stops); if(idx<0) return;
-        complete.disabled=true; complete.textContent='Zapisywanie…';
-        stops[idx].manual_status='completed';
+        const stop=stops[index];
+        if(!stop) return;
+        const previous=stop.manual_status||'';
+        stop.manual_status=status;
         savedRoute.saved_at=new Date().toISOString();
+        statusActions.querySelectorAll('button').forEach(function(btn){btn.disabled=true;});
         try{
           const r=await fetch('/api/delivery-route/'+encodeURIComponent(vehicleId),{
             method:'PUT',headers:{'Content-Type':'application/json'},cache:'no-store',body:JSON.stringify({route:savedRoute})
           });
           if(!r.ok) throw new Error('HTTP '+r.status);
-          lastStamp=stamp(savedRoute); render();
+          lastStamp=stamp(savedRoute);
+          render();
         }catch(e){
-          stops[idx].manual_status='pending';
-          alert('Nie udało się zapisać wykonania punktu. Spróbuj ponownie.'); render();
-        }finally{complete.textContent='✓ ZAKOŃCZONO'; complete.disabled=false;}
+          stop.manual_status=previous;
+          alert(routeUi.status_save_failed);
+          render();
+        }
       }
-      complete.addEventListener('click',finishCurrent);
+      function setCurrentDriverStatus(status){
+        if(!savedRoute || !savedRoute.delivery_route || !Array.isArray(savedRoute.delivery_route.stops)) return;
+        const idx=currentIndex(savedRoute.delivery_route.stops);
+        if(idx<0) return;
+        setDriverStopStatus(idx,status);
+      }
+      complete.addEventListener('click',function(){setCurrentDriverStatus('completed');});
+      refusedButton.addEventListener('click',function(){setCurrentDriverStatus('refused');});
+      pendingButton.addEventListener('click',function(){setCurrentDriverStatus('pending');});
+      stopsBox.addEventListener('click',function(event){
+        const button=event.target.closest('[data-stop-status-index]');
+        if(!button || !stopsBox.contains(button)) return;
+        const index=Number(button.dataset.stopStatusIndex);
+        const status=button.dataset.stopStatus;
+        if(!Number.isInteger(index)) return;
+        setDriverStopStatus(index,status);
+      });
       loadRoute();
       window.setInterval(loadRoute,5000);
       window.setInterval(function(){if(mapPane.style.display!=='none')loadFleet();if(tachoPane.style.display!=='none'||iqPane.style.display!=='none')loadTacho();},10000);
@@ -5696,7 +5935,14 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "window": "Часове вікно",
             "no_window": "без часового вікна",
             "route_finished": "Рейс завершено",
-            "all_done": "Усі точки виконано"
+            "all_done": "Усі точки виконано",
+            "status_unloaded": "✓ РОЗВАНТАЖЕНО",
+            "status_refused": "⚠ НЕ ПРИЙНЯЛИ · ТОВАР У МАШИНІ",
+            "status_pending": "✕ НЕ РОЗВАНТАЖЕНО",
+            "unloaded_label": "Розвантажено",
+            "refused_label": "Не прийняли — товар залишився в машині",
+            "pending_label": "Не розвантажено",
+            "status_save_failed": "Не вдалося зберегти статус точки. Спробуй ще раз."
         },
         "pl": {
             "route": "TRASA",
@@ -5712,7 +5958,14 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "window": "Okno",
             "no_window": "bez okna czasowego",
             "route_finished": "Trasa zakończona",
-            "all_done": "Wszystkie punkty wykonane"
+            "all_done": "Wszystkie punkty wykonane",
+            "status_unloaded": "✓ ROZŁADOWANO",
+            "status_refused": "⚠ NIE PRZYJĘTO · TOWAR W AUCIE",
+            "status_pending": "✕ NIE ROZŁADOWANO",
+            "unloaded_label": "Rozładowano",
+            "refused_label": "Nie przyjęto — towar został w pojeździe",
+            "pending_label": "Nie rozładowano",
+            "status_save_failed": "Nie udało się zapisać statusu punktu. Spróbuj ponownie."
         },
         "en": {
             "route": "ROUTE",
@@ -5728,7 +5981,14 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "window": "Time window",
             "no_window": "no time window",
             "route_finished": "Route completed",
-            "all_done": "All stops completed"
+            "all_done": "All stops completed",
+            "status_unloaded": "✓ UNLOADED",
+            "status_refused": "⚠ NOT ACCEPTED · CARGO ON BOARD",
+            "status_pending": "✕ NOT UNLOADED",
+            "unloaded_label": "Unloaded",
+            "refused_label": "Not accepted — cargo remains in vehicle",
+            "pending_label": "Not unloaded",
+            "status_save_failed": "Could not save the stop status. Try again."
         },
         "de": {
             "route": "ROUTE",
@@ -5744,7 +6004,14 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "window": "Zeitfenster",
             "no_window": "kein Zeitfenster",
             "route_finished": "Route beendet",
-            "all_done": "Alle Stopps erledigt"
+            "all_done": "Alle Stopps erledigt",
+            "status_unloaded": "✓ ENTLADEN",
+            "status_refused": "⚠ NICHT ANGENOMMEN · WARE IM FAHRZEUG",
+            "status_pending": "✕ NICHT ENTLADEN",
+            "unloaded_label": "Entladen",
+            "refused_label": "Nicht angenommen — Ware bleibt im Fahrzeug",
+            "pending_label": "Nicht entladen",
+            "status_save_failed": "Der Status konnte nicht gespeichert werden. Bitte erneut versuchen."
         }
     }
     route_ui = route_ui_by_lang.get(driver_lang, route_ui_by_lang["uk"])
@@ -5800,6 +6067,45 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
     }.get(driver_lang, {})
     for source, target in sorted(driver_ui.items(), key=lambda item: len(item[0]), reverse=True):
         body = body.replace(source, target)
+
+    pwa_ui_by_lang = {
+        "uk": {
+            "title": "TRANVIQ Driver на телефон",
+            "install": "📲 ВСТАНОВИТИ ДОДАТОК",
+            "how_to": "📲 ЯК ВСТАНОВИТИ",
+            "install_note": "Встановиться як окремий додаток. Повторно шукати TRANVIQ через Google не потрібно.",
+            "browser_help": "У Chrome можна встановити TRANVIQ Driver на головний екран.",
+            "ios_help": "На iPhone відкрий у Safari: Поділитися → На початковий екран."
+        },
+        "pl": {
+            "title": "TRANVIQ Driver na telefon",
+            "install": "📲 ZAINSTALUJ APLIKACJĘ",
+            "how_to": "📲 JAK ZAINSTALOWAĆ",
+            "install_note": "Aplikacja pojawi się jako osobna ikona. Nie trzeba za każdym razem szukać TRANVIQ w Google.",
+            "browser_help": "W Chrome możesz zainstalować TRANVIQ Driver na ekranie głównym.",
+            "ios_help": "Na iPhone otwórz w Safari: Udostępnij → Do ekranu początkowego."
+        },
+        "en": {
+            "title": "TRANVIQ Driver on your phone",
+            "install": "📲 INSTALL APP",
+            "how_to": "📲 HOW TO INSTALL",
+            "install_note": "It installs as a separate app icon. No need to find TRANVIQ through Google each time.",
+            "browser_help": "In Chrome you can install TRANVIQ Driver on the home screen.",
+            "ios_help": "On iPhone open in Safari: Share → Add to Home Screen."
+        },
+        "de": {
+            "title": "TRANVIQ Driver auf dem Handy",
+            "install": "📲 APP INSTALLIEREN",
+            "how_to": "📲 INSTALLATION",
+            "install_note": "Die App erscheint als eigenes Symbol. TRANVIQ muss nicht jedes Mal über Google gesucht werden.",
+            "browser_help": "In Chrome kann TRANVIQ Driver zum Startbildschirm hinzugefügt werden.",
+            "ios_help": "Auf dem iPhone in Safari: Teilen → Zum Home-Bildschirm."
+        }
+    }
+    body = body.replace(
+        "__PWA_UI__",
+        json.dumps(pwa_ui_by_lang.get(driver_lang, pwa_ui_by_lang["uk"]), ensure_ascii=False)
+    )
 
     driver_title = {"uk": "Водій", "pl": "Kierowca", "en": "Driver", "de": "Fahrer"}.get(driver_lang, "Водій")
     return page(
@@ -10776,6 +11082,7 @@ def gps():
         const normalizedStatus = [
             'pending',
             'current',
+            'refused',
             'completed'
         ].includes(status) ? status : 'pending';
         return L.divIcon({{
@@ -10791,10 +11098,24 @@ def gps():
     function deliveryStatusLabel(status) {{
         if (gpsUiLanguage === 'pl') {{
             if (status === 'completed') return 'Rozładowano';
+            if (status === 'refused') return 'Nie przyjęto · towar został w pojeździe';
             if (status === 'current') return 'Pojazd na rozładunku';
             return 'Jeszcze nie rozładowano';
         }}
+        if (gpsUiLanguage === 'en') {{
+            if (status === 'completed') return 'Unloaded';
+            if (status === 'refused') return 'Not accepted · cargo remains in vehicle';
+            if (status === 'current') return 'Vehicle at unloading';
+            return 'Not unloaded yet';
+        }}
+        if (gpsUiLanguage === 'de') {{
+            if (status === 'completed') return 'Entladen';
+            if (status === 'refused') return 'Nicht angenommen · Ware bleibt im Fahrzeug';
+            if (status === 'current') return 'Fahrzeug an der Entladestelle';
+            return 'Noch nicht entladen';
+        }}
         if (status === 'completed') return 'Розвантажено';
+        if (status === 'refused') return 'Не прийняли · товар залишився в машині';
         if (status === 'current') return 'Автомобіль на розвантаженні';
         return 'Ще не розвантажено';
     }}
@@ -10802,9 +11123,18 @@ def gps():
     function deliveryStopPopup(stop, index, status) {{
         const completed = status === 'completed';
         const manualCompleted = stop.manual_status === 'completed';
+        const manualRefused = stop.manual_status === 'refused';
         const manualPending = stop.manual_status === 'pending';
-        const doneLabel = gpsUiLanguage === 'pl' ? '✓ Rozładowano' : '✓ Розвантажено';
-        const notDoneLabel = gpsUiLanguage === 'pl' ? '✕ Nie rozładowano' : '✕ Не розвантажено';
+        const labels = gpsUiLanguage === 'pl'
+            ? ['✓ Rozładowano', '⚠ Nie przyjęto · towar w aucie', '✕ Nie rozładowano']
+            : (gpsUiLanguage === 'en'
+                ? ['✓ Unloaded', '⚠ Not accepted · cargo on board', '✕ Not unloaded']
+                : (gpsUiLanguage === 'de'
+                    ? ['✓ Entladen', '⚠ Nicht angenommen · Ware im Fahrzeug', '✕ Nicht entladen']
+                    : ['✓ Розвантажено', '⚠ Не прийняли · товар у машині', '✕ Не розвантажено']));
+        const doneLabel = labels[0];
+        const refusedLabel = labels[1];
+        const notDoneLabel = labels[2];
         return '<strong>Доставка ' + (index + 1) + '</strong><br>' +
             escapeHtml(stop.address) + '<br>' +
             (stop.window_start && stop.window_end
@@ -10814,6 +11144,8 @@ def gps():
             '<div style="display:flex;gap:6px;margin-top:8px;flex-wrap:wrap">' +
             '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\\'completed\\')"' +
             (manualCompleted ? ' disabled' : '') + '>' + doneLabel + '</button>' +
+            '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\\'refused\\')"' +
+            (manualRefused ? ' disabled' : '') + '>' + refusedLabel + '</button>' +
             '<button type="button" onclick="setDeliveryStopManualStatus(' + index + ',\\'pending\\')"' +
             (manualPending ? ' disabled' : '') + '>' + notDoneLabel + '</button>' +
             '</div>';
@@ -10822,7 +11154,7 @@ def gps():
     async function setDeliveryStopManualStatus(index, status) {{
         if (!activeDeliveryRoute || !Array.isArray(activeDeliveryRoute.stops)) return;
         const stop = activeDeliveryRoute.stops[index];
-        if (!stop || !['completed', 'pending'].includes(status)) return;
+        if (!stop || !['completed', 'refused', 'pending'].includes(status)) return;
         const previousStatus = stop.manual_status;
         stop.manual_status = status;
 
