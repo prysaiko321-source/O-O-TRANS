@@ -4905,6 +4905,59 @@ def _legacy_dispatcher_dashboard():
 
 
 
+# Fuel-control state is persistent per company/vehicle. It stores only
+# operational baselines and calibration values; live GPS/fuel data still comes
+# from Navirec.
+FUEL_TRACKING_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_fuel_tracking.json")
+FUEL_TRACKING_LOCK = threading.Lock()
+
+
+def _load_fuel_tracking():
+    if tenancy.company():
+        return tenancy.json_read("fuel_tracking", {})
+    try:
+        with open(FUEL_TRACKING_FILE, "r", encoding="utf-8") as handle:
+            data = json.load(handle)
+        return data if isinstance(data, dict) else {}
+    except (OSError, ValueError, TypeError):
+        return {}
+
+
+def _write_fuel_tracking(data):
+    if tenancy.company():
+        return tenancy.json_write("fuel_tracking", data)
+    folder = os.path.dirname(FUEL_TRACKING_FILE)
+    if folder:
+        os.makedirs(folder, exist_ok=True)
+    temporary = FUEL_TRACKING_FILE + ".tmp"
+    with open(temporary, "w", encoding="utf-8") as handle:
+        json.dump(data, handle, ensure_ascii=False, indent=2)
+    os.replace(temporary, FUEL_TRACKING_FILE)
+
+
+def _fuel_calibration_factor(vehicle_data):
+    rows = vehicle_data.get("calibrations", []) if isinstance(vehicle_data, dict) else []
+    ratios = []
+    for item in rows[-12:]:
+        if not isinstance(item, dict):
+            continue
+        actual = safe_float(item.get("actual_liters"))
+        navirec = safe_float(item.get("navirec_liters"))
+        if actual and navirec and actual > 0 and navirec > 0:
+            ratio = actual / navirec
+            if 0.70 <= ratio <= 1.30:
+                ratios.append(ratio)
+    if not ratios:
+        return 1.0
+    # Median is intentionally used instead of an average so one bad receipt or
+    # one noisy fuel reading cannot distort a vehicle's long-term correction.
+    ordered = sorted(ratios)
+    middle = len(ordered) // 2
+    if len(ordered) % 2:
+        return ordered[middle]
+    return (ordered[middle - 1] + ordered[middle]) / 2.0
+
+
 # Lightweight internal TRANVIQ messenger. Stored beside route data so it survives
 # normal page refreshes and can use Render persistent disk when /var/data is mounted.
 MESSAGES_FILE = os.path.join(os.path.dirname(DELIVERY_ROUTES_FILE), "tranviq_messages.json")
@@ -12869,87 +12922,272 @@ def history():
     )
 
 
-@app.route("/fuel")
+@app.route("/fuel", methods=["GET", "POST"])
 def fuel():
     states = get_vehicle_states()
     state_map = state_map_by_vehicle(states)
+    lang = current_language()
 
-    rows = []
+    labels = {
+        "uk": {
+            "title": "Паливо", "vehicle": "Автомобіль", "level": "Рівень",
+            "liters": "У баку", "avg": "Середня витрата", "round": "Поточний круг",
+            "distance": "Км на крузі", "used": "Пального на круг", "started": "Старт",
+            "capacity": "Бак, л", "save": "Зберегти", "reset": "Новий круг / скинути на 0",
+            "calibration": "Калібровка по заправці", "actual": "Фактично з чека, л",
+            "navirec": "Navirec показав, л", "date": "Дата заправки",
+            "add": "Додати калібровку", "factor": "Поправка", "samples": "заправок",
+            "no_capacity": "Вкажіть об’єм бака, щоб бачити залишок у літрах.",
+            "note": "Витрата на 100 км береться з Navirec. Після калібровок за чеками TRANVIQ автоматично застосовує поправку окремо для кожної машини.",
+            "saved": "Збережено.", "bad": "Перевірте введені дані.",
+            "no_distance": "Navirec поки не повернув загальний пробіг для цієї машини.",
+            "history": "Останні калібровки"
+        },
+        "pl": {
+            "title": "Paliwo", "vehicle": "Pojazd", "level": "Poziom",
+            "liters": "W baku", "avg": "Średnie spalanie", "round": "Bieżący cykl",
+            "distance": "Km w cyklu", "used": "Paliwo w cyklu", "started": "Start",
+            "capacity": "Zbiornik, l", "save": "Zapisz", "reset": "Nowy cykl / wyzeruj",
+            "calibration": "Kalibracja tankowania", "actual": "Faktycznie z dokumentu, l",
+            "navirec": "Navirec pokazał, l", "date": "Data tankowania",
+            "add": "Dodaj kalibrację", "factor": "Korekta", "samples": "tankowań",
+            "no_capacity": "Wpisz pojemność zbiornika, aby widzieć paliwo w litrach.",
+            "note": "Spalanie l/100 km pochodzi z Navirec. Po kalibracji dokumentami TRANVIQ automatycznie stosuje korektę osobno dla każdego pojazdu.",
+            "saved": "Zapisano.", "bad": "Sprawdź wprowadzone dane.",
+            "no_distance": "Navirec nie zwrócił jeszcze całkowitego przebiegu tego pojazdu.",
+            "history": "Ostatnie kalibracje"
+        },
+        "en": {
+            "title": "Fuel", "vehicle": "Vehicle", "level": "Level",
+            "liters": "In tank", "avg": "Average consumption", "round": "Current round",
+            "distance": "Round distance", "used": "Fuel used on round", "started": "Started",
+            "capacity": "Tank, l", "save": "Save", "reset": "New round / reset to 0",
+            "calibration": "Refuelling calibration", "actual": "Actual from receipt, l",
+            "navirec": "Navirec showed, l", "date": "Refuelling date",
+            "add": "Add calibration", "factor": "Correction", "samples": "refuellings",
+            "no_capacity": "Enter tank capacity to show remaining fuel in litres.",
+            "note": "Consumption per 100 km comes from Navirec. After receipt calibrations TRANVIQ automatically applies a per-vehicle correction.",
+            "saved": "Saved.", "bad": "Check the entered values.",
+            "no_distance": "Navirec has not returned total distance for this vehicle yet.",
+            "history": "Recent calibrations"
+        },
+        "de": {
+            "title": "Kraftstoff", "vehicle": "Fahrzeug", "level": "Füllstand",
+            "liters": "Im Tank", "avg": "Durchschnittsverbrauch", "round": "Aktuelle Runde",
+            "distance": "Km in der Runde", "used": "Kraftstoff in der Runde", "started": "Start",
+            "capacity": "Tank, l", "save": "Speichern", "reset": "Neue Runde / auf 0 setzen",
+            "calibration": "Tankkalibrierung", "actual": "Tatsächlich laut Beleg, l",
+            "navirec": "Navirec zeigte, l", "date": "Tankdatum",
+            "add": "Kalibrierung hinzufügen", "factor": "Korrektur", "samples": "Tankvorgänge",
+            "no_capacity": "Tankvolumen eingeben, um den Rest in Litern anzuzeigen.",
+            "note": "Der Verbrauch pro 100 km kommt aus Navirec. Nach Beleg-Kalibrierungen wendet TRANVIQ automatisch eine fahrzeugspezifische Korrektur an.",
+            "saved": "Gespeichert.", "bad": "Bitte Eingaben prüfen.",
+            "no_distance": "Navirec hat für dieses Fahrzeug noch keinen Gesamt-km-Stand geliefert.",
+            "history": "Letzte Kalibrierungen"
+        }
+    }.get(lang, {})
+    message = ""
 
-    for vehicle in VEHICLES:
-        state = state_map.get(vehicle["id"])
-
-        if state:
-            fuel = safe_float(
-                state.get("fuel_level")
-            )
-
-            if fuel is not None:
-                fuel_text = (
-                    format_number(fuel, 1)
-                    + "%"
-                )
-            else:
-                fuel_text = "—"
-
+    if request.method == "POST":
+        vehicle_id = normalize_vehicle_id(request.form.get("vehicle_id", ""))
+        vehicle = vehicle_by_id(vehicle_id)
+        action = str(request.form.get("action") or "").strip()
+        if not vehicle:
+            message = labels["bad"]
         else:
-            fuel_text = "—"
+            state = state_map.get(vehicle_id) or {}
+            with FUEL_TRACKING_LOCK:
+                tracking = _load_fuel_tracking()
+                item = tracking.setdefault(vehicle_id, {})
 
-        rows.append(
-            """
-            <tr>
-                <td>{name}</td>
-                <td>{fuel}</td>
-            </tr>
-            """.format(
-                name=vehicle["name"],
-                fuel=fuel_text
-            )
+                if action == "save_capacity":
+                    capacity = safe_float(request.form.get("tank_capacity_l"))
+                    if capacity is None or capacity < 20 or capacity > 2000:
+                        message = labels["bad"]
+                    else:
+                        item["tank_capacity_l"] = round(capacity, 2)
+                        _write_fuel_tracking(tracking)
+                        message = labels["saved"]
+
+                elif action == "start_round":
+                    distance_m = safe_float(state.get("total_distance"))
+                    fuel_pct = safe_float(state.get("fuel_level"))
+                    if distance_m is None:
+                        message = labels["no_distance"]
+                    else:
+                        item["round"] = {
+                            "started_at": datetime.now(timezone.utc).isoformat(),
+                            "start_total_distance_m": distance_m,
+                            "start_fuel_pct": fuel_pct
+                        }
+                        _write_fuel_tracking(tracking)
+                        message = labels["saved"]
+
+                elif action == "add_calibration":
+                    actual_liters = safe_float(request.form.get("actual_liters"))
+                    navirec_liters = safe_float(request.form.get("navirec_liters"))
+                    date_value = str(request.form.get("fuel_date") or "").strip()
+                    if (
+                        actual_liters is None or navirec_liters is None
+                        or actual_liters <= 0 or navirec_liters <= 0
+                        or actual_liters > 2000 or navirec_liters > 2000
+                    ):
+                        message = labels["bad"]
+                    else:
+                        rows = item.setdefault("calibrations", [])
+                        rows.append({
+                            "date": date_value,
+                            "actual_liters": round(actual_liters, 2),
+                            "navirec_liters": round(navirec_liters, 2),
+                            "created_at": datetime.now(timezone.utc).isoformat()
+                        })
+                        item["calibrations"] = rows[-50:]
+                        _write_fuel_tracking(tracking)
+                        message = labels["saved"]
+
+    with FUEL_TRACKING_LOCK:
+        tracking = _load_fuel_tracking()
+
+    cards = []
+    for vehicle in VEHICLES:
+        vehicle_id = vehicle["id"]
+        state = state_map.get(vehicle_id) or {}
+        fuel_pct = safe_float(state.get("fuel_level"))
+        total_distance_m = safe_float(state.get("total_distance"))
+        item = tracking.get(vehicle_id, {}) if isinstance(tracking.get(vehicle_id, {}), dict) else {}
+        capacity = safe_float(item.get("tank_capacity_l"))
+        factor = _fuel_calibration_factor(item)
+        raw_consumption = get_vehicle_average_consumption(vehicle_id)
+        corrected_consumption = raw_consumption * factor if raw_consumption is not None else None
+
+        current_liters = (
+            capacity * fuel_pct / 100.0
+            if capacity is not None and fuel_pct is not None
+            else None
         )
 
-    lang = current_language()
-    vehicle_labels = {
-        "uk": {"speed": "Швидкість", "fuel": "Паливо", "heading": "Напрямок", "engine": "Оберти двигуна", "distance": "Загальна відстань", "ignition": "Запалювання", "history": "Історія маршруту"},
-        "pl": {"speed": "Prędkość", "fuel": "Paliwo", "heading": "Kierunek", "engine": "Obroty silnika", "distance": "Całkowity przebieg", "ignition": "Zapłon", "history": "Historia trasy"},
-        "en": {"speed": "Speed", "fuel": "Fuel", "heading": "Heading", "engine": "Engine RPM", "distance": "Total distance", "ignition": "Ignition", "history": "Route history"},
-        "de": {"speed": "Geschwindigkeit", "fuel": "Kraftstoff", "heading": "Fahrtrichtung", "engine": "Motordrehzahl", "distance": "Gesamtstrecke", "ignition": "Zündung", "history": "Routenverlauf"},
-    }.get(lang, {})
+        round_data = item.get("round") if isinstance(item.get("round"), dict) else None
+        round_km = None
+        round_liters = None
+        if round_data and total_distance_m is not None:
+            start_distance = safe_float(round_data.get("start_total_distance_m"))
+            if start_distance is not None and total_distance_m >= start_distance:
+                round_km = (total_distance_m - start_distance) / 1000.0
+                if corrected_consumption is not None:
+                    round_liters = round_km * corrected_consumption / 100.0
+
+        started_text = "—"
+        if round_data:
+            started = parse_time(round_data.get("started_at"))
+            if started:
+                try:
+                    started_text = started.astimezone(POLAND_TZ).strftime("%d.%m.%Y %H:%M")
+                except Exception:
+                    started_text = str(round_data.get("started_at") or "—")
+
+        calibration_rows = []
+        for row in reversed(item.get("calibrations", [])[-5:]):
+            if not isinstance(row, dict):
+                continue
+            actual = safe_float(row.get("actual_liters"))
+            nav = safe_float(row.get("navirec_liters"))
+            ratio = actual / nav if actual and nav else None
+            calibration_rows.append(
+                "<tr><td>{date}</td><td>{actual}</td><td>{nav}</td><td>{ratio}</td></tr>".format(
+                    date=escape(str(row.get("date") or "—")),
+                    actual=(format_number(actual, 2) + " l") if actual is not None else "—",
+                    nav=(format_number(nav, 2) + " l") if nav is not None else "—",
+                    ratio=(format_number(ratio, 3) + "×") if ratio is not None else "—"
+                )
+            )
+
+        fuel_pct_text = format_number(fuel_pct, 1) + "%" if fuel_pct is not None else "—"
+        liters_text = format_number(current_liters, 1) + " l" if current_liters is not None else "—"
+        consumption_text = (
+            format_number(corrected_consumption, 2) + " l/100 km"
+            if corrected_consumption is not None else "—"
+        )
+        round_km_text = format_number(round_km, 1) + " km" if round_km is not None else "—"
+        round_liters_text = format_number(round_liters, 1) + " l" if round_liters is not None else "—"
+        calibration_count = len(item.get("calibrations", []))
+        factor_text = (
+            format_number(factor, 3) + "× · " + str(calibration_count) + " " + labels["samples"]
+            if calibration_count else "1.000× · 0 " + labels["samples"]
+        )
+        capacity_value = "" if capacity is None else str(round(capacity, 2))
+
+        no_capacity_note = (
+            '<div class="small" style="margin-top:6px;color:#a15c00">'
+            + escape(labels["no_capacity"]) + '</div>'
+            if capacity is None else ""
+        )
+        history_html = (
+            '<details style="margin-top:12px"><summary><strong>' + escape(labels["history"]) + '</strong></summary>'
+            '<div style="overflow:auto;margin-top:8px"><table><thead><tr><th>'
+            + escape(labels["date"]) + '</th><th>' + escape(labels["actual"]) + '</th><th>'
+            + escape(labels["navirec"]) + '</th><th>' + escape(labels["factor"]) + '</th></tr></thead><tbody>'
+            + "".join(calibration_rows) + '</tbody></table></div></details>'
+            if calibration_rows else ""
+        )
+
+        cards.append("""
+        <div class="card">
+          <h2>{vehicle}</h2>
+          <div class="grid">
+            <div class="stat"><div class="label">{level}</div><div class="value">{fuel_pct}</div></div>
+            <div class="stat"><div class="label">{liters}</div><div class="value">{liters_value}</div></div>
+            <div class="stat"><div class="label">{avg}</div><div class="value">{consumption}</div></div>
+            <div class="stat"><div class="label">{factor}</div><div class="value">{factor_value}</div></div>
+            <div class="stat"><div class="label">{distance}</div><div class="value">{round_km}</div></div>
+            <div class="stat"><div class="label">{used}</div><div class="value">{round_liters}</div></div>
+          </div>
+          <p class="small">{started}: <strong>{started_value}</strong></p>
+          <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px">
+            <input type="hidden" name="vehicle_id" value="{vehicle_id}">
+            <label>{capacity}<input type="number" name="tank_capacity_l" min="20" max="2000" step="0.1" value="{capacity_value}" style="max-width:130px"></label>
+            <button name="action" value="save_capacity" type="submit">{save}</button>
+            <button name="action" value="start_round" type="submit">{reset}</button>
+          </form>
+          {no_capacity_note}
+          <details style="margin-top:12px">
+            <summary><strong>{calibration}</strong></summary>
+            <form method="post" style="display:flex;gap:8px;flex-wrap:wrap;align-items:end;margin-top:10px">
+              <input type="hidden" name="vehicle_id" value="{vehicle_id}">
+              <label>{date}<input type="date" name="fuel_date"></label>
+              <label>{actual}<input type="number" name="actual_liters" min="0.1" max="2000" step="0.01"></label>
+              <label>{navirec}<input type="number" name="navirec_liters" min="0.1" max="2000" step="0.01"></label>
+              <button name="action" value="add_calibration" type="submit">{add}</button>
+            </form>
+            {history_html}
+          </details>
+        </div>
+        """.format(
+            vehicle=escape(vehicle.get("plate") or vehicle["name"]),
+            level=escape(labels["level"]), liters=escape(labels["liters"]), avg=escape(labels["avg"]),
+            factor=escape(labels["factor"]), distance=escape(labels["distance"]), used=escape(labels["used"]),
+            fuel_pct=fuel_pct_text, liters_value=liters_text, consumption=consumption_text,
+            factor_value=factor_text, round_km=round_km_text, round_liters=round_liters_text,
+            started=escape(labels["started"]), started_value=escape(started_text),
+            vehicle_id=escape(str(vehicle_id)), capacity=escape(labels["capacity"]),
+            capacity_value=escape(capacity_value), save=escape(labels["save"]), reset=escape(labels["reset"]),
+            no_capacity_note=no_capacity_note, calibration=escape(labels["calibration"]), date=escape(labels["date"]),
+            actual=escape(labels["actual"]), navirec=escape(labels["navirec"]), add=escape(labels["add"]),
+            history_html=history_html
+        ))
 
     body = """
     <div class="card">
-
-        <p class="small">
-            Тут поки показується поточний рівень
-            палива з Navirec.
-            Збільшення рівня ще не вважаємо
-            автоматично заправкою.
-        </p>
-
-        <table>
-
-            <thead>
-                <tr>
-                    <th>Автомобіль</th>
-                    <th>Паливо</th>
-                </tr>
-            </thead>
-
-            <tbody>
-                {rows}
-            </tbody>
-
-        </table>
-
+      <p>{note}</p>
+      {message}
     </div>
+    {cards}
     """.format(
-        rows="".join(rows)
+        note=escape(labels["note"]),
+        message=('<p class="alert alert-ok">' + escape(message) + '</p>') if message else "",
+        cards="".join(cards)
     )
 
-    return page(
-        "Паливо",
-        body,
-        "fuel"
-    )
+    return page(labels["title"], body, "fuel")
 
 
 @app.route("/tachograph")
