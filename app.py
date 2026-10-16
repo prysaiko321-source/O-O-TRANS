@@ -10870,7 +10870,10 @@ def gps():
             );
         }}
 
-        if (!looksLikeOrder && simpleLines.length >= 2) {{
+        if (!looksLikeOrder && simpleLines.length >= 2 &&
+                !simpleLines.some(function(line) {{
+                    return line.includes('|') || /^\s*[-+]?\d{{1,2}}\.\d+\s*[,;\s]\s*[-+]?\d{{1,3}}\.\d+/.test(line);
+                }})) {{
             /*
              * Plain copied addresses:
              * accumulate lines until a line containing postal code + city.
@@ -11075,7 +11078,26 @@ def gps():
         }});
     }}
 
+    function parseDeliveryCoordinates(value) {{
+        // Supports decimal GPS latitude, longitude, separated by comma,
+        // semicolon or whitespace. No address geocoding is needed.
+        const input = String(value || '').trim();
+        const match = input.match(/^([-+]?\d{{1,2}}(?:\.\d+)?)\s*[,;\s]\s*([-+]?\d{{1,3}}(?:\.\d+)?)$/);
+        if (!match) return null;
+        const latitude = Number(match[1]);
+        const longitude = Number(match[2]);
+        if (!Number.isFinite(latitude) || !Number.isFinite(longitude) ||
+                Math.abs(latitude) > 90 || Math.abs(longitude) > 180) return null;
+        return {{latitude: latitude, longitude: longitude}};
+    }}
+
     async function geocodeDeliveryStop(stop, index, total) {{
+        const gps = parseDeliveryCoordinates(stop.address);
+        if (gps) {{
+            return Object.assign({{}}, stop, gps, {{
+                map_name: stop.address
+            }});
+        }}
         let lastError = null;
         for (let attempt = 1; attempt <= 3; attempt += 1) {{
             const retryText = attempt > 1
