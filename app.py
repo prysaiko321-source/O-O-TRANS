@@ -6859,6 +6859,25 @@ def geocode_search():
 
     query = query[:180]
 
+    # GPS coordinates must be accepted without external address geocoding.
+    gps_match = re.fullmatch(
+        r"\s*([-+]?\d{1,2}(?:\.\d+)?)\s*[,;\s]\s*([-+]?\d{1,3}(?:\.\d+)?)\s*",
+        query
+    )
+    if gps_match:
+        latitude, longitude = map(float, gps_match.groups())
+        if -90 <= latitude <= 90 and -180 <= longitude <= 180:
+            return jsonify({"results": [{
+                "name": query,
+                "short_name": query,
+                "latitude": latitude,
+                "longitude": longitude,
+                "type": "gps_coordinate",
+                "city": "",
+                "country_code": "",
+                "source": "coordinates"
+            }]})
+
     # Dla adresów budujemy kilka bezpiecznych wariantów wyszukiwania.
     # Oryginał zawsze jest pierwszy; kolejne warianty pomagają geokoderom
     # z niemieckimi znakami i skrótami spotykanymi na listach dostaw.
