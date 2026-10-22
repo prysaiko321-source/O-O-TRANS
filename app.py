@@ -3759,17 +3759,18 @@ body.page-gps .powered-by {{
     top: 52px;
     width: max-content;
     max-width: min(240px, calc(100vw - 24px));
-    padding: 5px;
+    padding: 2px;
     border-radius: 8px;
-    background: rgba(255, 255, 255, .96);
-    box-shadow: 0 2px 9px rgba(15, 37, 51, .2);
+    background: transparent;
+    box-shadow: none;
 }}
 .gps-distance-tool .gps-map-actions button {{
-    padding: 6px 9px;
-    min-height: 32px;
-    font-size: 12px;
+    padding: 4px;
+    min-height: 30px;
+    font-size: 15px;
 }}
 .gps-distance-tool #measure-route-button {{
+    width: 34px;
     background: #087f8c;
     color: #fff;
     font-weight: 700;
@@ -3781,13 +3782,16 @@ body.page-gps .powered-by {{
 .gps-distance-tool #measure-result {{
     display: none;
 }}
-.gps-distance-tool:has(#measure-route-button.active) #clear-route-button,
 .gps-distance-tool:has(#measure-result strong) #clear-route-button {{
     display: inline-block;
 }}
-.gps-distance-tool:has(#measure-route-button.active) #measure-result,
 .gps-distance-tool:has(#measure-result strong) #measure-result {{
     display: block;
+}}
+.gps-distance-tool:has(#measure-result strong) {{
+    padding: 5px;
+    background: rgba(255,255,255,.96);
+    box-shadow: 0 2px 9px rgba(15,37,51,.2);
 }}
 
 .gps-map-brand {{
@@ -5462,7 +5466,6 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
       function openMapTab(){routePane.style.display='none';mapPane.style.display='block';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(mapTab);if(!fleetMap){
         fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);
         const streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
-        streetLayer.on('add',function(){const c=streetLayer.getContainer();if(c)c.style.filter='saturate(.48) contrast(1.09) brightness(1.035)';});
         const satelliteLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'});
         const terrainLayer=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap'});
         const baseMaps={'Карта':streetLayer,'Супутник':satelliteLayer,'Рельєф':terrainLayer};
@@ -5499,29 +5502,29 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           options:{position:'topright'},
           onAdd:function(){
             const wrap=L.DomUtil.create('div','driver-distance-control');
-            wrap.style.cssText='background:#fff;border-radius:7px;padding:4px;box-shadow:0 2px 9px #0003;max-width:230px;margin-top:6px';
-            wrap.innerHTML='<button type="button" title="Виміряти відстань" style="border:0;border-radius:5px;background:#087f8c;color:white;padding:7px 10px;font-size:12px;cursor:pointer">📏 Відстань</button><div class="driver-ruler-detail" style="display:none;font-size:12px;color:#21313c;padding:6px 3px"></div><button type="button" class="driver-ruler-clear" style="display:none;border:0;border-radius:4px;padding:5px 8px;cursor:pointer">Очистити</button>';
+            wrap.style.cssText='background:transparent;border-radius:7px;padding:2px;max-width:190px;margin-top:6px';
+            wrap.innerHTML='<button type="button" title="Виміряти відстань" aria-label="Виміряти відстань" style="border:0;border-radius:5px;background:#087f8c;color:white;width:34px;height:32px;padding:4px;font-size:15px;cursor:pointer">📏</button><div class="driver-ruler-detail" style="display:none;font-size:12px;color:#21313c;padding:6px 3px"></div><button type="button" class="driver-ruler-clear" style="display:none;border:0;border-radius:4px;padding:5px 8px;cursor:pointer">✕</button>';
             L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(wrap);
             const start=wrap.querySelector('button'),detail=wrap.querySelector('.driver-ruler-detail'),clear=wrap.querySelector('.driver-ruler-clear');
             function reset(){
               rulerRequest++;rulerEnabled=false;rulerPoints=[];
               rulerMarkers.forEach(x=>fleetMap.removeLayer(x));rulerMarkers=[];
               if(rulerLine){fleetMap.removeLayer(rulerLine);rulerLine=null;}
-              detail.style.display='none';clear.style.display='none';start.style.background='#087f8c';
+              detail.style.display='none';clear.style.display='none';start.style.background='#087f8c';wrap.style.background='transparent';
             }
             clear.addEventListener('click',reset);
             start.addEventListener('click',function(){
               reset();rulerEnabled=true;start.style.background='#e4552d';
-              detail.style.display='block';clear.style.display='inline-block';
-              detail.textContent='Виберіть першу точку на карті.';
+              detail.textContent='';
             });
             fleetMap.on('click',async function(e){
               if(!rulerEnabled)return;
               const point=e.latlng;rulerPoints.push(point);
               rulerMarkers.push(L.circleMarker(point,{radius:7,color:'#fff',weight:2,fillColor:rulerPoints.length===1?'#087f8c':'#e4552d',fillOpacity:1}).addTo(fleetMap));
-              if(rulerPoints.length===1){detail.textContent='Виберіть другу точку.';return;}
+              if(rulerPoints.length===1)return;
               rulerEnabled=false;start.style.background='#087f8c';
-              detail.textContent='Розраховую відстань дорогами…';
+              detail.style.display='block';clear.style.display='inline-block';wrap.style.background='#fff';
+              detail.textContent='…';
               const request=++rulerRequest,a=rulerPoints[0],b=rulerPoints[1];
               try{
                 const url='https://router.project-osrm.org/route/v1/driving/'+a.lng+','+a.lat+';'+b.lng+','+b.lat+'?overview=full&geometries=geojson';
@@ -8258,8 +8261,8 @@ def gps():
 
         <div class="gps-distance-tool" aria-label="Вимірювання відстані дорогами">
             <div class="gps-map-actions">
-                <button type="button" id="measure-route-button">
-                    Виміряти відстань
+                <button type="button" id="measure-route-button" title="Виміряти відстань" aria-label="Виміряти відстань">
+                    📏
                 </button>
                 <button type="button" id="clear-route-button">
                     Очистити
@@ -8445,13 +8448,6 @@ def gps():
             attribution: '&copy; OpenStreetMap'
         }}
     );
-    // Quiet, low-saturation street background. Only the raster tiles are
-    // softened; vehicle pins, planned routes and measurements stay vivid.
-    streetLayer.on('add', function() {{
-        const tiles = streetLayer.getContainer();
-        if (tiles) tiles.style.filter =
-            'saturate(.48) contrast(1.09) brightness(1.035)';
-    }});
 
     const satelliteLayer = L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
@@ -11931,7 +11927,7 @@ def gps():
         removeMeasurementLayers();
         measureMode = true;
         measureButton.classList.add('active');
-        measureResult.textContent = 'Клікніть першу точку на карті.';
+        measureResult.textContent = '';
     }});
 
     clearButton.addEventListener('click', clearMeasurement);
@@ -11960,7 +11956,6 @@ def gps():
         measureMarkers.push(pointMarker);
 
         if (measurePoints.length === 1) {{
-            measureResult.textContent = 'Тепер клікніть другу точку.';
             return;
         }}
 
