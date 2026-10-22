@@ -3756,7 +3756,7 @@ body.page-gps .powered-by {{
     position: absolute;
     z-index: 850;
     right: 12px;
-    top: 52px;
+    top: 46px;
     width: max-content;
     max-width: min(240px, calc(100vw - 24px));
     padding: 2px;
@@ -3765,33 +3765,45 @@ body.page-gps .powered-by {{
     box-shadow: none;
 }}
 .gps-distance-tool .gps-map-actions button {{
-    padding: 4px;
-    min-height: 30px;
-    font-size: 15px;
+    border: 0;
+    border-radius: 6px;
+    padding: 4px 7px;
+    min-height: 27px;
+    font-size: 12px;
+    cursor: pointer;
 }}
 .gps-distance-tool #measure-route-button {{
-    width: 34px;
     background: #087f8c;
-    color: #fff;
+    color: white;
     font-weight: 700;
+    white-space: nowrap;
 }}
 .gps-distance-tool #measure-route-button.active {{
-    background: #e4552d;
+    background: #d75531;
 }}
 .gps-distance-tool #clear-route-button,
 .gps-distance-tool #measure-result {{
     display: none;
 }}
-.gps-distance-tool:has(#measure-result strong) #clear-route-button {{
+.gps-distance-tool.is-open {{
+    padding: 5px;
+    background: rgba(255,255,255,.97);
+    box-shadow: 0 2px 9px rgba(15,37,51,.2);
+    max-width: min(230px, calc(100vw - 24px));
+}}
+.gps-distance-tool.is-open #clear-route-button {{
     display: inline-block;
 }}
-.gps-distance-tool:has(#measure-result strong) #measure-result {{
+.gps-distance-tool.is-open #measure-result {{
     display: block;
+    font-size: 12px;
+    line-height: 1.5;
+    margin-top: 5px;
+    overflow-wrap: anywhere;
 }}
-.gps-distance-tool:has(#measure-result strong) {{
-    padding: 5px;
-    background: rgba(255,255,255,.96);
-    box-shadow: 0 2px 9px rgba(15,37,51,.2);
+.gps-distance-tool .gps-map-actions {{
+    gap: 4px;
+    flex-wrap: nowrap;
 }}
 
 .gps-map-brand {{
@@ -8259,19 +8271,16 @@ def gps():
             </div>
         </div>
 
-        <div class="gps-distance-tool" aria-label="Вимірювання відстані дорогами">
+        <div class="gps-distance-tool" id="gps-distance-tool" aria-label="Вимірювання відстані дорогами">
             <div class="gps-map-actions">
                 <button type="button" id="measure-route-button" title="Виміряти відстань" aria-label="Виміряти відстань">
-                    📏
+                    📏 Відстань
                 </button>
                 <button type="button" id="clear-route-button">
                     Очистити
                 </button>
             </div>
-            <div class="gps-measure-result" id="measure-result">
-                Виберіть дві будь-які точки на карті —
-                покажемо відстань дорогами.
-            </div>
+            <div class="gps-measure-result" id="measure-result"></div>
         </div>
 
         <div class="gps-map-brand">
@@ -8873,6 +8882,19 @@ def gps():
     const measureResult = document.getElementById(
         'measure-result'
     );
+    const measureTool = document.getElementById('gps-distance-tool');
+    function measureLocation(point) {{
+        return point.lat.toFixed(5) + ', ' + point.lng.toFixed(5);
+    }}
+    function renderMeasureResult(extra) {{
+        const a = measurePoints[0];
+        const b = measurePoints[1];
+        measureResult.innerHTML =
+            (a ? '<b>А:</b> ' + measureLocation(a) : '<b>А:</b> —') +
+            '<br>' +
+            (b ? '<b>Б:</b> ' + measureLocation(b) : '<b>Б:</b> —') +
+            (extra ? '<br>' + extra : '');
+    }}
     const vehicleSelect = document.getElementById(
         'route-vehicle-select'
     );
@@ -9296,9 +9318,8 @@ def gps():
         removeMeasurementLayers();
         measureMode = false;
         measureButton.classList.remove('active');
-        measureResult.textContent =
-            'Виберіть дві будь-які точки на карті — ' +
-            'покажемо відстань дорогами.';
+        measureTool.classList.remove('is-open');
+        measureResult.textContent = '';
     }}
 
     function removePlannedRoute() {{
@@ -11928,10 +11949,15 @@ def gps():
     buildRouteButton.addEventListener('click', buildPlannedRoute);
 
     measureButton.addEventListener('click', function() {{
+        if (measureMode) {{
+            clearMeasurement();
+            return;
+        }}
         removeMeasurementLayers();
         measureMode = true;
+        measureTool.classList.add('is-open');
         measureButton.classList.add('active');
-        measureResult.textContent = '';
+        renderMeasureResult('');
     }});
 
     clearButton.addEventListener('click', clearMeasurement);
@@ -11960,12 +11986,13 @@ def gps():
         measureMarkers.push(pointMarker);
 
         if (measurePoints.length === 1) {{
+            renderMeasureResult('');
             return;
         }}
 
         measureMode = false;
         measureButton.classList.remove('active');
-        measureResult.textContent = 'Будую автомобільний маршрут...';
+        renderMeasureResult('Розраховую дорогу...');
 
         const firstPoint = measurePoints[0];
         const secondPoint = measurePoints[1];
@@ -12009,11 +12036,10 @@ def gps():
                 {{padding: [45, 45]}}
             );
 
-            measureResult.innerHTML =
-                '<strong>Дорогами: ' +
-                (route.distance / 1000).toFixed(1) +
-                ' км</strong><br>Приблизний час: ' +
-                formatDuration(route.duration);
+            renderMeasureResult(
+                '<strong>Дорогами: ' + (route.distance / 1000).toFixed(1) +
+                ' км</strong><br>Час: ' + formatDuration(route.duration)
+            );
         }} catch (error) {{
             measureLayer = L.polyline(
                 [firstPoint, secondPoint],
@@ -12025,11 +12051,10 @@ def gps():
                 }}
             ).addTo(map);
 
-            measureResult.innerHTML =
-                '<strong>По прямій: ' +
-                straightKm.toFixed(1) +
-                ' км</strong><br>' +
-                'Автомобільний маршрут зараз недоступний.';
+            renderMeasureResult(
+                '<strong>По прямій: ' + straightKm.toFixed(1) +
+                ' км</strong><br>Маршрут дорогою недоступний.'
+            );
         }}
     }});
     </script>
