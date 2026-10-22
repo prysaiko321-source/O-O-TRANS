@@ -3750,6 +3750,32 @@ body.page-gps .powered-by {{
     line-height: 1.35;
 }}
 
+/* Keep the two-point road-distance tool visible even when the route planner
+   is collapsed or scrolled. It does not require selecting a vehicle. */
+.gps-distance-tool {{
+    position: absolute;
+    z-index: 850;
+    right: 12px;
+    bottom: 75px;
+    width: min(290px, calc(100vw - 24px));
+    padding: 10px;
+    border-radius: 11px;
+    background: rgba(255, 255, 255, .96);
+    box-shadow: 0 4px 18px rgba(15, 37, 51, .23);
+}}
+.gps-distance-tool .gps-map-actions button {{
+    flex: 1;
+    min-height: 42px;
+}}
+.gps-distance-tool #measure-route-button {{
+    background: #087f8c;
+    color: #fff;
+    font-weight: 800;
+}}
+.gps-distance-tool #measure-route-button.active {{
+    background: #e4552d;
+}}
+
 .gps-map-brand {{
     position: absolute;
     z-index: 700;
@@ -8162,20 +8188,21 @@ def gps():
                 </div>
             </div>
 
-            <div class="gps-toolbar-divider"></div>
+            </div>
+        </div>
 
+        <div class="gps-distance-tool" aria-label="Вимірювання відстані дорогами">
             <div class="gps-map-actions">
                 <button type="button" id="measure-route-button">
-                    Виміряти маршрут
+                    Виміряти відстань
                 </button>
                 <button type="button" id="clear-route-button">
-                    Очистити карту
+                    Очистити
                 </button>
             </div>
             <div class="gps-measure-result" id="measure-result">
-                Натисніть «Виміряти маршрут», потім виберіть
-                дві точки на карті.
-            </div>
+                Виберіть дві будь-які точки на карті —
+                покажемо відстань дорогами.
             </div>
         </div>
 
@@ -9198,8 +9225,8 @@ def gps():
         measureMode = false;
         measureButton.classList.remove('active');
         measureResult.textContent =
-            'Натисніть «Виміряти маршрут», потім виберіть ' +
-            'дві точки на карті.';
+            'Виберіть дві будь-які точки на карті — ' +
+            'покажемо відстань дорогами.';
     }}
 
     function removePlannedRoute() {{
@@ -11829,14 +11856,13 @@ def gps():
     buildRouteButton.addEventListener('click', buildPlannedRoute);
 
     measureButton.addEventListener('click', function() {{
-        removePlannedRoute();
         removeMeasurementLayers();
         measureMode = true;
         measureButton.classList.add('active');
         measureResult.textContent = 'Клікніть першу точку на карті.';
     }});
 
-    clearButton.addEventListener('click', clearMapRoutes);
+    clearButton.addEventListener('click', clearMeasurement);
 
     map.on('click', async function(event) {{
         if (!measureMode) {{
