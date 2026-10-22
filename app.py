@@ -3755,7 +3755,7 @@ body.page-gps .powered-by {{
 .gps-distance-tool {{
     position: absolute;
     z-index: 850;
-    right: 12px;
+    right: 195px;
     top: 46px;
     width: max-content;
     max-width: min(240px, calc(100vw - 24px));
