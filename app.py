@@ -3756,24 +3756,38 @@ body.page-gps .powered-by {{
     position: absolute;
     z-index: 850;
     right: 12px;
-    bottom: 75px;
-    width: min(290px, calc(100vw - 24px));
-    padding: 10px;
-    border-radius: 11px;
+    top: 52px;
+    width: max-content;
+    max-width: min(240px, calc(100vw - 24px));
+    padding: 5px;
+    border-radius: 8px;
     background: rgba(255, 255, 255, .96);
-    box-shadow: 0 4px 18px rgba(15, 37, 51, .23);
+    box-shadow: 0 2px 9px rgba(15, 37, 51, .2);
 }}
 .gps-distance-tool .gps-map-actions button {{
-    flex: 1;
-    min-height: 42px;
+    padding: 6px 9px;
+    min-height: 32px;
+    font-size: 12px;
 }}
 .gps-distance-tool #measure-route-button {{
     background: #087f8c;
     color: #fff;
-    font-weight: 800;
+    font-weight: 700;
 }}
 .gps-distance-tool #measure-route-button.active {{
     background: #e4552d;
+}}
+.gps-distance-tool #clear-route-button,
+.gps-distance-tool #measure-result {{
+    display: none;
+}}
+.gps-distance-tool:has(#measure-route-button.active) #clear-route-button,
+.gps-distance-tool:has(#measure-result strong) #clear-route-button {{
+    display: inline-block;
+}}
+.gps-distance-tool:has(#measure-route-button.active) #measure-result,
+.gps-distance-tool:has(#measure-result strong) #measure-result {{
+    display: block;
 }}
 
 .gps-map-brand {{
@@ -3959,6 +3973,11 @@ body.page-gps .powered-by {{
         left: 8px;
         gap: 5px 8px;
         padding: 6px 8px;
+    }}
+
+    .gps-distance-tool {{
+        top: 52px;
+        right: 8px;
     }}
 
     .gps-fuel-fields {{
@@ -5472,6 +5491,51 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
           }
         });
         new FleetMapTypeControl().addTo(fleetMap);
+        // A compact two-point road-distance ruler for drivers, independent of
+        // the selected vehicle and its active delivery route.
+        let rulerEnabled=false,rulerPoints=[],rulerMarkers=[],rulerLine=null,rulerRequest=0;
+        const FleetRulerControl=L.Control.extend({
+          options:{position:'topright'},
+          onAdd:function(){
+            const wrap=L.DomUtil.create('div','driver-distance-control');
+            wrap.style.cssText='background:#fff;border-radius:7px;padding:4px;box-shadow:0 2px 9px #0003;max-width:230px;margin-top:6px';
+            wrap.innerHTML='<button type="button" title="Виміряти відстань" style="border:0;border-radius:5px;background:#087f8c;color:white;padding:7px 10px;font-size:12px;cursor:pointer">📏 Відстань</button><div class="driver-ruler-detail" style="display:none;font-size:12px;color:#21313c;padding:6px 3px"></div><button type="button" class="driver-ruler-clear" style="display:none;border:0;border-radius:4px;padding:5px 8px;cursor:pointer">Очистити</button>';
+            L.DomEvent.disableClickPropagation(wrap);L.DomEvent.disableScrollPropagation(wrap);
+            const start=wrap.querySelector('button'),detail=wrap.querySelector('.driver-ruler-detail'),clear=wrap.querySelector('.driver-ruler-clear');
+            function reset(){
+              rulerRequest++;rulerEnabled=false;rulerPoints=[];
+              rulerMarkers.forEach(x=>fleetMap.removeLayer(x));rulerMarkers=[];
+              if(rulerLine){fleetMap.removeLayer(rulerLine);rulerLine=null;}
+              detail.style.display='none';clear.style.display='none';start.style.background='#087f8c';
+            }
+            clear.addEventListener('click',reset);
+            start.addEventListener('click',function(){
+              reset();rulerEnabled=true;start.style.background='#e4552d';
+              detail.style.display='block';clear.style.display='inline-block';
+              detail.textContent='Виберіть першу точку на карті.';
+            });
+            fleetMap.on('click',async function(e){
+              if(!rulerEnabled)return;
+              const point=e.latlng;rulerPoints.push(point);
+              rulerMarkers.push(L.circleMarker(point,{radius:7,color:'#fff',weight:2,fillColor:rulerPoints.length===1?'#087f8c':'#e4552d',fillOpacity:1}).addTo(fleetMap));
+              if(rulerPoints.length===1){detail.textContent='Виберіть другу точку.';return;}
+              rulerEnabled=false;start.style.background='#087f8c';
+              detail.textContent='Розраховую відстань дорогами…';
+              const request=++rulerRequest,a=rulerPoints[0],b=rulerPoints[1];
+              try{
+                const url='https://router.project-osrm.org/route/v1/driving/'+a.lng+','+a.lat+';'+b.lng+','+b.lat+'?overview=full&geometries=geojson';
+                const response=await fetch(url);if(!response.ok)throw new Error('router');
+                const data=await response.json();if(!data.routes||!data.routes[0])throw new Error('route');
+                if(request!==rulerRequest)return;
+                const route=data.routes[0];
+                rulerLine=L.polyline(route.geometry.coordinates.map(p=>[p[1],p[0]]),{color:'#087f8c',weight:5}).addTo(fleetMap);
+                detail.textContent='Дорогами: '+(route.distance/1000).toFixed(1)+' км · ≈ '+Math.round(route.duration/60)+' хв';
+              }catch(err){if(request===rulerRequest)detail.textContent='Автомобільний маршрут зараз недоступний.';}
+            });
+            return wrap;
+          }
+        });
+        new FleetRulerControl().addTo(fleetMap);
         fleetMap.on('baselayerchange',function(e){
           try{localStorage.setItem('oo_map_layer',e.name);}catch(err){}
           const c=fleetMap.getContainer().querySelector('.leaflet-control-layers');
