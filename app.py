@@ -6813,10 +6813,10 @@ def vehicle_page(vehicle_id):
         );
 
         L.tileLayer(
-            'https://{{s}}.tile.openstreetmap.org/{{z}}/{{x}}/{{y}}.png',
+            'https://server.arcgisonline.com/ArcGIS/rest/services/World_Topo_Map/MapServer/tile/{{z}}/{{y}}/{{x}}',
             {{
                 maxZoom: 19,
-                attribution: '&copy; OpenStreetMap'
+                attribution: 'Tiles &copy; Esri, HERE, Garmin, OpenStreetMap contributors'
             }}
         ).addTo(map);
 
@@ -8448,6 +8448,10 @@ def gps():
             attribution: '&copy; OpenStreetMap'
         }}
     );
+
+    streetLayer.on('tileload', function(event) {{
+        event.tile.style.filter = 'saturate(1.35) contrast(1.17)';
+    }});
 
     const satelliteLayer = L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
