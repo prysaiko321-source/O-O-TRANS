@@ -5462,6 +5462,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
       function openMapTab(){routePane.style.display='none';mapPane.style.display='block';tachoPane.style.display='none';iqPane.style.display='none';setActiveTab(mapTab);if(!fleetMap){
         fleetMap=L.map('driverFleetMap').setView([51.5,10.5],5);
         const streetLayer=L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png',{maxZoom:19,attribution:'&copy; OpenStreetMap'});
+        streetLayer.on('add',function(){const c=streetLayer.getContainer();if(c)c.style.filter='saturate(.48) contrast(1.09) brightness(1.035)';});
         const satelliteLayer=L.tileLayer('https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{z}/{y}/{x}',{maxZoom:19,attribution:'Tiles &copy; Esri'});
         const terrainLayer=L.tileLayer('https://{s}.tile.opentopomap.org/{z}/{x}/{y}.png',{maxZoom:17,attribution:'Map data &copy; OpenStreetMap contributors, SRTM | Map style &copy; OpenTopoMap'});
         const baseMaps={'Карта':streetLayer,'Супутник':satelliteLayer,'Рельєф':terrainLayer};
@@ -8444,6 +8445,13 @@ def gps():
             attribution: '&copy; OpenStreetMap'
         }}
     );
+    // Quiet, low-saturation street background. Only the raster tiles are
+    // softened; vehicle pins, planned routes and measurements stay vivid.
+    streetLayer.on('add', function() {{
+        const tiles = streetLayer.getContainer();
+        if (tiles) tiles.style.filter =
+            'saturate(.48) contrast(1.09) brightness(1.035)';
+    }});
 
     const satelliteLayer = L.tileLayer(
         'https://server.arcgisonline.com/ArcGIS/rest/services/World_Imagery/MapServer/tile/{{z}}/{{y}}/{{x}}',
