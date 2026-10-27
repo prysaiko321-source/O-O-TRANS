@@ -8244,14 +8244,12 @@ def gps():
                     <button
                         type="button"
                         id="build-delivery-route-button"
-                        onclick="buildDeliveryRoute()"
                     >
                         Прорахувати всі доставки
                     </button>
                     <button
                         type="button"
                         id="queue-delivery-route-button"
-                        onclick="buildNextDeliveryRoute()"
                         class="secondary-button"
                         style="margin-top:7px;width:100%;"
                     >
@@ -9052,15 +9050,15 @@ def gps():
         String(tomorrow.getMonth() + 1).padStart(2, '0'),
         String(tomorrow.getDate()).padStart(2, '0')
     ].join('-');
+    // Keep the calculation action clickable so missing consent or input
+    // produces a visible validation message instead of a dead button.
     deliveryMapConsent.addEventListener('change', function() {{
-        buildDeliveryRouteButton.disabled =
-            !deliveryMapConsent.checked ||
-            !deliveryStopsInput.value.trim();
+        buildDeliveryRouteButton.disabled = false;
+        if (queueDeliveryRouteButton) queueDeliveryRouteButton.disabled = false;
     }});
     deliveryStopsInput.addEventListener('input', function() {{
-        buildDeliveryRouteButton.disabled =
-            !deliveryMapConsent.checked ||
-            !deliveryStopsInput.value.trim();
+        buildDeliveryRouteButton.disabled = false;
+        if (queueDeliveryRouteButton) queueDeliveryRouteButton.disabled = false;
     }});
     clearDeliveryStopsButton.addEventListener('click', function() {{
         deliveryStopsInput.value = '';
@@ -10536,8 +10534,7 @@ def gps():
             deliveryStopsInput.value = '';
             measureResult.textContent =
                 'Для цього автомобіля активного розвізного маршруту немає.';
-            buildDeliveryRouteButton.disabled =
-                !deliveryMapConsent.checked;
+            buildDeliveryRouteButton.disabled = false;
             return;
         }}
 
@@ -10593,9 +10590,7 @@ def gps():
         deliveryStatusTimer = window.setInterval(function() {{
             refreshDeliveryStopStatuses(vehicle, saved.delivery_route);
         }}, 60000);
-        buildDeliveryRouteButton.disabled =
-            !deliveryMapConsent.checked ||
-            !deliveryStopsInput.value.trim();
+        buildDeliveryRouteButton.disabled = false;
     }}
 
     // ВІДНОВЛЕННЯ СПІЛЬНОГО МАРШРУТУ ПІСЛЯ REDEPLOY RENDER.
@@ -11851,17 +11846,29 @@ def gps():
                 error.message ||
                 'Не вдалося прорахувати розвізний маршрут.';
         }} finally {{
-            buildDeliveryRouteButton.disabled =
-                !deliveryMapConsent.checked ||
-                !deliveryStopsInput.value.trim();
-            if (queueDeliveryRouteButton) {{
-                queueDeliveryRouteButton.disabled =
-                    !deliveryMapConsent.checked || !deliveryStopsInput.value.trim();
-            }}
+            buildDeliveryRouteButton.disabled = false;
+            if (queueDeliveryRouteButton) queueDeliveryRouteButton.disabled = false;
             buildDeliveryRouteButton.textContent =
                 'Прорахувати всі доставки';
         }}
     }}
+
+    // Explicit event listeners work reliably even when inline event handlers
+    // are restricted by browser security policy.
+    window.buildDeliveryRoute = buildDeliveryRoute;
+    buildDeliveryRouteButton.addEventListener('click', function() {{
+        buildDeliveryRoute().catch(function(error) {{
+            measureResult.textContent = 'Помилка розрахунку: ' + (error.message || String(error));
+            buildDeliveryRouteButton.disabled = false;
+        }});
+    }});
+    if (queueDeliveryRouteButton) {{
+        queueDeliveryRouteButton.addEventListener('click', function() {{
+            buildNextDeliveryRoute();
+        }});
+    }}
+    buildDeliveryRouteButton.disabled = false;
+    if (queueDeliveryRouteButton) queueDeliveryRouteButton.disabled = false;
 
     window.setTimeout(function() {{
         if (vehicleSelect.value) {{
