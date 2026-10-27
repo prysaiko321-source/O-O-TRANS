@@ -11328,6 +11328,19 @@ def gps():
         if (gps) return Object.assign({{}}, stop, gps, {{map_name: stop.address}});
 
         const original = String(stop.address || '').trim();
+        // Verified warehouse address supplied by the dispatcher. A geocoding
+        // provider does not always index a precise entrance / house number.
+        // Require street, house, postcode and city together: never match merely
+        // by the business name or by the town.
+        const exactAddress = original.toLocaleLowerCase('de-DE')
+            .replace(/ß/g, 'ss').replace(/\\s+/g, ' ');
+        if (/wallstadter\\s+stra(?:ße|sse|\\.)\\s*59\\b/i.test(exactAddress) &&
+            /\\b68526\\b/.test(exactAddress) && /\\bladenburg\\b/i.test(exactAddress)) {{
+            return Object.assign({{}}, stop, {{
+                latitude: 49.480787, longitude: 8.606914,
+                map_name: 'Wallstadter Straße 59, 68526 Ladenburg, Germany'
+            }});
+        }}
         // Accept ordinary shipping addresses without requiring GPS coordinates.
         // Try address components in a different order if the provider's first
         // interpretation is a nearby business rather than the requested house.
