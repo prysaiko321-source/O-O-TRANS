@@ -7151,7 +7151,7 @@ def geocode_search():
 
             raw_results = []
             photon_failed = False
-            for search_query in address_queries[:3]:
+            for search_query in address_queries[:5]:
                 photon_params = {
                     "q": search_query,
                     "limit": 15
@@ -11326,60 +11326,56 @@ def gps():
     async function geocodeDeliveryStop(stop, index, total) {{
         const gps = parseDeliveryCoordinates(stop.address);
         if (gps) {{
-            return Object.assign({{}}, stop, gps, {{
-                map_name: stop.address
-            }});
+            return Object.assign({{}}, stop, gps, {{map_name: stop.address}});
         }}
-        let lastError = null;
-        for (let attempt = 1; attempt <= 3; attempt += 1) {{
-            const retryText = attempt > 1
-                ? ' — повтор ' + attempt + '/3'
-                : '';
+        // Never keep a delivery calculation apparently unresponsive for minutes.
+        // Try a normalized version when a full postal/street address fails.
+        const original = String(stop.address || '').trim();
+        const cleaned = original
+            .replace(/\b(?:DE|PL)[-\s]+(?=\d{{5}}\b)/ig, '')
+            .replace(/\s+/g, ' ').trim();
+        const queries = [original];
+        if (cleaned !== original) queries.push(cleaned);
+        let lastError = 'Адресу не знайдено';
+        for (let attempt = 0; attempt < queries.length; attempt += 1) {{
             buildDeliveryRouteButton.textContent =
-                'Шукаю адресу ' + (index + 1) + '/' + total +
-                retryText + '...';
-
+                'Шукаю адресу ' + (index + 1) + '/' + total + '...';
+            measureResult.textContent = 'Шукаю адресу ' + (index + 1) +
+                ' з ' + total + ': ' + original;
             const controller = new AbortController();
             const requestTimeout = window.setTimeout(function() {{
                 controller.abort();
-            }}, 90000);
-
+            }}, 35000);
             try {{
                 const response = await fetch(
                     '/api/geocode?mode=address&q=' +
-                    encodeURIComponent(stop.address) +
+                    encodeURIComponent(queries[attempt]) +
                     '&purpose=delivery&consent=addresses_only',
-                    {{
-                        headers: {{'Accept': 'application/json'}},
-                        signal: controller.signal
-                    }}
+                    {{headers: {{'Accept': 'application/json'}}, signal: controller.signal}}
                 );
                 const data = await response.json();
-                if (response.ok && data.results && data.results.length) {{
-                    return Object.assign({{}}, stop, {{
-                        latitude: Number(data.results[0].latitude),
-                        longitude: Number(data.results[0].longitude),
-                        map_name: data.results[0].name
+                if (response.ok && Array.isArray(data.results) && data.results.length) {{
+                    const match = data.results.find(function(item) {{
+                        return Number.isFinite(Number(item.latitude)) &&
+                            Number.isFinite(Number(item.longitude));
+                    }});
+                    if (match) return Object.assign({{}}, stop, {{
+                        latitude: Number(match.latitude),
+                        longitude: Number(match.longitude),
+                        map_name: match.name || original
                     }});
                 }}
-                lastError = new Error(
-                    (data && data.error) || 'Адресу не знайдено.'
-                );
+                lastError = (data && data.error) || 'Адресу не знайдено';
             }} catch (error) {{
-                lastError = error;
+                lastError = error.name === 'AbortError'
+                    ? 'Час очікування пошуку адреси вичерпано'
+                    : (error.message || String(error));
             }} finally {{
                 window.clearTimeout(requestTimeout);
             }}
-
-            if (attempt < 3) {{
-                await waitForGeocode(1500 * attempt);
-            }}
         }}
-
-        throw new Error(
-            'Не вдалося знайти адресу №' + (index + 1) + ': ' +
-            stop.address + '. Спробуйте ще раз через хвилину.'
-        );
+        throw new Error('Адреса №' + (index + 1) + ' не знайдена: ' +
+            original + '. ' + lastError + '. Перевірте написання або введіть координати.');
     }}
 
     async function geocodeDeliveryStops(stops) {{
