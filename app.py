@@ -7284,6 +7284,31 @@ def geocode_search():
             if len(results) >= 7:
                 break
 
+        # A place of interest near the requested street is not the requested
+        # delivery address. Photon may return e.g. "ABB, Ladenburg" for
+        # "Wallstadter Straße 59"; reject that and try the address provider.
+        if search_mode == "address" and selected_city and results:
+            def normalized_address(value):
+                return (str(value).casefold().replace("ß", "ss")
+                        .replace("ä", "ae").replace("ö", "oe")
+                        .replace("ü", "ue"))
+
+            requested = normalized_address(query)
+            street_words = [word for word in re.findall(r"[a-z]{4,}", requested)
+                            if word not in {"strasse", "straße", "street", "germany",
+                                            "deutschland", "poland", "polska"}]
+            requested_house = re.search(r"(?<!\d)\d{1,4}[a-z]?(?!\d)", requested)
+            relevant = []
+            for candidate in results:
+                label = normalized_address(candidate.get("name", ""))
+                has_street = not street_words or any(word in label for word in street_words)
+                has_number = (not requested_house or re.search(
+                    r"(?<!\d)" + re.escape(requested_house.group()) + r"(?!\d)", label
+                ))
+                if has_street and has_number:
+                    relevant.append(candidate)
+            results = relevant
+
         # Якщо Photon не знайшов точну адресу, пробуємо Nominatim (OSM).
         # Це важливо для приватних адрес/номерів будинків, які є на карті,
         # але інколи відсутні в індексі Photon.
