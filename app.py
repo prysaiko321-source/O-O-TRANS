@@ -7287,7 +7287,7 @@ def geocode_search():
         # A place of interest near the requested street is not the requested
         # delivery address. Photon may return e.g. "ABB, Ladenburg" for
         # "Wallstadter Straße 59"; reject that and try the address provider.
-        if search_mode == "address" and selected_city and results:
+        if search_mode == "address" and (selected_city or delivery_consent) and results:
             def normalized_address(value):
                 return (str(value).casefold().replace("ß", "ss")
                         .replace("ä", "ae").replace("ö", "oe")
@@ -11325,57 +11325,68 @@ def gps():
 
     async function geocodeDeliveryStop(stop, index, total) {{
         const gps = parseDeliveryCoordinates(stop.address);
-        if (gps) {{
-            return Object.assign({{}}, stop, gps, {{map_name: stop.address}});
-        }}
-        // Never keep a delivery calculation apparently unresponsive for minutes.
-        // Try a normalized version when a full postal/street address fails.
+        if (gps) return Object.assign({{}}, stop, gps, {{map_name: stop.address}});
+
         const original = String(stop.address || '').trim();
-        const cleaned = original
-            .replace(/\b(?:DE|PL)[-\s]+(?=\d{{5}}\b)/ig, '')
-            .replace(/\s+/g, ' ').trim();
+        // Accept ordinary shipping addresses without requiring GPS coordinates.
+        // Try address components in a different order if the provider's first
+        // interpretation is a nearby business rather than the requested house.
+        const postal = original.match(/\\b(?:DE[-\\s]*)?(\\d{{5}})\\s+([^,]+)/i);
+        const beforePostal = postal ? original.slice(0, postal.index).replace(/[,\\s]+$/, '') : '';
+        const street = beforePostal || original.split(',')[0].trim();
+        const city = postal ? postal[2].trim().replace(/\\b(?:Germany|Deutschland)\\b/ig, '').trim() : '';
         const queries = [original];
-        if (cleaned !== original) queries.push(cleaned);
-        let lastError = 'Адресу не знайдено';
-        for (let attempt = 0; attempt < queries.length; attempt += 1) {{
-            buildDeliveryRouteButton.textContent =
-                'Шукаю адресу ' + (index + 1) + '/' + total + '...';
-            measureResult.textContent = 'Шукаю адресу ' + (index + 1) +
-                ' з ' + total + ': ' + original;
-            const controller = new AbortController();
-            const requestTimeout = window.setTimeout(function() {{
-                controller.abort();
-            }}, 35000);
-            try {{
-                const response = await fetch(
-                    '/api/geocode?mode=address&q=' +
-                    encodeURIComponent(queries[attempt]) +
-                    '&purpose=delivery&consent=addresses_only',
-                    {{headers: {{'Accept': 'application/json'}}, signal: controller.signal}}
-                );
-                const data = await response.json();
-                if (response.ok && Array.isArray(data.results) && data.results.length) {{
-                    const match = data.results.find(function(item) {{
-                        return Number.isFinite(Number(item.latitude)) &&
-                            Number.isFinite(Number(item.longitude));
-                    }});
-                    if (match) return Object.assign({{}}, stop, {{
-                        latitude: Number(match.latitude),
-                        longitude: Number(match.longitude),
-                        map_name: match.name || original
-                    }});
-                }}
-                lastError = (data && data.error) || 'Адресу не знайдено';
-            }} catch (error) {{
-                lastError = error.name === 'AbortError'
-                    ? 'Час очікування пошуку адреси вичерпано'
-                    : (error.message || String(error));
-            }} finally {{
-                window.clearTimeout(requestTimeout);
-            }}
+        if (postal && street) {{
+            queries.push(street + ', ' + postal[1] + ' ' + city + ', Deutschland');
+            queries.push(street + ', ' + city + ', Deutschland');
+            queries.push(postal[1] + ' ' + city + ', ' + street);
         }}
-        throw new Error('Адреса №' + (index + 1) + ' не знайдена: ' +
-            original + '. ' + lastError + '. Перевірте написання або введіть координати.');
+        const uniqueQueries = [...new Set(queries.map(q => q.replace(/\\s+/g, ' ').trim()))];
+        const normalized = value => String(value || '').toLowerCase()
+            .replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe')
+            .replace(/ü/g, 'ue').replace(/[^a-z0-9]+/g, ' ').trim();
+        const streetWords = normalized(street).split(/\\s+/).filter(w =>
+            w.length >= 4 && !['strasse','street','germany','deutschland'].includes(w));
+        const streetNumber = street.match(/\\b\\d{{1,4}}[a-z]?\\b/i);
+        const requestedCity = normalized(city).split(' ')[0];
+        let lastError = 'Адресу не знайдено';
+        for (let attempt = 0; attempt < uniqueQueries.length; attempt++) {{
+            buildDeliveryRouteButton.textContent = 'Шукаю адресу ' + (index + 1) + '/' + total + '...';
+            measureResult.textContent = 'Перевіряю адресу ' + (index + 1) + ': ' + original +
+                ' (спроба ' + (attempt + 1) + '/' + uniqueQueries.length + ')';
+            const controller = new AbortController();
+            const timeout = window.setTimeout(() => controller.abort(), 22000);
+            try {{
+                const response = await fetch('/api/geocode?mode=address&q=' +
+                    encodeURIComponent(uniqueQueries[attempt]) +
+                    '&purpose=delivery&consent=addresses_only',
+                    {{headers: {{'Accept':'application/json'}}, signal:controller.signal, cache:'no-store'}});
+                const data = await response.json();
+                const matches = Array.isArray(data.results) ? data.results : [];
+                const result = matches.find(item => {{
+                    const latitude = Number(item.latitude), longitude = Number(item.longitude);
+                    if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
+                    if (item.source === 'google_routes') return true;
+                    const name = normalized(item.name);
+                    const streetMatch = !streetWords.length || streetWords.some(w => name.includes(w));
+                    const numberMatch = !streetNumber || new RegExp('(^| )' + streetNumber[0].toLowerCase() + '( |$)').test(name);
+                    const cityMatch = !requestedCity || name.includes(requestedCity);
+                    return streetMatch && numberMatch && cityMatch;
+                }});
+                if (result) return Object.assign({{}}, stop, {{
+                    latitude: Number(result.latitude), longitude: Number(result.longitude),
+                    map_name: result.name || original
+                }});
+                lastError = (data && data.error) || (matches.length
+                    ? 'Пошук запропонував іншу адресу або інший номер будинку'
+                    : 'Адресу не знайдено');
+            }} catch (error) {{
+                lastError = error.name === 'AbortError' ? 'Пошук перевищив час очікування'
+                    : (error.message || String(error));
+            }} finally {{ window.clearTimeout(timeout); }}
+        }}
+        throw new Error('Не вдалося визначити точні координати: ' + original +
+            '. ' + lastError + '. Іншу адресу замість цієї не підставлено.');
     }}
 
     async function geocodeDeliveryStops(stops) {{
