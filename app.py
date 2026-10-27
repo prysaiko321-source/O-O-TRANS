@@ -11019,7 +11019,7 @@ def gps():
 
         function stopTypeFromText(text) {{
             const value = String(text || '').toLowerCase();
-            if (/za[łl]adunek|loading|laden|beladung|завантаж|загрузка/.test(value)) {{
+            if (/za[łl]adunek|loading|\\bladen\\b|beladung|завантаж|загрузка/.test(value)) {{
                 return 'loading';
             }}
             if (/roz[łl]adunek|unloading|entladen|entladung|розвантаж|выгруз/.test(value)) {{
@@ -11030,7 +11030,7 @@ def gps():
 
         function cleanLabel(line) {{
             return line.replace(
-                /^(?:\\d+[.)]?\\s*)?(?:za[łl]adunek|roz[łl]adunek|loading|unloading|laden|beladung|entladen|entladung|завантаження|розвантаження|загрузка|выгрузка)\\s*:?\\s*/i,
+                /^(?:\\d+[.)]?\\s*)?(?:za[łl]adunek|roz[łl]adunek|loading|unloading|\\bladen\\b|beladung|entladen|entladung|завантаження|розвантаження|загрузка|выгрузка)\\s*:?\\s*/i,
                 ''
             ).trim();
         }}
@@ -11242,7 +11242,7 @@ def gps():
             // (типовий експорт замовлення), це заголовок, а не адреса.
             const lower = originalLine.toLowerCase();
             const hasBothTypes =
-                /za[łl]adunek|loading|laden|beladung|завантаж|загрузка/.test(lower) &&
+                /za[łl]adunek|loading|\\bladen\\b|beladung|завантаж|загрузка/.test(lower) &&
                 /roz[łl]adunek|unloading|entladen|entladung|розвантаж|выгруз/.test(lower);
             if (hasBothTypes) {{
                 return;
