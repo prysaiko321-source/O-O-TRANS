@@ -6989,6 +6989,34 @@ def geocode_search():
     # z niemieckimi znakami i skrótami spotykanymi na listach dostaw.
     address_queries = [query]
     if search_mode == "address":
+        # The street-only field is used after choosing a town. Carry the
+        # selected town into provider searches; a street number alone is
+        # frequently ambiguous or absent from Photon's autocomplete index.
+        if selected_city and selected_city.casefold() not in query.casefold():
+            address_queries.append(f"{query}, {selected_city}")
+        # Freight orders frequently prefix the actual street address with a
+        # company name and write DE/PL postal codes without a separator.
+        # Search the original first, then the street/postcode portion.
+        postal_query = re.sub(
+            r"\b(?:DE|PL)[-\s]?(\d{5})\b",
+            r"\1", query, flags=re.I
+        )
+        if postal_query.casefold() != query.casefold():
+            address_queries.append(postal_query)
+        parts = [part.strip() for part in re.split(r"[,\n]+", query) if part.strip()]
+        if len(parts) >= 2:
+            if len(parts) >= 3:
+                without_prefix = ", ".join(parts[1:])
+                if without_prefix.casefold() not in {q.casefold() for q in address_queries}:
+                    address_queries.append(without_prefix)
+            street_parts = [part for part in parts if re.search(
+                r"\b\d{5}\b|(?:strasse|straße|str\.|street|ul\.|aleja|al\.|weg|platz)\b",
+                part, re.I
+            )]
+            if street_parts:
+                without_company = ", ".join(street_parts)
+                if without_company.casefold() not in {q.casefold() for q in address_queries}:
+                    address_queries.append(without_company)
         replacements = (
             ("ß", "ss"), ("ẞ", "SS"),
             ("ä", "ae"), ("ö", "oe"), ("ü", "ue"),
@@ -7123,7 +7151,7 @@ def geocode_search():
 
             raw_results = []
             photon_failed = False
-            for search_query in address_queries:
+            for search_query in address_queries[:3]:
                 photon_params = {
                     "q": search_query,
                     "limit": 15
@@ -7142,7 +7170,7 @@ def geocode_search():
                                 "(transport route planner)"
                             )
                         },
-                        timeout=20
+                        timeout=12
                     )
                     response.raise_for_status()
                     raw_results = response.json().get("features") or []
@@ -7268,7 +7296,7 @@ def geocode_search():
                         time.sleep(wait_seconds)
 
                     nominatim_raw = []
-                    for search_query in address_queries:
+                    for search_query in address_queries[:3]:
                         nominatim_response = requests.get(
                             "https://nominatim.openstreetmap.org/search",
                             params={
@@ -7285,7 +7313,7 @@ def geocode_search():
                                 ),
                                 "Accept-Language": "de,en,pl,uk"
                             },
-                            timeout=20
+                            timeout=12
                         )
                         nominatim_response.raise_for_status()
                         nominatim_raw = nominatim_response.json() or []
@@ -7325,6 +7353,51 @@ def geocode_search():
             except (requests.RequestException, ValueError):
                 # Nominatim jest tylko rezerwą. Jeśli też nie odpowie,
                 # zwracamy normalny brak wyników zamiast psuć trasę.
+                pass
+
+        # Photon can miss smaller German towns altogether. The city selector
+        # must remain usable even if that one provider has no city record.
+        if search_mode == "city" and not results:
+            try:
+                with GEOCODE_LOCK:
+                    wait_seconds = 1.05 - (time.monotonic() - GEOCODE_LAST_REQUEST_AT)
+                    if wait_seconds > 0:
+                        time.sleep(wait_seconds)
+                    fallback = requests.get(
+                        "https://nominatim.openstreetmap.org/search",
+                        params={"q": query, "format": "jsonv2", "addressdetails": 1, "limit": 7},
+                        headers={
+                            "User-Agent": "TRANVIQ/1.0 (O&O TRANS route planner; contact via application owner)",
+                            "Accept-Language": "de,en,pl,uk"
+                        },
+                        timeout=12
+                    )
+                    fallback.raise_for_status()
+                    fallback_items = fallback.json() or []
+                    GEOCODE_LAST_REQUEST_AT = time.monotonic()
+                for item in fallback_items:
+                    address = item.get("address") or {}
+                    town = str(address.get("city") or address.get("town") or
+                               address.get("village") or address.get("municipality") or "").strip()
+                    if not town or query.casefold() not in town.casefold():
+                        continue
+                    try:
+                        latitude, longitude = float(item["lat"]), float(item["lon"])
+                    except (KeyError, TypeError, ValueError):
+                        continue
+                    results.append({
+                        "name": str(item.get("display_name") or town),
+                        "short_name": town,
+                        "latitude": latitude,
+                        "longitude": longitude,
+                        "type": "city",
+                        "city": town,
+                        "country_code": str(address.get("country_code") or "").lower(),
+                        "source": "nominatim"
+                    })
+                    if len(results) >= 5:
+                        break
+            except (requests.RequestException, ValueError):
                 pass
 
         if photon_failed and not results:
@@ -11244,7 +11317,7 @@ def gps():
             const controller = new AbortController();
             const requestTimeout = window.setTimeout(function() {{
                 controller.abort();
-            }}, 25000);
+            }}, 90000);
 
             try {{
                 const response = await fetch(
