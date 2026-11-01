@@ -66,7 +66,7 @@ GMAIL_TOKEN_KEY_SOURCE = (
 GMAIL_SEARCH_QUERY = os.environ.get(
     "GMAIL_SEARCH_QUERY",
     (
-        "newer_than:90d has:attachment "
+        "after:2026/09/30 has:attachment "
         "{filename:pdf filename:xml filename:xlsx filename:xls filename:csv} "
         "-in:spam -in:trash"
     )
@@ -1591,16 +1591,23 @@ def sync_one_gmail_account(account_email):
     if not access_token:
         raise RuntimeError("Потрібне повторне підключення Gmail.")
 
-    listing = gmail_request(
-        "messages",
-        access_token,
-        {"q": GMAIL_SEARCH_QUERY, "maxResults": 50}
-    )
+    summaries = []
+    page_token = None
+    while True:
+        params = {"q": GMAIL_SEARCH_QUERY, "maxResults": 500}
+        if page_token:
+            params["pageToken"] = page_token
+        listing = gmail_request("messages", access_token, params)
+        summaries.extend(listing.get("messages") or [])
+        page_token = listing.get("nextPageToken")
+        if not page_token:
+            break
+
     imported = 0
     checked = 0
     accounting_providers = get_accounting_providers()
 
-    for summary in listing.get("messages") or []:
+    for summary in summaries:
         message_id = summary.get("id")
         if not message_id:
             continue
