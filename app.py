@@ -5,7 +5,9 @@ import math
 import hmac
 import secrets
 import base64
+import struct
 import time
+import zlib
 import threading
 import uuid
 from datetime import datetime, timezone, timedelta
@@ -4078,6 +4080,18 @@ def driver_manifest():
         "orientation": "portrait-primary",
         "icons": [
             {
+                "src": "/assets/tranviq-driver-192.png",
+                "sizes": "192x192",
+                "type": "image/png",
+                "purpose": "any"
+            },
+            {
+                "src": "/assets/tranviq-driver-512.png",
+                "sizes": "512x512",
+                "type": "image/png",
+                "purpose": "any maskable"
+            },
+            {
                 "src": "/assets/tranviq-driver-icon.svg",
                 "sizes": "any",
                 "type": "image/svg+xml",
@@ -4101,9 +4115,11 @@ def driver_manifest():
 @app.route("/driver-service-worker.js")
 def driver_service_worker():
     script = r"""
-const CACHE_NAME = 'tranviq-driver-shell-v1';
+const CACHE_NAME = 'tranviq-driver-shell-v2';
 const STATIC_FILES = [
   '/assets/tranviq-driver-icon.svg',
+  '/assets/tranviq-driver-192.png',
+  '/assets/tranviq-driver-512.png',
   '/driver-manifest.webmanifest'
 ];
 
@@ -4152,6 +4168,69 @@ self.addEventListener('fetch', (event) => {
     response = Response(script, mimetype="application/javascript")
     response.headers["Cache-Control"] = "no-cache, no-store, must-revalidate"
     response.headers["Service-Worker-Allowed"] = "/"
+    return response
+
+
+_DRIVER_PNG_ICON_CACHE = {}
+
+def _png_chunk(chunk_type, data):
+    return (
+        struct.pack(">I", len(data))
+        + chunk_type
+        + data
+        + struct.pack(">I", zlib.crc32(chunk_type + data) & 0xffffffff)
+    )
+
+def _make_driver_png_icon(size):
+    cached = _DRIVER_PNG_ICON_CACHE.get(size)
+    if cached is not None:
+        return cached
+
+    raw = bytearray()
+    scale = size / 512.0
+    for y in range(size):
+        raw.append(0)  # PNG filter: None
+        sy = (y + 0.5) / scale
+        for x in range(size):
+            sx = (x + 0.5) / scale
+            color = (11, 23, 36, 255)  # TRANVIQ navy background
+
+            if (
+                (92 <= sx <= 420 and 143 <= sy <= 217)
+                or (218 <= sx <= 294 and 217 < sy <= 425)
+            ):
+                color = (255, 255, 255, 255)
+
+            # Rounded mint badge matching the existing TRANVIQ driver icon.
+            bx = min(max(sx, 326), 396)
+            by = min(max(sy, 280), 350)
+            if 302 <= sx <= 420 and 256 <= sy <= 374 and (sx - bx) ** 2 + (sy - by) ** 2 <= 24 ** 2:
+                color = (99, 230, 190, 255)
+
+            raw.extend(color)
+
+    ihdr = struct.pack(">2I5B", size, size, 8, 6, 0, 0, 0)
+    png = (
+        b"\x89PNG\r\n\x1a\n"
+        + _png_chunk(b"IHDR", ihdr)
+        + _png_chunk(b"IDAT", zlib.compress(bytes(raw), 9))
+        + _png_chunk(b"IEND", b"")
+    )
+    _DRIVER_PNG_ICON_CACHE[size] = png
+    return png
+
+
+@app.route("/assets/tranviq-driver-192.png")
+def driver_app_icon_192():
+    response = Response(_make_driver_png_icon(192), mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=86400"
+    return response
+
+
+@app.route("/assets/tranviq-driver-512.png")
+def driver_app_icon_512():
+    response = Response(_make_driver_png_icon(512), mimetype="image/png")
+    response.headers["Cache-Control"] = "public, max-age=86400"
     return response
 
 
@@ -4796,6 +4875,10 @@ def require_login():
         or request.path.startswith("/login/")
         or request.path == "/assets/company-logo.jpg"
         or request.path == "/assets/tranviq-driver-icon.svg"
+        or request.path in {
+            "/assets/tranviq-driver-192.png",
+            "/assets/tranviq-driver-512.png"
+        }
         or request.path == "/driver-manifest.webmanifest"
         or request.path == "/driver-service-worker.js"
         or request.path == "/language"
