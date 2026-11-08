@@ -2792,12 +2792,18 @@ document.addEventListener('DOMContentLoaded', function () {{
 <meta name="apple-mobile-web-app-title" content="TRANVIQ Driver">
 <link rel="apple-touch-icon" href="/assets/tranviq-driver-icon.svg">
 <script>
-if ('serviceWorker' in navigator) {
-  window.addEventListener('load', function () {
-    navigator.serviceWorker.register('/driver-service-worker.js', {scope: '/'})
-      .catch(function () {});
-  });
-}
+// Capture Chrome's one-shot install event before the driver dashboard script loads.
+window.__tranviqInstallPrompt = null;
+window.addEventListener('beforeinstallprompt', function(event) {{
+  event.preventDefault();
+  window.__tranviqInstallPrompt = event;
+}});
+if ('serviceWorker' in navigator) {{
+  window.addEventListener('load', function () {{
+    navigator.serviceWorker.register('/driver-service-worker.js', {{scope: '/'}})
+      .catch(function () {{}});
+  }});
+}}
 </script>
 """
 
@@ -5406,7 +5412,7 @@ def driver_dashboard():
       const installButton = document.getElementById('driverInstallButton');
       const installTitle = document.getElementById('driverInstallTitle');
       const installNote = document.getElementById('driverInstallNote');
-      let deferredInstallPrompt = null;
+      let deferredInstallPrompt = window.__tranviqInstallPrompt || null;
       const jobsBox = document.getElementById('driverJobs');
       const routeUi = __ROUTE_UI__;
       let savedRoute = null;
@@ -5465,25 +5471,42 @@ def driver_dashboard():
         window.addEventListener('beforeinstallprompt',function(event){
           event.preventDefault();
           deferredInstallPrompt=event;
+          window.__tranviqInstallPrompt=event;
           installCard.style.display='block';
           installButton.textContent=pwaUi.install;
           installNote.textContent=pwaUi.install_note;
         });
 
         installButton.addEventListener('click',async function(){
-          if(!deferredInstallPrompt){
-            if(!isIos) installNote.textContent=pwaUi.manual_help;
+          const prompt = deferredInstallPrompt || window.__tranviqInstallPrompt;
+          if(!prompt){
+            if(!isIos) {
+              installNote.textContent=pwaUi.manual_help;
+              installNote.style.fontSize='15px';
+              installNote.style.color='#343a40';
+              installNote.style.padding='10px';
+              installNote.style.background='#f1f3f5';
+              installNote.style.borderRadius='8px';
+            }
             return;
           }
-          const prompt=deferredInstallPrompt;
           deferredInstallPrompt=null;
-          await prompt.prompt();
-          try{await prompt.userChoice;}catch(e){}
+          window.__tranviqInstallPrompt=null;
+          try{
+            await prompt.prompt();
+            const choice=await prompt.userChoice;
+            if(choice && choice.outcome==='accepted') installNote.textContent=pwaUi.install_note;
+          }catch(e){
+            installNote.textContent=pwaUi.manual_help;
+            installNote.style.fontSize='15px';
+            installNote.style.color='#343a40';
+          }
         });
 
         window.addEventListener('appinstalled',function(){
           installCard.style.display='none';
           deferredInstallPrompt=null;
+          window.__tranviqInstallPrompt=null;
         });
       }
       setupDriverInstall();
