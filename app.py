@@ -5450,6 +5450,7 @@ def driver_dashboard():
         installTitle.textContent = pwaUi.title;
         installButton.textContent = pwaUi.install;
         installNote.textContent = pwaUi.browser_help;
+        installCard.style.display='block';
 
         const ua = navigator.userAgent || '';
         const isIos = /iphone|ipad|ipod/i.test(ua);
@@ -5470,7 +5471,10 @@ def driver_dashboard():
         });
 
         installButton.addEventListener('click',async function(){
-          if(!deferredInstallPrompt) return;
+          if(!deferredInstallPrompt){
+            if(!isIos) installNote.textContent=pwaUi.manual_help;
+            return;
+          }
           const prompt=deferredInstallPrompt;
           deferredInstallPrompt=null;
           await prompt.prompt();
@@ -6327,6 +6331,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "how_to": "📲 ЯК ВСТАНОВИТИ",
             "install_note": "Встановиться як окремий додаток. Повторно шукати TRANVIQ через Google не потрібно.",
             "browser_help": "У Chrome можна встановити TRANVIQ Driver на головний екран.",
+            "manual_help": "У Chrome натисни ⋮ → «Встановити додаток» або «Додати на головний екран».",
             "ios_help": "На iPhone відкрий у Safari: Поділитися → На початковий екран."
         },
         "pl": {
@@ -6335,6 +6340,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "how_to": "📲 JAK ZAINSTALOWAĆ",
             "install_note": "Aplikacja pojawi się jako osobna ikona. Nie trzeba za każdym razem szukać TRANVIQ w Google.",
             "browser_help": "W Chrome możesz zainstalować TRANVIQ Driver na ekranie głównym.",
+            "manual_help": "W Chrome wybierz ⋮ → „Zainstaluj aplikację” lub „Dodaj do ekranu głównego”.",
             "ios_help": "Na iPhone otwórz w Safari: Udostępnij → Do ekranu początkowego."
         },
         "en": {
@@ -6343,6 +6349,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "how_to": "📲 HOW TO INSTALL",
             "install_note": "It installs as a separate app icon. No need to find TRANVIQ through Google each time.",
             "browser_help": "In Chrome you can install TRANVIQ Driver on the home screen.",
+            "manual_help": "In Chrome, tap ⋮ → “Install app” or “Add to Home screen”.",
             "ios_help": "On iPhone open in Safari: Share → Add to Home Screen."
         },
         "de": {
@@ -6351,6 +6358,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "how_to": "📲 INSTALLATION",
             "install_note": "Die App erscheint als eigenes Symbol. TRANVIQ muss nicht jedes Mal über Google gesucht werden.",
             "browser_help": "In Chrome kann TRANVIQ Driver zum Startbildschirm hinzugefügt werden.",
+            "manual_help": "In Chrome auf ⋮ tippen → „App installieren“ oder „Zum Startbildschirm hinzufügen“.",
             "ios_help": "Auf dem iPhone in Safari: Teilen → Zum Home-Bildschirm."
         }
     }
