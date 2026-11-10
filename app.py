@@ -2794,16 +2794,16 @@ document.addEventListener('DOMContentLoaded', function () {{
 <script>
 // Capture Chrome's one-shot install event before the driver dashboard script loads.
 window.__tranviqInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', function(event) {{
+window.addEventListener('beforeinstallprompt', function(event) {
   event.preventDefault();
   window.__tranviqInstallPrompt = event;
-}});
-if ('serviceWorker' in navigator) {{
-  window.addEventListener('load', function () {{
-    navigator.serviceWorker.register('/driver-service-worker.js', {{scope: '/'}})
-      .catch(function () {{}});
-  }});
-}}
+});
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', function () {
+    navigator.serviceWorker.register('/driver-service-worker.js', {scope: '/'})
+      .catch(function () {});
+  });
+}
 </script>
 """
 
