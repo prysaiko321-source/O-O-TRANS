@@ -2792,12 +2792,6 @@ document.addEventListener('DOMContentLoaded', function () {{
 <meta name="apple-mobile-web-app-title" content="TRANVIQ Driver">
 <link rel="apple-touch-icon" href="/assets/tranviq-driver-icon.svg">
 <script>
-// Capture Chrome's one-shot install event before the driver dashboard script loads.
-window.__tranviqInstallPrompt = null;
-window.addEventListener('beforeinstallprompt', function(event) {
-  event.preventDefault();
-  window.__tranviqInstallPrompt = event;
-});
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', function () {
     navigator.serviceWorker.register('/driver-service-worker.js', {scope: '/'})
@@ -4078,7 +4072,7 @@ def driver_manifest():
         "name": "TRANVIQ Driver",
         "short_name": "TRANVIQ",
         "description": "TRANVIQ driver application",
-        "start_url": "/login/driver",
+        "start_url": "/driver",
         "scope": "/",
         "display": "standalone",
         "background_color": "#f1f3f5",
@@ -5412,7 +5406,7 @@ def driver_dashboard():
       const installButton = document.getElementById('driverInstallButton');
       const installTitle = document.getElementById('driverInstallTitle');
       const installNote = document.getElementById('driverInstallNote');
-      let deferredInstallPrompt = window.__tranviqInstallPrompt || null;
+      let deferredInstallPrompt = null;
       const jobsBox = document.getElementById('driverJobs');
       const routeUi = __ROUTE_UI__;
       let savedRoute = null;
@@ -5453,10 +5447,14 @@ def driver_dashboard():
         const iosStandalone = window.navigator.standalone === true;
         if (standalone || iosStandalone) return;
 
+        installTitle.textContent = pwa      function setupDriverInstall(){
+        const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
+        const iosStandalone = window.navigator.standalone === true;
+        if (standalone || iosStandalone) return;
+
         installTitle.textContent = pwaUi.title;
         installButton.textContent = pwaUi.install;
         installNote.textContent = pwaUi.browser_help;
-        installCard.style.display='block';
 
         const ua = navigator.userAgent || '';
         const isIos = /iphone|ipad|ipod/i.test(ua);
@@ -5471,51 +5469,25 @@ def driver_dashboard():
         window.addEventListener('beforeinstallprompt',function(event){
           event.preventDefault();
           deferredInstallPrompt=event;
-          window.__tranviqInstallPrompt=event;
           installCard.style.display='block';
           installButton.textContent=pwaUi.install;
           installNote.textContent=pwaUi.install_note;
         });
 
         installButton.addEventListener('click',async function(){
-          const prompt = deferredInstallPrompt || window.__tranviqInstallPrompt;
-          if(!prompt){
-            if(!isIos) {
-              installNote.textContent=pwaUi.manual_help;
-              installNote.style.fontSize='15px';
-              installNote.style.color='#343a40';
-              installNote.style.padding='10px';
-              installNote.style.background='#f1f3f5';
-              installNote.style.borderRadius='8px';
-            }
-            return;
-          }
+          if(!deferredInstallPrompt) return;
+          const prompt=deferredInstallPrompt;
           deferredInstallPrompt=null;
-          window.__tranviqInstallPrompt=null;
-          try{
-            await prompt.prompt();
-            const choice=await prompt.userChoice;
-            if(choice && choice.outcome==='accepted') installNote.textContent=pwaUi.install_note;
-          }catch(e){
-            installNote.textContent=pwaUi.manual_help;
-            installNote.style.fontSize='15px';
-            installNote.style.color='#343a40';
-          }
+          await prompt.prompt();
+          try{await prompt.userChoice;}catch(e){}
         });
 
         window.addEventListener('appinstalled',function(){
           installCard.style.display='none';
           deferredInstallPrompt=null;
-          window.__tranviqInstallPrompt=null;
         });
       }
-      setupDriverInstall();
-
-      const micBtn=document.getElementById('driverMic');
-      const transcriptBox=document.getElementById('driverTranscript');
-      const iqResult=document.getElementById('driverIqResult');
-      const iqAction=document.getElementById('driverIqAction');
-      const mapNote=document.getElementById('driverMapNote');
+      setupDriverInstall();Id('driverMapNote');
       let fleetMap=null;
       let fleetMarkers={};
       function setActiveTab(which){[routeTab,mapTab,tachoTab,iqTab].forEach(function(x){x.classList.remove('active');});which.classList.add('active');}
