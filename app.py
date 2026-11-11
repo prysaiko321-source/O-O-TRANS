@@ -2782,7 +2782,7 @@ document.addEventListener('DOMContentLoaded', function () {{
         )
 
     extra_head = ""
-    if active == "driver":
+    if active == "driver" or request.path in {"/login", "/login/driver"}:
         extra_head = """
 <link rel="manifest" href="/driver-manifest.webmanifest">
 <meta name="theme-color" content="#0b1724">
@@ -4078,7 +4078,7 @@ def driver_manifest():
         "name": "TRANVIQ Driver",
         "short_name": "TRANVIQ",
         "description": "TRANVIQ driver application",
-        "start_url": "/driver",
+        "start_url": "/login/driver",
         "scope": "/",
         "display": "standalone",
         "background_color": "#f1f3f5",
@@ -5468,34 +5468,17 @@ def driver_dashboard():
           });
         }
 
-        let installPromptWaiter=null;
         window.addEventListener('beforeinstallprompt',function(event){
           event.preventDefault();
           deferredInstallPrompt=event;
           window.__tranviqInstallPrompt=event;
           installCard.style.display='block';
-          installButton.disabled=false;
           installButton.textContent=pwaUi.install;
           installNote.textContent=pwaUi.install_note;
-          if(installPromptWaiter){
-            installPromptWaiter(event);
-            installPromptWaiter=null;
-          }
         });
 
         installButton.addEventListener('click',async function(){
-          let prompt = deferredInstallPrompt || window.__tranviqInstallPrompt;
-          if(!prompt && !isIos){
-            installButton.disabled=true;
-            installNote.textContent=pwaUi.checking;
-            prompt=await Promise.race([
-              new Promise(resolve=>{installPromptWaiter=resolve;}),
-              new Promise(resolve=>setTimeout(()=>resolve(null),5000))
-            ]);
-            installPromptWaiter=null;
-            installButton.disabled=false;
-            prompt=prompt || deferredInstallPrompt || window.__tranviqInstallPrompt;
-          }
+          const prompt = deferredInstallPrompt || window.__tranviqInstallPrompt;
           if(!prompt){
             if(!isIos) {
               installNote.textContent=pwaUi.manual_help;
@@ -5513,7 +5496,6 @@ def driver_dashboard():
             await prompt.prompt();
             const choice=await prompt.userChoice;
             if(choice && choice.outcome==='accepted') installNote.textContent=pwaUi.install_note;
-            else if(choice && choice.outcome==='dismissed') installNote.textContent=pwaUi.dismissed;
           }catch(e){
             installNote.textContent=pwaUi.manual_help;
             installNote.style.fontSize='15px';
@@ -6373,8 +6355,6 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "install_note": "Встановиться як окремий додаток. Повторно шукати TRANVIQ через Google не потрібно.",
             "browser_help": "У Chrome можна встановити TRANVIQ Driver на головний екран.",
             "manual_help": "У Chrome натисни ⋮ → «Встановити додаток» або «Додати на головний екран».",
-            "checking": "Chrome готує встановлення. Зачекай кілька секунд…",
-            "dismissed": "Chrome не підтвердив встановлення. Спробуй ще раз або вибери ⋮ → «Встановити додаток».",
             "ios_help": "На iPhone відкрий у Safari: Поділитися → На початковий екран."
         },
         "pl": {
@@ -6384,8 +6364,6 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "install_note": "Aplikacja pojawi się jako osobna ikona. Nie trzeba za każdym razem szukać TRANVIQ w Google.",
             "browser_help": "W Chrome możesz zainstalować TRANVIQ Driver na ekranie głównym.",
             "manual_help": "W Chrome wybierz ⋮ → „Zainstaluj aplikację” lub „Dodaj do ekranu głównego”.",
-            "checking": "Chrome przygotowuje instalację. Poczekaj kilka sekund…",
-            "dismissed": "Chrome nie potwierdził instalacji. Spróbuj ponownie lub wybierz ⋮ → „Zainstaluj aplikację”.",
             "ios_help": "Na iPhone otwórz w Safari: Udostępnij → Do ekranu początkowego."
         },
         "en": {
@@ -6395,8 +6373,6 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "install_note": "It installs as a separate app icon. No need to find TRANVIQ through Google each time.",
             "browser_help": "In Chrome you can install TRANVIQ Driver on the home screen.",
             "manual_help": "In Chrome, tap ⋮ → “Install app” or “Add to Home screen”.",
-            "checking": "Chrome is preparing the install. Wait a few seconds…",
-            "dismissed": "Chrome did not confirm installation. Try again or choose ⋮ → “Install app”.",
             "ios_help": "On iPhone open in Safari: Share → Add to Home Screen."
         },
         "de": {
@@ -6406,8 +6382,6 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
             "install_note": "Die App erscheint als eigenes Symbol. TRANVIQ muss nicht jedes Mal über Google gesucht werden.",
             "browser_help": "In Chrome kann TRANVIQ Driver zum Startbildschirm hinzugefügt werden.",
             "manual_help": "In Chrome auf ⋮ tippen → „App installieren“ oder „Zum Startbildschirm hinzufügen“.",
-            "checking": "Chrome bereitet die Installation vor. Bitte kurz warten…",
-            "dismissed": "Chrome hat die Installation nicht bestätigt. Erneut versuchen oder ⋮ → „App installieren“ wählen.",
             "ios_help": "Auf dem iPhone in Safari: Teilen → Zum Home-Bildschirm."
         }
     }
