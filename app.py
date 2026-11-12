@@ -5447,11 +5447,6 @@ def driver_dashboard():
         const iosStandalone = window.navigator.standalone === true;
         if (standalone || iosStandalone) return;
 
-        installTitle.textContent = pwa      function setupDriverInstall(){
-        const standalone = window.matchMedia && window.matchMedia('(display-mode: standalone)').matches;
-        const iosStandalone = window.navigator.standalone === true;
-        if (standalone || iosStandalone) return;
-
         installTitle.textContent = pwaUi.title;
         installButton.textContent = pwaUi.install;
         installNote.textContent = pwaUi.browser_help;
@@ -5487,7 +5482,8 @@ def driver_dashboard():
           deferredInstallPrompt=null;
         });
       }
-      setupDriverInstall();Id('driverMapNote');
+      setupDriverInstall();
+      const mapNote=document.getElementById('driverMapNote');
       let fleetMap=null;
       let fleetMarkers={};
       function setActiveTab(which){[routeTab,mapTab,tachoTab,iqTab].forEach(function(x){x.classList.remove('active');});which.classList.add('active');}
