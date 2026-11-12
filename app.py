@@ -5260,6 +5260,128 @@ def driver_tachograph_api(vehicle_id):
     })
 
 
+
+def localize_driver_tachograph(body, language):
+    """Localize the driver tachograph HTML and runtime display strings together."""
+    translations = {
+    "pl": {
+        "ТАХОГРАФ": "TACHOGRAF",
+        "Отримання даних тахографа…": "Pobieranie danych tachografu…",
+        "До наступної перерви": "Do następnej przerwy",
+        "Залишок денного часу керування": "Pozostały dzienny czas jazdy",
+        "Залишок поточного періоду керування": "Pozostały czas bieżącego okresu jazdy",
+        "До добового відпочинку": "Do odpoczynku dobowego",
+        "Залишок тижневого часу керування": "Pozostały tygodniowy czas jazdy",
+        "Карта водія": "Karta kierowcy",
+        "Показуються останні підтверджені дані Navirec. Тимчасово порожній пакет не стирає попередні значення.": "Wyświetlane są ostatnie potwierdzone dane Navirec. Chwilowo pusty pakiet nie usuwa poprzednich wartości.",
+        "Немає даних": "Brak danych",
+        "Карта вставлена": "Karta włożona",
+        "Водій: ": "Kierowca: ",
+        "останнє підтвердження ": "ostatnie potwierdzenie ",
+        "Очікую підтверджені дані тахографа…": "Oczekiwanie na potwierdzone dane tachografu…",
+        "показано останні підтверджені дані": "wyświetlono ostatnie potwierdzone dane",
+        "Тимчасово немає зв’язку з тахографом.": "Chwilowy brak połączenia z tachografem.",
+        " год. ": " godz. ",
+        " хв": " min"
+    },
+    "en": {
+        "ТАХОГРАФ": "TACHOGRAPH",
+        "Отримання даних тахографа…": "Loading tachograph data…",
+        "До наступної перерви": "Until next break",
+        "Залишок денного часу керування": "Remaining daily driving time",
+        "Залишок поточного періоду керування": "Remaining current driving period",
+        "До добового відпочинку": "Until daily rest",
+        "Залишок тижневого часу керування": "Remaining weekly driving time",
+        "Карта водія": "Driver card",
+        "Показуються останні підтверджені дані Navirec. Тимчасово порожній пакет не стирає попередні значення.": "Showing the last confirmed Navirec data. A temporarily empty response does not erase previous values.",
+        "Немає даних": "No data",
+        "Карта вставлена": "Card inserted",
+        "Водій: ": "Driver: ",
+        "останнє підтвердження ": "last confirmation ",
+        "Очікую підтверджені дані тахографа…": "Waiting for confirmed tachograph data…",
+        "показано останні підтверджені дані": "showing last confirmed data",
+        "Тимчасово немає зв’язку з тахографом.": "Tachograph connection temporarily unavailable.",
+        " год. ": " h ",
+        " хв": " min"
+    },
+    "de": {
+        "ТАХОГРАФ": "TACHOGRAF",
+        "Отримання даних тахографа…": "Tachographendaten werden geladen…",
+        "До наступної перерви": "Bis zur nächsten Pause",
+        "Залишок денного часу керування": "Verbleibende tägliche Lenkzeit",
+        "Залишок поточного періоду керування": "Verbleibende aktuelle Lenkperiode",
+        "До добового відпочинку": "Bis zur täglichen Ruhezeit",
+        "Залишок тижневого часу керування": "Verbleibende wöchentliche Lenkzeit",
+        "Карта водія": "Fahrerkarte",
+        "Показуються останні підтверджені дані Navirec. Тимчасово порожній пакет не стирає попередні значення.": "Die letzten bestätigten Navirec-Daten werden angezeigt. Eine vorübergehend leere Antwort löscht keine vorherigen Werte.",
+        "Немає даних": "Keine Daten",
+        "Карта вставлена": "Karte eingesteckt",
+        "Водій: ": "Fahrer: ",
+        "останнє підтвердження ": "letzte Bestätigung ",
+        "Очікую підтверджені дані тахографа…": "Warten auf bestätigte Tachographendaten…",
+        "показано останні підтверджені дані": "letzte bestätigte Daten werden angezeigt",
+        "Тимчасово немає зв’язку з тахографом.": "Verbindung zum Tachographen vorübergehend nicht verfügbar.",
+        " год. ": " Std. ",
+        " хв": " Min."
+    },
+    "fr": {
+        "ТАХОГРАФ": "TACHYGRAPHE",
+        "Отримання даних тахографа…": "Chargement des données du tachygraphe…",
+        "До наступної перерви": "Avant la prochaine pause",
+        "Залишок денного часу керування": "Temps de conduite quotidien restant",
+        "Залишок поточного періоду керування": "Période de conduite actuelle restante",
+        "До добового відпочинку": "Avant le repos quotidien",
+        "Залишок тижневого часу керування": "Temps de conduite hebdomadaire restant",
+        "Карта водія": "Carte conducteur",
+        "Показуються останні підтверджені дані Navirec. Тимчасово порожній пакет не стирає попередні значення.": "Les dernières données Navirec confirmées sont affichées. Une réponse temporairement vide ne supprime pas les valeurs précédentes.",
+        "Немає даних": "Aucune donnée",
+        "Карта вставлена": "Carte insérée",
+        "Водій: ": "Conducteur : ",
+        "останнє підтвердження ": "dernière confirmation ",
+        "Очікую підтверджені дані тахографа…": "En attente de données confirmées du tachygraphe…",
+        "показано останні підтверджені дані": "dernières données confirmées affichées",
+        "Тимчасово немає зв’язку з тахографом.": "Connexion au tachygraphe temporairement indisponible.",
+        " год. ": " h ",
+        " хв": " min"
+    },
+    "ru": {
+        "ТАХОГРАФ": "ТАХОГРАФ",
+        "Отримання даних тахографа…": "Получение данных тахографа…",
+        "До наступної перерви": "До следующего перерыва",
+        "Залишок денного часу керування": "Оставшееся дневное время вождения",
+        "Залишок поточного періоду керування": "Остаток текущего периода вождения",
+        "До добового відпочинку": "До суточного отдыха",
+        "Залишок тижневого часу керування": "Оставшееся недельное время вождения",
+        "Карта водія": "Карта водителя",
+        "Показуються останні підтверджені дані Navirec. Тимчасово порожній пакет не стирає попередні значення.": "Показаны последние подтверждённые данные Navirec. Временно пустой пакет не удаляет предыдущие значения.",
+        "Немає даних": "Нет данных",
+        "Карта вставлена": "Карта вставлена",
+        "Водій: ": "Водитель: ",
+        "останнє підтвердження ": "последнее подтверждение ",
+        "Очікую підтверджені дані тахографа…": "Ожидание подтверждённых данных тахографа…",
+        "показано останні підтверджені дані": "показаны последние подтверждённые данные",
+        "Тимчасово немає зв’язку з тахографом.": "Временно нет связи с тахографом.",
+        " год. ": " ч ",
+        " хв": " мин"
+    }
+}
+    if language == "uk":
+        return body
+    mapping = translations.get(language, translations["en"])
+    start = body.index('<div id="driverTachoPane"')
+    end = body.index('<div id="driverIqPane"', start)
+    pane = body[start:end]
+    for source, target in sorted(mapping.items(), key=lambda item: len(item[0]), reverse=True):
+        pane = pane.replace(source, target)
+    body = body[:start] + pane + body[end:]
+    # Replace only quoted display strings; do not translate identifiers or API keys.
+    for source, target in mapping.items():
+        if source == "ТАХОГРАФ":
+            continue
+        body = body.replace("'" + source + "'", json.dumps(target, ensure_ascii=False))
+    return body
+
+
 @app.route("/driver")
 def driver_dashboard():
     if not current_driver_vehicle(): return page("Кабінет водія", "<p>Директор має призначити автомобіль.</p>", "driver")
@@ -6164,6 +6286,7 @@ function openRouteTab(){routePane.style.display='block';mapPane.style.display='n
     # Driver UI has its own complete language layer because this page contains
     # both visible HTML and runtime JavaScript messages. Never mix languages.
     driver_lang = current_language()
+    body = localize_driver_tachograph(body, driver_lang)
     speech_lang = {"uk": "uk-UA", "pl": "pl-PL", "en": "en-US", "de": "de-DE"}.get(driver_lang, "uk-UA")
     body = body.replace("__SPEECH_LANG__", json.dumps(speech_lang))
 
