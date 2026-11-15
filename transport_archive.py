@@ -3,6 +3,7 @@ import hashlib
 import json
 import re
 import threading
+import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
 from email.utils import getaddresses
@@ -14,7 +15,7 @@ from flask import request, session, redirect, url_for
 import tenancy
 
 INVOICE = re.compile(r'(?<![A-Z0-9])(FV|FS)[\s._/-]*(K[\s._/-]*)?(\d{1,6})[\s._/-]+(0?[1-9]|1[0-2])[\s._/-]+(202[56])(?!\d)', re.I)
-ORDER = re.compile(r'(?<![A-Z0-9])(?:ZL|ZS)[\s._/-]*[A-Z0-9]+(?:[/_.-][A-Z0-9]+){1,8}', re.I)
+ORDER = re.compile(r'(?<![_A-Z0-9])(?:ZL|ZS)(?:[\s._/-]+|(?=\d))[A-Z0-9]+(?:[/_.-][A-Z0-9]+){1,8}', re.I)
 ORDER_LABEL = re.compile(r'(?:zlecenie(?:\s+(?:spedycyjne|transportowe))?(?:\s+(?:nr|numer))?|order\s+(?:no|number))\s*[:#]?\s*([A-Z0-9]+(?:[/_.-][A-Z0-9]+){1,7})', re.I)
 NIP_INVOICE = re.compile(r'^\d{10}-202[56]\d{4}-', re.I)
 LOGO = re.compile(r'logo|signature|facebook|linkedin|image00[1-9]|smime|winmail', re.I)
@@ -48,10 +49,10 @@ def normalize_message(raw):
 def references(item, own_accounts=None):
     # Header, short message preview and filenames only; avoid merging entire
     # quoted mail histories with unrelated earlier transport orders.
-    text = ' '.join([item['subject'], item['snippet']] + [re.sub(r'\.[A-Za-z0-9]{2,5}$', '', f['filename']) for f in item['files']])
+    text = ' '.join([item['subject'], item['snippet']] + [re.sub(r'\.[A-Za-z0-9]{2,5}$', '', f['filename']) for f in item['files'] if not f['filename'].startswith('ACFrOg')])
     orders = {m.group(0).rstrip('._-/') for m in ORDER.finditer(text)}
     orders.update(m.group(1).rstrip('._-/') for m in ORDER_LABEL.finditer(text))
-    orders = {o for o in orders if '/' in o or '_' in o or '-' in o}
+    orders = {o for o in orders if len(o) <= 80 and re.search(r'\d',o) and ('/' in o or '_' in o or '-' in o)}
     invoices = {f'{m.group(1).upper()}/{"K/" if m.group(2) else ""}{int(m.group(3))}/{int(m.group(4)):02d}/{m.group(5)}' for m in INVOICE.finditer(text)}
     ksef = next((re.match(r'^\d{10}-(202[56])(\d{2})\d{2}-', f['filename']) for f in item['files'] if NIP_INVOICE.search(f['filename'])), None)
     short_invoice = re.search(r'\b(FV|FS)\s*(\d{1,6})(?!\d)', item['subject'], re.I)
@@ -131,7 +132,7 @@ def save_messages(connect_database, raw_messages):
                     continue
                 cursor.execute('''INSERT INTO finance_transport_mail (external_key,metadata)
                     VALUES (%s,%s::jsonb) ON CONFLICT (external_key)
-                    DO UPDATE SET metadata=EXCLUDED.metadata,updated_at=now()''', (key, json.dumps(item)))
+                    DO UPDATE SET metadata=EXCLUDED.metadata,updated_at=now()''', (key, json.dumps(item).replace('\\u0000','')))
     return len(rows)
 
 
@@ -154,8 +155,23 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                         token = access_token(account)
                         if not token:
                             raise RuntimeError('GMAIL_RECONNECT_REQUIRED')
+                        def mail_call(path,params):
+                            for attempt in range(3):
+                                try:
+                                    return gmail_request(path,token,params)
+                                except Exception:
+                                    if attempt==2: raise
+                                    time.sleep(attempt+1)
+                        with connect_database() as connection:
+                            with connection.cursor() as cursor:
+                                cursor.execute('SELECT metadata FROM finance_transport_mail')
+                                known={r['metadata']['message_id'] for r in cursor.fetchall() if r['metadata']['account']==account}
                         def fetch(summary):
-                            msg = gmail_request('messages/' + summary['id'], token, {'format':'full'})
+                            try:
+                                msg = mail_call('messages/' + summary['id'], {'format':'full'})
+                            except Exception:
+                                app.logger.exception('Transport mail message unavailable')
+                                return None
                             files = []
                             def walk(part):
                                 if part.get('filename'):
@@ -168,15 +184,20 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                                 'subject':gmail_header(msg,'Subject'),'sender':gmail_header(msg,'From'),
                                 'recipients':gmail_header(msg,'To') + '; ' + gmail_header(msg,'Cc'),
                                 'snippet':msg.get('snippet',''),'sent':'SENT' in msg.get('labelIds',[]),'files':files}
-                        checked, page_token = 0, None
+                        checked, failed, page_token = 0, 0, None
                         while True:
                             status('running','; '.join(summaries + [f'{account}: перевірено {checked} листів від червня 2025']))
                             params={'q':'after:2025/05/31 has:attachment -in:spam -in:trash','maxResults':100}
                             if page_token: params['pageToken']=page_token
-                            listing=gmail_request('messages',token,params)
+                            listing=mail_call('messages',params)
+                            pending=[s for s in listing.get('messages',[]) if s['id'] not in known]
+                            checked+=len(listing.get('messages',[]))-len(pending)
                             with ThreadPoolExecutor(max_workers=6) as executor:
                                 batch=[]
-                                for raw in executor.map(fetch,listing.get('messages',[])):
+                                for raw in executor.map(fetch,pending):
+                                    if raw is None:
+                                        failed+=1
+                                        continue
                                     if '2025-06-01' <= raw['date'] <= '2026-12-31': batch.append(raw)
                                     checked+=1
                                     if len(batch)>=15:
@@ -185,9 +206,9 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                                 if batch: save_messages(connect_database,batch)
                             page_token=listing.get('nextPageToken')
                             if not page_token: break
-                        summaries.append(f'{account}: перевірено {checked} листів, від червня 2025')
+                        summaries.append(f'{account}: перевірено {checked} листів, від червня 2025; недоступних листів {failed}')
                     except Exception as exc:
-                        summaries.append(f'{account}: потрібне повторне підключення Gmail' if 'RECONNECT' in str(exc) else f'{account}: пошук перервано, збережені результати доступні')
+                        summaries.append(f'{account}: потрібне повторне підключення Gmail' if 'RECONNECT' in str(exc) else f'{account}: пошук перервано ({type(exc).__name__}), збережені результати доступні')
                         app.logger.exception('Transport mail account scan failed')
                 status('done','; '.join(summaries) or 'Немає підключених скриньок')
             except Exception:
