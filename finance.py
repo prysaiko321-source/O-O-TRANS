@@ -3239,6 +3239,15 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         selected_vehicle = request.args.get("vehicle", "").strip()
         if selected_vehicle not in {vehicle["id"] for vehicle in vehicles}:
             selected_vehicle = ""
+        selected_vehicle_registration = next(
+            (
+                registration
+                for registration, vehicle_id
+                in _vehicle_registration_map().items()
+                if vehicle_id == selected_vehicle
+            ),
+            ""
+        )
         selected_payment = request.args.get("payment", "all").strip()
         if selected_payment not in {"all", "paid", "unpaid"}:
             selected_payment = "all"
@@ -3274,7 +3283,21 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             "finance_entries.entry_date < %s"
                         ]
                         entry_filter_values = [month_start, month_end]
-                        if selected_vehicle:
+                        if selected_vehicle_registration:
+                            entry_filters.append("""(
+                                finance_entries.vehicle_id = %s
+                                OR regexp_replace(
+                                    upper(COALESCE(
+                                        finance_entries.vehicle_registration, ''
+                                    )),
+                                    '[^A-Z0-9]', '', 'g'
+                                ) = %s
+                            )""")
+                            entry_filter_values.extend([
+                                selected_vehicle,
+                                selected_vehicle_registration
+                            ])
+                        elif selected_vehicle:
                             entry_filters.append("finance_entries.vehicle_id = %s")
                             entry_filter_values.append(selected_vehicle)
                         if selected_payment == "paid":
@@ -3433,6 +3456,26 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         ))
                         vehicle_month_totals = cursor.fetchall()
 
+                        queue_vehicle_filter = ""
+                        queue_vehicle_values = []
+                        if selected_vehicle_registration:
+                            queue_vehicle_filter = """
+                                AND (
+                                    vehicle_id = %s
+                                    OR regexp_replace(
+                                        upper(COALESCE(vehicle_registration, '')),
+                                        '[^A-Z0-9]', '', 'g'
+                                    ) = %s
+                                )
+                            """
+                            queue_vehicle_values = [
+                                selected_vehicle,
+                                selected_vehicle_registration
+                            ]
+                        elif selected_vehicle:
+                            queue_vehicle_filter = " AND vehicle_id = %s"
+                            queue_vehicle_values = [selected_vehicle]
+
                         cursor.execute("""
                             SELECT *
                             FROM email_invoice_queue
@@ -3440,6 +3483,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                               AND review_status IN (
                                 'pending', 'approved', 'rejected'
                             )
+                              {vehicle_filter}
                             ORDER BY
                                 CASE review_status
                                     WHEN 'pending' THEN 0
@@ -3448,7 +3492,9 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                 END,
                                 imported_at DESC
                             LIMIT 100
-                        """)
+                        """.format(vehicle_filter=queue_vehicle_filter),
+                            queue_vehicle_values
+                        )
                         email_invoices = cursor.fetchall()
 
                         cursor.execute("""
@@ -3538,7 +3584,18 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <td>{repair}</td>
                 </tr>
             """.format(
-                vehicle=html_text(vehicle_name),
+                vehicle=(
+                    '<a href="{}#vehicle-ledger">{}</a>'.format(
+                        escape(url_for(
+                            "finance_dashboard",
+                            month=selected_month,
+                            vehicle=total["vehicle_id"]
+                        )),
+                        html_text(vehicle_name)
+                    )
+                    if total["vehicle_id"]
+                    else html_text(vehicle_name)
+                ),
                 currency=escape(total["currency"]),
                 income=money(income, total["currency"]),
                 expense=money(expense, total["currency"]),
@@ -3558,7 +3615,14 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <td>0</td><td>{zero}</td><td>{zero}</td>
                 </tr>
             """.format(
-                vehicle=html_text(vehicle["name"]),
+                vehicle='<a href="{}#vehicle-ledger">{}</a>'.format(
+                    escape(url_for(
+                        "finance_dashboard",
+                        month=selected_month,
+                        vehicle=vehicle["id"]
+                    )),
+                    html_text(vehicle["name"])
+                ),
                 zero=money(0, "PLN")
             ))
         if not vehicle_month_rows:
@@ -4462,7 +4526,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             </div>
         </details>
 
-        <details class="card finance-fold finance-section">
+        <details id="vehicle-ledger" class="card finance-fold finance-section" {vehicle_ledger_open}>
             <summary>
                 <span class="finance-arrow">›</span>
                 <strong>{recent_section_title}</strong>
@@ -4489,7 +4553,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             </div>
         </details>
 
-        <details class="card finance-fold finance-section">
+        <details id="vehicle-documents" class="card finance-fold finance-section" {vehicle_documents_open}>
             <summary>
                 <span class="finance-arrow">›</span>
                 <strong>{mail_section_title}</strong>
@@ -4516,7 +4580,18 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             accounting_block=accounting_block,
             disabled=form_disabled,
             add_section_title=finance_labels()["section_add"],
-            recent_section_title=finance_labels()["section_recent"],
+            recent_section_title=(
+                finance_text(
+                    "Операції та документи: " + vehicle_names.get(selected_vehicle, ""),
+                    "Operacje i dokumenty: " + vehicle_names.get(selected_vehicle, ""),
+                    "Transactions and documents: " + vehicle_names.get(selected_vehicle, ""),
+                    "Buchungen und Dokumente: " + vehicle_names.get(selected_vehicle, "")
+                )
+                if selected_vehicle
+                else finance_labels()["section_recent"]
+            ),
+            vehicle_ledger_open="open" if selected_vehicle else "",
+            vehicle_documents_open="open" if selected_vehicle else "",
             mail_section_title=finance_labels()["section_mail"],
             month=escape(selected_month),
             vehicle_filter_options="".join(
