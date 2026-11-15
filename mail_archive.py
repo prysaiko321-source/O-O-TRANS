@@ -26,6 +26,10 @@ def normalize_document(raw):
 
 
 def register_mail_archive(app, page_renderer, connect_database):
+    from finance import get_gmail_integrations, gmail_access_token, gmail_request, gmail_header
+    from transport_archive import register_transport_archive
+    register_transport_archive(app, page_renderer, connect_database,
+        get_gmail_integrations, gmail_access_token, gmail_request, gmail_header)
     @app.route('/finance/mail-archive', methods=['GET', 'POST'])
     def finance_mail_archive():
         if session.get('role') != 'director':
@@ -87,7 +91,7 @@ def register_mail_archive(app, page_renderer, connect_database):
             rows_html.append('<tr><td>{}</td><td><a href="{}" target="_blank" rel="noopener noreferrer">{}</a><br><small>{}</small></td><td>{}<br><small>{}</small></td></tr>'.format(
                 item['email_date'], escape(source, quote=True), escape(item['filename']),
                 escape(item['subject']), escape(item['sender']), escape(item['account'])))
-        body = '''<p><a href="/finance">← Фінанси</a></p>
+        body = '''<p><a href="/finance">← Фінанси</a> · <a href="/finance/transport-documents">Замовлення · фактури · CMR · від червня 2025</a></p>
             <h2>Архів документів з пошти · 2026</h2>
             <p>Усього документів: <strong>{total}</strong>. Показано: {shown}.</p>
             <p>Натисніть назву документа, щоб відкрити оригінальний лист у Gmail.
