@@ -156,12 +156,19 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                         if not token:
                             raise RuntimeError('GMAIL_RECONNECT_REQUIRED')
                         def mail_call(path,params):
-                            for attempt in range(3):
+                            nonlocal token
+                            for attempt in range(5):
                                 try:
                                     return gmail_request(path,token,params)
-                                except Exception:
-                                    if attempt==2: raise
-                                    time.sleep(attempt+1)
+                                except Exception as exc:
+                                    response=getattr(exc,'response',None)
+                                    code=getattr(response,'status_code',None)
+                                    if code==401:
+                                        token=access_token(account)
+                                    if attempt==4: raise
+                                    retry_after=getattr(response,'headers',{}).get('Retry-After','')
+                                    delay=min(60,int(retry_after)) if str(retry_after).isdigit() else min(30,2**(attempt+1))
+                                    time.sleep(delay)
                         with connect_database() as connection:
                             with connection.cursor() as cursor:
                                 cursor.execute('SELECT metadata FROM finance_transport_mail')
@@ -214,7 +221,14 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                             if not page_token: break
                         summaries.append(f'{account}: перевірено {checked} листів, від червня 2025; недоступних листів {failed}')
                     except Exception as exc:
-                        summaries.append(f'{account}: потрібне повторне підключення Gmail' if 'RECONNECT' in str(exc) else f'{account}: пошук перервано ({type(exc).__name__}), збережені результати доступні')
+                        response=getattr(exc,'response',None)
+                        code=getattr(response,'status_code','')
+                        reason=''
+                        if response is not None:
+                            try: reason=response.json().get('error',{}).get('errors',[{}])[0].get('reason','')
+                            except (ValueError,KeyError,IndexError,AttributeError): pass
+                        diagnostic=f'{type(exc).__name__} {code} {reason}'.strip()
+                        summaries.append(f'{account}: потрібне повторне підключення Gmail' if 'RECONNECT' in str(exc) else f'{account}: пошук перервано ({diagnostic}), збережені результати доступні')
                         app.logger.exception('Transport mail account scan failed')
                 status('done','; '.join(summaries) or 'Немає підключених скриньок')
             except Exception:
