@@ -3423,14 +3423,13 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             WHERE review_status = 'approved'
                               AND entry_date >= %s
                               AND entry_date < %s
-                            GROUP BY {vehicle_group_expr}, currency
+                            GROUP BY 1, currency
                             ORDER BY vehicle_id NULLS LAST, currency
                         """.format(
                             vehicle_group_expr=vehicle_group_expr
                         ), (
                             vehicle_map_values
                             + [month_start, month_end]
-                            + vehicle_map_values
                         ))
                         vehicle_month_totals = cursor.fetchall()
 
