@@ -125,7 +125,7 @@ ENTRY_KINDS = {
 
 VEHICLE_IDS_BY_REGISTRATION = {
     "SH9203G": "aaaa9acd-5bb5-467e-8241-81444292bbfe",
-    "DX9034F": "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb",
+    "DX9043F": "cbb121b6-34dd-41c6-974b-5b7aa3d9a1cb",
     "DX5405A": "f016af91-dee6-4e72-9f86-4b2e27a253c1"
 }
 
@@ -2554,14 +2554,18 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     """, (
                         entry_id,
                         item["entry_kind"],
-                        item["invoice_date"] or date.today(),
+                        item["invoice_date"] or item["unloading_date"] or item["loading_date"] or date.today(),
                         item["description"],
                         item["category"],
                         item["amount_net"],
                         item["amount_vat"],
                         item["amount_gross"],
                         item["currency"],
-                        item["vehicle_id"],
+                        item["vehicle_id"] or _vehicle_registration_map().get(
+                            normalized_vehicle_registration(
+                                item["vehicle_registration"]
+                            )
+                        ),
                         item["contractor_name"],
                         item["invoice_number"],
                         item["customer_order_number"],
@@ -3370,9 +3374,26 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         for total in cursor.fetchall():
                             totals[total["currency"]] = total
 
+                        registration_map = _vehicle_registration_map()
+                        vehicle_case = " ".join(
+                            "WHEN %s THEN %s" for _ in registration_map
+                        )
+                        vehicle_map_values = [
+                            value
+                            for pair in registration_map.items()
+                            for value in pair
+                        ]
+                        vehicle_group_expr = (
+                            "COALESCE(finance_entries.vehicle_id, CASE "
+                            "regexp_replace(upper(COALESCE("
+                            "finance_entries.vehicle_registration, '')), "
+                            "'[^A-Z0-9]', '', 'g') "
+                            + vehicle_case
+                            + " ELSE NULL END)"
+                        )
                         cursor.execute("""
                             SELECT
-                                vehicle_id,
+                                {vehicle_group_expr} AS vehicle_id,
                                 currency,
                                 COALESCE(SUM(
                                     CASE WHEN entry_kind = 'income'
@@ -3402,9 +3423,15 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             WHERE review_status = 'approved'
                               AND entry_date >= %s
                               AND entry_date < %s
-                            GROUP BY vehicle_id, currency
+                            GROUP BY {vehicle_group_expr}, currency
                             ORDER BY vehicle_id NULLS LAST, currency
-                        """, (month_start, month_end))
+                        """.format(
+                            vehicle_group_expr=vehicle_group_expr
+                        ), (
+                            vehicle_map_values
+                            + [month_start, month_end]
+                            + vehicle_map_values
+                        ))
                         vehicle_month_totals = cursor.fetchall()
 
                         cursor.execute("""
@@ -3541,11 +3568,26 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 'За цей місяць ще немає підтверджених операцій по машинах.'
                 '</td></tr>'
             )
+        month_names_uk = (
+            "Січень", "Лютий", "Березень", "Квітень",
+            "Травень", "Червень", "Липень", "Серпень",
+            "Вересень", "Жовтень", "Листопад", "Грудень"
+        )
+        month_options = []
+        for year in range(date.today().year - 2, date.today().year + 3):
+            for month_number, month_name in enumerate(month_names_uk, start=1):
+                month_value = f"{year}-{month_number:02d}"
+                selected = " selected" if month_value == selected_month else ""
+                month_options.append(
+                    f'<option value="{month_value}"{selected}>'
+                    f'{month_name} {year}</option>'
+                )
+
         vehicle_month_table = """
             <div class="card">
                 <h2>Результат по автомобілях</h2>
                 <form method="get" action="/finance" class="form-grid" style="align-items:end">
-                    <p><label>Місяць</label><input type="month" name="month" value="{month}"></p>
+                    <p><label>Місяць</label><select name="month">{month_options}</select></p>
                     <p><button type="submit">Показати</button></p>
                 </form>
                 <div style="overflow-x:auto">
@@ -3560,7 +3602,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 </div>
                 <p class="small">Підсумок охоплює підтверджені операції за датою обліку. Валюти показуються окремо без конвертації. Літри беруться з поля «Пальне, літрів». Неприв’язані до машини суми показані окремим рядком.</p>
             </div>
-        """.format(month=escape(selected_month), rows="".join(vehicle_month_rows))
+        """.format(month_options="".join(month_options), rows="".join(vehicle_month_rows))
 
         table_rows = []
 
