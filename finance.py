@@ -3792,6 +3792,25 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 warning = "<br><span class='error'>{}</span>".format(
                     html_text(item["duplicate_reason"])
                 )
+            payment_text = (
+                "Оплачено"
+                if item["payment_status"] == "paid"
+                else "Не оплачено"
+            )
+            due_date_text = html_text(item["due_date"], "Не вказано")
+            due_date_value = item["due_date"]
+            is_overdue = bool(
+                item["payment_status"] != "paid"
+                and due_date_value
+                and due_date_value < date.today()
+            )
+            due_badge = (
+                '<span class="badge badge-warning">Прострочено</span>'
+                if is_overdue else ""
+            )
+            item_vehicle = item["vehicle_registration"] or vehicle_names.get(
+                item["vehicle_id"], "Не прив’язано"
+            )
 
             route_lines = []
             if item["customer_order_number"]:
@@ -3840,7 +3859,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <summary>
                         <span class="finance-arrow">›</span>
                         <span class="finance-summary-main">
-                            <strong>{date}</strong>
+                            <strong>{date} · {number}</strong>
                             <span>{contractor}</span>
                         </span>
                         <span class="finance-summary-meta">{gross}</span>
@@ -3868,8 +3887,28 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             <span class="small">{attachment}</span>
                         </div>
                         <div>
-                            <span class="invoice-label">Brutto</span>
+                            <span class="invoice-label">Сума без ПДВ</span>
+                            <strong>{net}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">ПДВ</span>
+                            <strong>{vat}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Брутто</span>
                             <strong>{gross}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Термін оплати</span>
+                            <strong>{due_date}</strong>{due_badge}
+                        </div>
+                        <div>
+                            <span class="invoice-label">Автомобіль</span>
+                            <strong>{vehicle}</strong>
+                        </div>
+                        <div>
+                            <span class="invoice-label">Оплата</span>
+                            <strong>{payment}</strong>
                         </div>
                         <div>
                             <span class="invoice-label">Тип</span>
@@ -3905,11 +3944,17 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     item["source_account_email"],
                     "Основна пошта"
                 ),
-                number=html_text(item["invoice_number"]),
+                number=html_text(item["invoice_number"], "без номера"),
                 attachment=html_text(item["attachment_name"], ""),
                 description=html_text(item["description"]),
                 route_details=route_details,
                 gross=money(item["amount_gross"], item["currency"]),
+                net=money(item["amount_net"], item["currency"]),
+                vat=money(item["amount_vat"], item["currency"]),
+                due_date=due_date_text,
+                due_badge=due_badge,
+                vehicle=html_text(item_vehicle),
+                payment=html_text(payment_text),
                 kind=html_text(kind_label),
                 kind_class=kind_class,
                 status=html_text(status_labels.get(
