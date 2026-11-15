@@ -168,6 +168,7 @@ def ensure_finance_schema():
                         amount_net NUMERIC(14, 2) NOT NULL DEFAULT 0,
                         amount_vat NUMERIC(14, 2) NOT NULL DEFAULT 0,
                         amount_gross NUMERIC(14, 2) NOT NULL DEFAULT 0,
+                        quantity_liters NUMERIC(12, 2),
                         currency TEXT NOT NULL DEFAULT 'PLN',
                         vehicle_id TEXT,
                         contractor_name TEXT,
@@ -226,6 +227,10 @@ def ensure_finance_schema():
                 cursor.execute("""
                     ALTER TABLE finance_entries
                     ADD COLUMN IF NOT EXISTS vehicle_registration TEXT
+                """)
+                cursor.execute("""
+                    ALTER TABLE finance_entries
+                    ADD COLUMN IF NOT EXISTS quantity_liters NUMERIC(12, 2)
                 """)
                 cursor.execute("""
                     CREATE TABLE IF NOT EXISTS email_invoice_queue (
@@ -2662,6 +2667,9 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 "amount_gross": decimal_value(
                     request.form.get("amount_gross")
                 ),
+                "quantity_liters": decimal_value(
+                    request.form.get("quantity_liters")
+                ) or None,
                 "currency": currency,
                 "vehicle_id": clean_text(
                     request.form.get("vehicle_id"),
@@ -2717,6 +2725,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                 amount_net = %s,
                                 amount_vat = %s,
                                 amount_gross = %s,
+                                quantity_liters = %s,
                                 currency = %s,
                                 vehicle_id = %s,
                                 contractor_name = %s,
@@ -2739,6 +2748,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             values["amount_net"],
                             values["amount_vat"],
                             values["amount_gross"],
+                            values["quantity_liters"],
                             values["currency"],
                             values["vehicle_id"],
                             values["contractor_name"],
@@ -2977,6 +2987,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <p><label>Netto</label><input name="amount_net" value="{net}"></p>
                     <p><label>VAT</label><input name="amount_vat" value="{vat}"></p>
                     <p><label>Brutto</label><input name="amount_gross" value="{gross}"></p>
+                    <p><label>Пальне, літрів</label><input name="quantity_liters" type="number" min="0" step="0.01" value="{quantity_liters}"></p>
                     <p><label>Валюта</label><select name="currency">{currencies}</select></p>
                     <p><label>Термін оплати</label><input type="date" name="due_date" value="{due_date}"></p>
                     <p><label>Оплата</label><select name="payment_status">{payments}</select></p>
@@ -3010,6 +3021,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             net=html_text(item["amount_net"], "0.00"),
             vat=html_text(item["amount_vat"], "0.00"),
             gross=html_text(item["amount_gross"], "0.00"),
+            quantity_liters=html_text(item.get("quantity_liters"), ""),
             currencies="".join(currency_options),
             due_date=html_text(item["due_date"], ""),
             payments="".join(payment_options)
@@ -3044,6 +3056,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             amount_net = decimal_value(request.form.get("amount_net"))
             amount_vat = decimal_value(request.form.get("amount_vat"))
             amount_gross = decimal_value(request.form.get("amount_gross"))
+            quantity_liters = decimal_value(request.form.get("quantity_liters")) or None
 
             if not description:
                 message = (
@@ -3060,13 +3073,14 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                     id, entry_kind, entry_date,
                                     description, category,
                                     amount_net, amount_vat, amount_gross,
+                                    quantity_liters,
                                     currency, vehicle_id,
                                     contractor_name, invoice_number,
                                     due_date, payment_status,
                                     source, review_status
                                 ) VALUES (
                                     %s, %s, %s, %s, %s,
-                                    %s, %s, %s, %s, %s,
+                                    %s, %s, %s, %s, %s, %s,
                                     %s, %s, %s, %s, %s, %s
                                 )
                             """, (
@@ -3078,6 +3092,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                                 amount_net,
                                 amount_vat,
                                 amount_gross,
+                                quantity_liters,
                                 currency,
                                 vehicle_id,
                                 contractor or None,
@@ -3216,6 +3231,25 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         accounting_documents = []
         accounting_provider_rows = []
         totals = {}
+        vehicle_month_totals = []
+        selected_month = request.args.get("month", "").strip()
+        if not re.fullmatch(r"\d{4}-\d{2}", selected_month):
+            selected_month = date.today().strftime("%Y-%m")
+        try:
+            month_start = datetime.strptime(selected_month, "%Y-%m").date()
+            month_end = (
+                month_start.replace(year=month_start.year + 1, month=1)
+                if month_start.month == 12
+                else month_start.replace(month=month_start.month + 1)
+            )
+        except ValueError:
+            selected_month = date.today().strftime("%Y-%m")
+            month_start = date.today().replace(day=1)
+            month_end = (
+                month_start.replace(year=month_start.year + 1, month=1)
+                if month_start.month == 12
+                else month_start.replace(month=month_start.month + 1)
+            )
 
         if schema_ok:
             try:
@@ -3284,6 +3318,43 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                         """)
                         for total in cursor.fetchall():
                             totals[total["currency"]] = total
+
+                        cursor.execute("""
+                            SELECT
+                                vehicle_id,
+                                currency,
+                                COALESCE(SUM(
+                                    CASE WHEN entry_kind = 'income'
+                                    THEN amount_gross ELSE 0 END
+                                ), 0) AS income,
+                                COALESCE(SUM(
+                                    CASE WHEN entry_kind = 'expense'
+                                    THEN amount_gross ELSE 0 END
+                                ), 0) AS expense,
+                                COALESCE(SUM(
+                                    CASE WHEN entry_kind = 'expense'
+                                          AND category = 'fuel'
+                                    THEN COALESCE(quantity_liters, 0)
+                                    ELSE 0 END
+                                ), 0) AS fuel_liters,
+                                COALESCE(SUM(
+                                    CASE WHEN entry_kind = 'expense'
+                                          AND category = 'salary'
+                                    THEN amount_gross ELSE 0 END
+                                ), 0) AS salary,
+                                COALESCE(SUM(
+                                    CASE WHEN entry_kind = 'expense'
+                                          AND category = 'repair'
+                                    THEN amount_gross ELSE 0 END
+                                ), 0) AS repair
+                            FROM finance_entries
+                            WHERE review_status = 'approved'
+                              AND entry_date >= %s
+                              AND entry_date < %s
+                            GROUP BY vehicle_id, currency
+                            ORDER BY vehicle_id NULLS LAST, currency
+                        """, (month_start, month_end))
+                        vehicle_month_totals = cursor.fetchall()
 
                         cursor.execute("""
                             SELECT *
@@ -3364,6 +3435,81 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <div class="value">Ще немає даних</div>
                 </div>
             """)
+
+        vehicle_month_rows = []
+        vehicles_with_month_data = set()
+        for total in vehicle_month_totals:
+            if total["vehicle_id"]:
+                vehicles_with_month_data.add(total["vehicle_id"])
+            vehicle_name = vehicle_names.get(
+                total["vehicle_id"],
+                "Вся компанія — не прив’язано до машини"
+                if not total["vehicle_id"]
+                else "Невідомий автомобіль"
+            )
+            income = decimal_value(total["income"])
+            expense = decimal_value(total["expense"])
+            vehicle_month_rows.append("""
+                <tr>
+                    <td><strong>{vehicle}</strong></td>
+                    <td>{currency}</td>
+                    <td>{income}</td>
+                    <td>{expense}</td>
+                    <td><strong>{result}</strong></td>
+                    <td>{fuel_liters}</td>
+                    <td>{salary}</td>
+                    <td>{repair}</td>
+                </tr>
+            """.format(
+                vehicle=html_text(vehicle_name),
+                currency=escape(total["currency"]),
+                income=money(income, total["currency"]),
+                expense=money(expense, total["currency"]),
+                result=money(income - expense, total["currency"]),
+                fuel_liters=html_text(total["fuel_liters"], "0"),
+                salary=money(total["salary"], total["currency"]),
+                repair=money(total["repair"], total["currency"])
+            ))
+        for vehicle in vehicles:
+            if vehicle["id"] in vehicles_with_month_data:
+                continue
+            vehicle_month_rows.append("""
+                <tr>
+                    <td><strong>{vehicle}</strong></td>
+                    <td>PLN</td>
+                    <td>{zero}</td><td>{zero}</td><td><strong>{zero}</strong></td>
+                    <td>0</td><td>{zero}</td><td>{zero}</td>
+                </tr>
+            """.format(
+                vehicle=html_text(vehicle["name"]),
+                zero=money(0, "PLN")
+            ))
+        if not vehicle_month_rows:
+            vehicle_month_rows.append(
+                '<tr><td colspan="8" class="invoice-empty">'
+                'За цей місяць ще немає підтверджених операцій по машинах.'
+                '</td></tr>'
+            )
+        vehicle_month_table = """
+            <div class="card">
+                <h2>Результат по автомобілях</h2>
+                <form method="get" action="/finance" class="form-grid" style="align-items:end">
+                    <p><label>Місяць</label><input type="month" name="month" value="{month}"></p>
+                    <p><button type="submit">Показати</button></p>
+                </form>
+                <div style="overflow-x:auto">
+                    <table class="finance-vehicle-table">
+                        <thead><tr>
+                            <th>Автомобіль</th><th>Валюта</th><th>Дохід</th>
+                            <th>Витрати</th><th>Результат</th><th>Пальне, л</th>
+                            <th>Зарплата</th><th>Ремонт</th>
+                        </tr></thead>
+                        <tbody>{rows}</tbody>
+                    </table>
+                </div>
+                <p class="small">Підсумок охоплює підтверджені операції за датою обліку. Валюти показуються окремо без конвертації. Літри беруться з поля «Пальне, літрів». Неприв’язані до машини суми показані окремим рядком.</p>
+            </div>
+        """.format(month=escape(selected_month), rows="".join(vehicle_month_rows))
 
         table_rows = []
 
@@ -4078,6 +4224,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         {message}
 
         <div class="grid">{summary}</div>
+        {vehicle_month_table}
 
         <div style="height:18px"></div>
         {gmail_block}
@@ -4113,6 +4260,9 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         .finance-summary-main span {{ white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }}
         .finance-summary-meta {{ font-weight:800; white-space:nowrap; }}
         .finance-section > summary strong {{ font-size:18px; }}
+        .finance-vehicle-table {{ width:100%; border-collapse:collapse; min-width:720px; }}
+        .finance-vehicle-table th, .finance-vehicle-table td {{ padding:10px; border-bottom:1px solid #e1e5e8; text-align:left; }}
+        .finance-vehicle-table th {{ background:#f3f6f8; white-space:nowrap; }}
         </style>
 
         <details class="card finance-fold finance-section">
@@ -4136,6 +4286,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                     <p><label>Netto</label><input name="amount_net" inputmode="decimal" value="0" {disabled}></p>
                     <p><label>VAT</label><input name="amount_vat" inputmode="decimal" value="0" {disabled}></p>
                     <p><label>Brutto</label><input name="amount_gross" inputmode="decimal" value="0" {disabled}></p>
+                    <p><label>Пальне, літрів</label><input name="quantity_liters" type="number" min="0" step="0.01" value="" {disabled}></p>
                     <p><label>Валюта</label><select name="currency" {disabled}>
                         <option>PLN</option><option>EUR</option><option>USD</option><option>GBP</option>
                     </select></p>
@@ -4182,6 +4333,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             database_alert=database_alert,
             message=message,
             summary="".join(summary_cards),
+            vehicle_month_table=vehicle_month_table,
             gmail_block=gmail_block,
             accounting_block=accounting_block,
             disabled=form_disabled,
