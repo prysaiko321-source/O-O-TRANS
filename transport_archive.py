@@ -184,6 +184,12 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                                 'subject':gmail_header(msg,'Subject'),'sender':gmail_header(msg,'From'),
                                 'recipients':gmail_header(msg,'To') + '; ' + gmail_header(msg,'Cc'),
                                 'snippet':msg.get('snippet',''),'sent':'SENT' in msg.get('labelIds',[]),'files':files}
+                        def safe_fetch(summary):
+                            try:
+                                return fetch(summary)
+                            except Exception:
+                                app.logger.exception('Transport mail metadata unavailable')
+                                return None
                         checked, failed, page_token = 0, 0, None
                         while True:
                             status('running','; '.join(summaries + [f'{account}: перевірено {checked} листів від червня 2025']))
@@ -194,7 +200,7 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                             checked+=len(listing.get('messages',[]))-len(pending)
                             with ThreadPoolExecutor(max_workers=6) as executor:
                                 batch=[]
-                                for raw in executor.map(fetch,pending):
+                                for raw in executor.map(safe_fetch,pending):
                                     if raw is None:
                                         failed+=1
                                         continue
