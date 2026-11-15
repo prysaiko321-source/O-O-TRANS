@@ -110,6 +110,7 @@ def references(item, own_accounts=None):
     # Header, short message preview and filenames only; avoid merging entire
     # quoted mail histories with unrelated earlier transport orders.
     text = ' '.join([item['subject'], item['snippet']] + [re.sub(r'\.[A-Za-z0-9]{2,5}$', '', f['filename']) for f in item['files'] if not f['filename'].startswith('ACFrOg')])
+    text = re.sub(r'\s*([/_.-])\s*', r'\1', text)
     orders = {m.group(0).rstrip('._-/') for m in ORDER.finditer(text)}
     orders.update(m.group(1).rstrip('._-/') for m in ORDER_LABEL.finditer(text))
     orders = {o for o in orders if len(o) <= 80 and re.search(r'\d',o) and ('/' in o or '_' in o or '-' in o)}
@@ -148,7 +149,14 @@ def bundle_messages(items):
             # Domain qualifies short/common order numbers to avoid collisions
             # between different customers.
             tokens.extend(('order', domain, canonical) for domain in domains)
-        tokens.extend(('invoice', domain, canonical_number(number)) for number in invoices for domain in domains)
+        sender_addresses={a.lower() for a in re.findall(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', item['sender'])}
+        own_invoice=item['sent'] or bool(sender_addresses & own_accounts)
+        # Our own invoice number is unique across the connected mailboxes.
+        # External suppliers' numbers still require a matching counterparty.
+        if own_invoice:
+            tokens.extend(('own_invoice', canonical_number(number)) for number in invoices)
+        else:
+            tokens.extend(('invoice', domain, canonical_number(number)) for number in invoices for domain in domains)
         for token in tokens:
             if token in seen:
                 join(key, seen[token])

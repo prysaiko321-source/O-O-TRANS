@@ -54,6 +54,20 @@ class DocumentSearch(unittest.TestCase):
         self.assertEqual(len(result),1)
         self.assertEqual(len(result[0]['messages']),3)
 
+    def test_own_invoice_forwarded_between_mailboxes_stays_one_bundle(self):
+        first=next(iter(self.messages.values()))
+        first.update(sender='office@trans.test',recipients='client@example.com',sent=True)
+        key,item=mail(4,'FV/12/01/2026 Order no ABC/123/26','invoice.pdf')
+        item['sender']='office@trans.test';item['recipients']='other@trans.test';item['sent']=True
+        self.messages[key]=item
+        key,item=mail(5,'FV/12/01/2026','CMR.pdf')
+        item['account']='other@trans.test';item['sender']='office@trans.test'
+        item['recipients']='other@trans.test'
+        self.messages[key]=item
+        result=filter_document_groups(self.groups(),'invoice','FV/12/01/2026','')
+        self.assertEqual(len(result),1)
+        self.assertEqual(len(result[0]['messages']),4)
+
     def test_form_has_three_modes_and_escapes_input(self):
         result=document_search_form('order','"><script>')
         for name in ['За номером фактури','За номером зліцення','За датою виставлення']:
