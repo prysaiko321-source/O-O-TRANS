@@ -6,7 +6,6 @@ import threading
 import time
 from concurrent.futures import ThreadPoolExecutor
 from datetime import date, datetime, timezone
-from email.utils import getaddresses
 from html import escape
 from urllib.parse import urlencode
 from zoneinfo import ZoneInfo
@@ -59,9 +58,10 @@ def references(item, own_accounts=None):
     if not invoices and ksef and short_invoice:
         invoices.add(f'{short_invoice.group(1).upper()}/{int(short_invoice.group(2))}/{ksef.group(2)}/{ksef.group(1)}')
     own_accounts = own_accounts or {item['account']}
-    addresses = [a.lower() for _, a in getaddresses([item['sender'], item['recipients']]) if a.lower() not in own_accounts]
+    addresses = [a.lower() for a in re.findall(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', item['sender']+' '+item['recipients']) if a.lower() not in own_accounts]
     domains = {a if a.split('@')[-1] in {'gmail.com', 'wp.pl', 'onet.pl', 'o2.pl'} else a.split('@')[-1] for a in addresses if '@' in a}
-    own_invoice = (item['sent'] or any(a.lower() in own_accounts for _,a in getaddresses([item['sender']]))) and not any('mawogroup.pl' in d for d in domains)
+    sender_addresses = {a.lower() for a in re.findall(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', item['sender'])}
+    own_invoice = (item['sent'] or bool(sender_addresses & own_accounts)) and not any('mawogroup.pl' in d for d in domains)
     cmr = any(re.search(r'cmr', f['filename'], re.I) for f in item['files'])
     return orders, invoices if own_invoice else set(), domains, bool(orders or own_invoice and (invoices or ksef) or cmr)
 
