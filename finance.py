@@ -1,4 +1,5 @@
 import tenancy
+from transport_archive import document_search_form
 import os
 import uuid
 import hmac
@@ -4036,12 +4037,17 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                            target="_blank" rel="noopener">
                             Відкрити PDF/XML
                         </a>
+                        <a class="button" href="{bundle_url}">Усі документи: фактура · зліцення · CMR</a>
                         {actions}
                     </div>
                 </div>
                 </div>
                 </details>
             """.format(
+                bundle_url=escape('/finance/transport-documents?' + urlencode(
+                    {'source_message': item['source_message_id'], 'source_account': item['source_account_email'] or ''}
+                    if item.get('source_message_id') and item.get('source_account_email') else
+                    {'search_type': 'invoice', 'q': item['invoice_number'] or ''}), quote=True),
                 date=html_text(item["invoice_date"]),
                 new_badge=new_badge,
                 id=escape(str(item["id"])),
@@ -4563,6 +4569,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 <strong>{mail_section_title}</strong>
             </summary>
             <div class="finance-fold-body">
+                {document_search}
                 <p>
                     Транспортне замовлення записується як дохід,
                     а вхідна фактура — як витрата. Перед підтвердженням
@@ -4596,6 +4603,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             ),
             vehicle_ledger_open="open" if selected_vehicle else "",
             vehicle_documents_open="open" if selected_vehicle else "",
+            document_search=document_search_form(),
             mail_section_title=finance_labels()["section_mail"],
             month=escape(selected_month),
             vehicle_filter_options="".join(

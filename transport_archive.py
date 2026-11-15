@@ -21,6 +21,67 @@ LOGO = re.compile(r'logo|signature|facebook|linkedin|image00[1-9]|smime|winmail'
 SUPPORTED = re.compile(r'\.(pdf|xml|xlsx?|csv|docx?|zip|jpe?g|png|webp|tiff?|heic)$', re.I)
 
 
+def document_search_form(search_type="invoice", query="", issue_date=""):
+    """The same search entry point in Finance and the complete mail archive."""
+    options = ''.join('<option value="{}" {}>{}</option>'.format(
+        value, 'selected' if search_type == value else '', label)
+        for value, label in [('invoice', 'За номером фактури'),
+                              ('order', 'За номером зліцення'), ('date', 'За датою виставлення')])
+    return """<form method="get" action="/finance/transport-documents" class="card">
+        <label>Шукати документи
+        <select name="search_type" onchange="this.form.querySelector('[name=q]').hidden=this.value==='date';this.form.querySelector('[name=issue_date]').hidden=this.value!=='date'">{options}</select></label>
+        <input name="q" value="{query}" placeholder="Введіть номер" aria-label="Номер фактури або зліцення" {number_hidden}>
+        <input type="date" name="issue_date" value="{issue_date}" aria-label="Дата виставлення фактури" {date_hidden}>
+        <button type="submit">Знайти документи</button>
+        <a href="/finance/transport-documents">Скинути пошук</a>
+        <p class="small">Пошук за всі роки. Відкривається весь пов’язаний пакет: фактура, зліцення, CMR та інші документи.</p>
+        </form>""".format(options=options, query=escape(query, quote=True),
+            issue_date=escape(issue_date, quote=True), number_hidden='hidden' if search_type=='date' else '',
+            date_hidden='' if search_type=='date' else 'hidden')
+
+
+def canonical_number(value):
+    return re.sub(r'[^A-ZА-ЯІЇЄҐ0-9]', '', str(value).upper())
+
+
+def enrich_invoice_messages(messages, records):
+    """Add extracted document references and issue dates, never email dates."""
+    for row in records:
+        account = (row.get('source_account_email') or '').strip().lower()
+        message_id = row.get('source_message_id') or ''
+        if not account or not message_id:
+            continue
+        key = hashlib.sha256((account + ':' + message_id).encode()).hexdigest()
+        item = messages.setdefault(key, dict(account=account, message_id=message_id,
+            date='', subject=row.get('email_subject') or '', sender=row.get('sender_email') or '',
+            recipients=account, snippet='', thread_id='', sent=False, files=[]))
+        name = row.get('attachment_name')
+        if name and not any(f['filename']==name for f in item['files']):
+            item['files'].append(dict(filename=name, size=0))
+        number = row.get('invoice_number')
+        is_order = bool(re.search('зліцення|замовлення', row.get('description') or '', re.I))
+        field = 'known_orders' if is_order else 'known_invoices'
+        if number:
+            item.setdefault(field, set()).add(number)
+        if row.get('customer_order_number'):
+            item.setdefault('known_orders', set()).add(row['customer_order_number'])
+        if row.get('invoice_date') and not is_order:
+            item.setdefault('invoice_dates', set()).add(str(row['invoice_date'])[:10])
+    return messages
+
+
+def filter_document_groups(groups, search_type, query, issue_date):
+    needle = canonical_number(query)
+    if search_type == 'date':
+        try:
+            target = date.fromisoformat(issue_date).isoformat()
+        except ValueError:
+            return []
+        return [g for g in groups if target in g['invoice_dates']]
+    field = 'orders' if search_type == 'order' else 'invoices'
+    return [g for g in groups if not needle or any(needle in canonical_number(n) for n in g[field])]
+
+
 def normalize_message(raw):
     account = str(raw.get('account', '')).strip().lower()
     message_id = str(raw.get('message_id', ''))
@@ -63,7 +124,9 @@ def references(item, own_accounts=None):
     sender_addresses = {a.lower() for a in re.findall(r'[\w.+-]+@[\w.-]+\.[A-Za-z]{2,}', item['sender'])}
     own_invoice = (item['sent'] or bool(sender_addresses & own_accounts)) and not any('mawogroup.pl' in d for d in domains)
     cmr = any(re.search(r'cmr', f['filename'], re.I) for f in item['files'])
-    return orders, invoices if own_invoice else set(), domains, bool(orders or own_invoice and (invoices or ksef) or cmr)
+    orders.update(item.get('known_orders', ()))
+    invoices = (invoices if own_invoice else set()) | set(item.get('known_invoices', ()))
+    return orders, invoices, domains, bool(orders or invoices or cmr)
 
 
 def bundle_messages(items):
@@ -85,7 +148,7 @@ def bundle_messages(items):
             # Domain qualifies short/common order numbers to avoid collisions
             # between different customers.
             tokens.extend(('order', domain, canonical) for domain in domains)
-        tokens.extend(('invoice', number) for number in invoices)
+        tokens.extend(('invoice', domain, canonical_number(number)) for number in invoices for domain in domains)
         for token in tokens:
             if token in seen:
                 join(key, seen[token])
@@ -109,7 +172,8 @@ def bundle_messages(items):
         invoices = sorted({o for k, _ in group for o in refs[k][1]})
         result.append({'id': min(k for k, _ in group), 'messages': group, 'orders': orders,
             'invoices': invoices, 'transport': any(refs[k][3] for k, _ in group),
-            'date': group[0][1]['date'], 'text': ' '.join(json.dumps(item, ensure_ascii=False) for _,item in group).lower()})
+            'invoice_dates': {d for _, item in group for d in item.get('invoice_dates', ())},
+            'date': group[0][1]['date'], 'text': ' '.join(json.dumps(item, ensure_ascii=False, default=list) for _,item in group).lower()})
     return sorted(result, key=lambda g: g['date'], reverse=True)
 
 
@@ -264,9 +328,27 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                 cursor.execute('SELECT external_key,metadata FROM finance_transport_mail')
                 messages={r['external_key']:r['metadata'] for r in cursor.fetchall()}
                 cursor.execute('SELECT * FROM finance_transport_scan WHERE id=1');progress=cursor.fetchone()
+                cursor.execute("SELECT to_regclass('email_invoice_queue') AS name")
+                if cursor.fetchone()['name']:
+                    cursor.execute("SELECT source_account_email, source_message_id, email_subject, sender_email, attachment_name, invoice_number, customer_order_number, invoice_date, description FROM email_invoice_queue WHERE document_group <> 'accounting'")
+                    enrich_invoice_messages(messages, cursor.fetchall())
         groups=bundle_messages(messages)
         month=request.args.get('month','');query=request.args.get('q','').strip()[:200];kind=request.args.get('kind','transport');selected=request.args.get('bundle','')
-        filtered=[g for g in groups if (kind=='all' or g['transport']) and (not month or g['date'].startswith(month)) and (not query or query.lower() in g['text']) and (not selected or g['id']==selected)]
+        search_type=request.args.get('search_type', '')
+        issue_date=request.args.get('issue_date', '')
+        source_message=request.args.get('source_message', '')
+        source_account=request.args.get('source_account', '').strip().lower()
+        active_search=search_type in {'invoice', 'order', 'date'}
+        if active_search:
+            groups=filter_document_groups(groups, search_type, query, issue_date)
+            month='';kind='all'
+            query_filter=''
+        else:
+            query_filter=query
+        if source_message:
+            groups=[g for g in groups if any(m['message_id']==source_message and m['account']==source_account for _,m in g['messages'])]
+            kind='all'
+        filtered=[g for g in groups if (kind=='all' or g['transport']) and (not month or g['date'].startswith(month)) and (not query_filter or query_filter.lower() in g['text']) and (not selected or g['id']==selected)]
         try: page=max(1,int(request.args.get('page','1')))
         except ValueError: page=1
         shown=filtered[(page-1)*40:page*40]
@@ -283,22 +365,24 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                     filenames.append(f'<li><strong>{tag}</strong>: <a target="_blank" rel="noopener noreferrer" href="{escape(source,quote=True)}">{escape(name)}</a></li>')
                 rows.append(f'<tr><td>{item["date"]}<br>{"Відправлено" if item["sent"] else "Отримано"}</td><td>{escape(item["sender"])}<br>→ {escape(item["recipients"])}<br><small>{escape(item["account"])}</small></td><td>{escape(item["subject"])}<ul>{"".join(filenames)}</ul></td></tr>')
             link=url_for('finance_transport_documents',bundle=group['id'],kind='all')
-            cards.append(f'<details class="card" {"open" if selected or len(filtered)==1 else ""}><summary><strong>{escape(title)}</strong> · {group["date"]} · листів {len(group["messages"])}</summary><p>Замовлення: {escape(orders) or "номер не розпізнано"}<br>Фактури: {escape(invoices) or "номер не розпізнано"}</p><p><a href="{escape(link,quote=True)}">Посилання на цей пакет</a></p><div style="overflow:auto"><table><thead><tr><th>Дата / напрям</th><th>Від кого / кому</th><th>Лист і документи</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></details>')
+            issue_dates=' · '.join(sorted(group['invoice_dates'])) or 'не розпізнано'
+            cmr_status='CMR знайдено' if any(re.search('cmr', f['filename'], re.I) for _,m in group['messages'] for f in m['files']) else 'CMR не розпізнано — перевірте скани у пакеті'
+            cards.append(f'<details class="card" {"open" if selected or active_search or source_message or len(filtered)==1 else ""}><summary><strong>{escape(title)}</strong> · {group["date"]} · листів {len(group["messages"])}</summary><p>Замовлення: {escape(orders) or "номер не розпізнано"}<br>Фактури: {escape(invoices) or "номер не розпізнано"}<br>Дата виставлення фактури: {escape(issue_dates)}<br>{cmr_status}</p><p><a href="{escape(link,quote=True)}">Посилання на цей пакет</a></p><div style="overflow:auto"><table><thead><tr><th>Дата / напрям</th><th>Від кого / кому</th><th>Лист і документи</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></details>')
         months=['2025-'+f'{m:02d}' for m in range(6,13)]+['2026-'+f'{m:02d}' for m in range(1,12)]
         options='<option value="">Від червня 2025 · усі місяці</option>'+''.join(f'<option value="{m}" {"selected" if month==m else ""}>{m}</option>' for m in months)
         kinds=''.join(f'<option value="{v}" {"selected" if kind==v else ""}>{label}</option>' for v,label in [('transport','Рейси: замовлення, фактури, CMR'),('all','Усі документи, включно з витратами та бухгалтерією')])
-        pages=' '.join(f'<a href="{escape(url_for("finance_transport_documents",month=month,q=query,kind=kind,page=p),quote=True)}">{p}</a>' for p in range(1,(len(filtered)+39)//40+1))
+        pages=' '.join(f'<a href="{escape(url_for("finance_transport_documents",month=month,q=query,kind=kind,page=p,search_type=search_type,issue_date=issue_date,source_message=source_message,source_account=source_account),quote=True)}">{p}</a>' for p in range(1,(len(filtered)+39)//40+1))
         running=progress and progress['state']=='running'
-        body='''{refresh}<p><a href="/finance">← Фінанси</a></p><h2>Замовлення · фактури · CMR</h2>
+        body='''{refresh}<p><a href="/finance">← Фінанси</a></p><h2>Замовлення · фактури · CMR</h2>{search_form}
             <p>Від червня 2025 року. Листів: <strong>{letters}</strong> · вкладень: <strong>{files}</strong> · пакетів у вибірці: <strong>{groups}</strong>.</p>
             <p>Відкрийте пакет, щоб побачити листи із замовленням, фактурою та CMR. Кожне посилання веде до оригінального листа в потрібній скриньці Gmail.
             Документи об’єднано за точними номерами замовлень, фактур або однозначною гілкою листування. Скани без назви треба перевірити в листі; інші документи доступні через фільтр «Усі документи».</p>
             <p>{notice}</p><p>{progress}</p><form method="post"><input type="hidden" name="action" value="scan"><button {disabled}>Перевірити всі підключені пошти від червня 2025</button></form>
-            <form method="get"><select name="month">{months}</select><select name="kind">{kinds}</select><input name="q" value="{query}" placeholder="Фірма, номер замовлення, фактури або CMR"><button>Знайти</button></form>
-            <p>Місяць — дата першого листа в пакеті. Для пошуку конкретної фактури використайте її номер.</p>{cards}<p>Сторінки: {pages}</p>
+            <details><summary>Додаткові фільтри архіву</summary><form method="get"><select name="month">{months}</select><select name="kind">{kinds}</select><input name="q" value="{query}" placeholder="Фірма, номер замовлення, фактури або CMR"><button>Знайти</button></form>
+            <p>Місяць — дата першого листа в пакеті. Для пошуку конкретної фактури використайте її номер.</p></details>{cards}<p>Сторінки: {pages}</p>
             <details><summary>Імпорт індексу листів</summary><form method="post" enctype="multipart/form-data"><input type="file" name="archive" accept=".json" required><button>Імпортувати посилання</button></form></details>'''.format(
                 refresh='<meta http-equiv="refresh" content="10">' if running else '',letters=len(messages),files=sum(len(m['files']) for m in messages.values()),groups=len(filtered),
-                notice=escape(notice),progress=escape(progress['detail']) if progress else '',disabled='disabled' if running else '',months=options,kinds=kinds,query=escape(query,quote=True),cards=''.join(cards),pages=pages)
+                search_form=document_search_form(search_type or 'invoice',query,issue_date),notice=escape(notice),progress=escape(progress['detail']) if progress else '',disabled='disabled' if running else '',months=options,kinds=kinds,query=escape(query,quote=True),cards=''.join(cards) or '<p>Документів за цим запитом не знайдено. Перевірте номер або дату. Документи без розпізнаної дати виставлення не потрапляють у пошук за датою.</p>',pages=pages)
         return page_renderer('Замовлення, фактури та CMR',body,'finance')
 
     @app.route('/finance/sent-invoices')
