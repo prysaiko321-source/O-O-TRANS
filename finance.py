@@ -3232,6 +3232,16 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
         accounting_provider_rows = []
         totals = {}
         vehicle_month_totals = []
+        selected_vehicle = request.args.get("vehicle", "").strip()
+        if selected_vehicle not in {vehicle["id"] for vehicle in vehicles}:
+            selected_vehicle = ""
+        selected_payment = request.args.get("payment", "all").strip()
+        if selected_payment not in {"all", "paid", "unpaid"}:
+            selected_payment = "all"
+        selected_due = request.args.get("due", "all").strip()
+        if selected_due not in {"all", "overdue", "next7", "no_date"}:
+            selected_due = "all"
+        selected_search = request.args.get("q", "").strip()[:120]
         selected_month = request.args.get("month", "").strip()
         if not re.fullmatch(r"\d{4}-\d{2}", selected_month):
             selected_month = date.today().strftime("%Y-%m")
@@ -3255,6 +3265,43 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             try:
                 with connect_database() as connection:
                     with connection.cursor() as cursor:
+                        entry_filters = [
+                            "finance_entries.entry_date >= %s",
+                            "finance_entries.entry_date < %s"
+                        ]
+                        entry_filter_values = [month_start, month_end]
+                        if selected_vehicle:
+                            entry_filters.append("finance_entries.vehicle_id = %s")
+                            entry_filter_values.append(selected_vehicle)
+                        if selected_payment == "paid":
+                            entry_filters.append("finance_entries.payment_status = 'paid'")
+                        elif selected_payment == "unpaid":
+                            entry_filters.append("finance_entries.payment_status <> 'paid'")
+                        if selected_due == "overdue":
+                            entry_filters.extend([
+                                "finance_entries.payment_status <> 'paid'",
+                                "finance_entries.due_date IS NOT NULL",
+                                "finance_entries.due_date < CURRENT_DATE"
+                            ])
+                        elif selected_due == "next7":
+                            entry_filters.extend([
+                                "finance_entries.payment_status <> 'paid'",
+                                "finance_entries.due_date >= CURRENT_DATE",
+                                "finance_entries.due_date <= CURRENT_DATE + INTERVAL '7 days'"
+                            ])
+                        elif selected_due == "no_date":
+                            entry_filters.append("finance_entries.due_date IS NULL")
+                        if selected_search:
+                            entry_filters.append("""(
+                                finance_entries.description ILIKE %s
+                                OR COALESCE(finance_entries.contractor_name, '') ILIKE %s
+                                OR COALESCE(finance_entries.invoice_number, '') ILIKE %s
+                                OR COALESCE(finance_entries.vehicle_registration, '') ILIKE %s
+                                OR COALESCE(finance_entries.customer_order_number, '') ILIKE %s
+                            )""")
+                            search_value = "%" + selected_search + "%"
+                            entry_filter_values.extend([search_value] * 5)
+
                         cursor.execute("""
                             SELECT
                                 finance_entries.*,
@@ -3294,10 +3341,14 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             LEFT JOIN email_invoice_queue
                               ON email_invoice_queue.finance_entry_id
                                  = finance_entries.id
-                            ORDER BY finance_entries.entry_date DESC,
+                            WHERE {filters}
+                            ORDER BY finance_entries.due_date ASC NULLS LAST,
+                                     finance_entries.entry_date DESC,
                                      finance_entries.created_at DESC
                             LIMIT 100
-                        """)
+                        """.format(filters=" AND ".join(entry_filters)),
+                            entry_filter_values
+                        )
                         rows = cursor.fetchall()
 
                         cursor.execute("""
@@ -3552,7 +3603,7 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 )
             if row["payment_terms"]:
                 document_details.append(
-                    "Оплата: " + html_text(row["payment_terms"])
+                    "Умови оплати: " + html_text(row["payment_terms"])
                 )
             if row["sender_email"]:
                 document_details.append(
@@ -3594,13 +3645,27 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 if row["payment_status"] == "paid"
                 else finance_text("Не оплачено", "Nieopłacone", "Unpaid", "Unbezahlt")
             )
+            due_date_text = html_text(row["due_date"], "Не вказано")
+            due_date_value = row["due_date"]
+            is_overdue = bool(
+                row["payment_status"] != "paid"
+                and due_date_value
+                and due_date_value < date.today()
+            )
+            due_badge = (
+                '<span class="badge badge-warning">Прострочено</span>'
+                if is_overdue else ""
+            )
+            assigned_vehicle = row["vehicle_registration"] or vehicle_names.get(
+                row["vehicle_id"], "Не прив’язано"
+            )
             table_rows.append("""
                 <details class="finance-fold finance-item">
                     <summary>
                         <span class="finance-arrow">›</span>
                         <span class="finance-summary-main">
-                            <strong>{date}</strong>
-                            <span>{description}</span>
+                            <strong>{date} · {invoice_number}</strong>
+                            <span>{contractor} · {description}</span>
                         </span>
                         <span class="finance-summary-meta">{gross}</span>
                     </summary>
@@ -3610,6 +3675,10 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                             <div><span class="label">{category_title}</span><strong>{category}</strong></div>
                             <div><span class="label">{vehicle_title}</span><strong>{vehicle}</strong></div>
                             <div><span class="label">{payment_title}</span><strong>{payment}</strong></div>
+                            <div><span class="label">Сума без ПДВ</span><strong>{net}</strong></div>
+                            <div><span class="label">ПДВ</span><strong>{vat}</strong></div>
+                            <div><span class="label">Брутто</span><strong>{gross}</strong></div>
+                            <div><span class="label">Термін оплати</span><strong>{due_date}</strong>{due_badge}</div>
                         </div>
                         <div class="invoice-description">{document_details}</div>
                         <a class="button"
@@ -3621,13 +3690,19 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             """.format(
                 id=escape(str(row["id"])),
                 date=html_text(row["entry_date"]),
+                invoice_number=html_text(row["invoice_number"], "без номера"),
+                contractor=html_text(row["contractor_name"], "Контрагент не вказаний"),
                 kind=html_text(kind_label),
                 description=html_text(row["description"]),
                 document_details="<br>".join(document_details) or "—",
                 document_button=document_button,
                 category=html_text(FINANCE_CATEGORIES.get(row["category"], row["category"])),
-                vehicle=vehicle_text,
+                vehicle=html_text(assigned_vehicle),
                 gross=money(row["amount_gross"], row["currency"]),
+                net=money(row["amount_net"], row["currency"]),
+                vat=money(row["amount_vat"], row["currency"]),
+                due_date=due_date_text,
+                due_badge=due_badge,
                 payment=payment_text,
                 kind_label_title=finance_text("Тип", "Typ", "Type", "Typ"),
                 category_title=finance_text("Категорія", "Kategoria", "Category", "Kategorie"),
@@ -4307,6 +4382,23 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
                 <strong>{recent_section_title}</strong>
             </summary>
             <div class="finance-fold-body">
+                <form method="get" action="/finance" class="form-grid finance-filters">
+                    <input type="hidden" name="month" value="{month}">
+                    <p><label>Машина</label><select name="vehicle">{vehicle_filter_options}</select></p>
+                    <p><label>Статус оплати</label><select name="payment">
+                        <option value="all" {payment_all}>Усі</option>
+                        <option value="unpaid" {payment_unpaid}>Не оплачено</option>
+                        <option value="paid" {payment_paid}>Оплачено</option>
+                    </select></p>
+                    <p><label>Термін</label><select name="due">
+                        <option value="all" {due_all}>Усі терміни</option>
+                        <option value="overdue" {due_overdue}>Прострочені</option>
+                        <option value="next7" {due_next7}>До оплати за 7 днів</option>
+                        <option value="no_date" {due_no_date}>Без дати</option>
+                    </select></p>
+                    <p><label>Пошук</label><input name="q" value="{search_value}" placeholder="Фактура, замовник, номер авто"></p>
+                    <p><button type="submit">Фільтрувати</button></p>
+                </form>
                 <div class="invoice-list">{rows}</div>
             </div>
         </details>
@@ -4340,6 +4432,23 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
             add_section_title=finance_labels()["section_add"],
             recent_section_title=finance_labels()["section_recent"],
             mail_section_title=finance_labels()["section_mail"],
+            month=escape(selected_month),
+            vehicle_filter_options="".join(
+                '<option value="{}" {}>{}</option>'.format(
+                    escape(vehicle["id"]),
+                    "selected" if vehicle["id"] == selected_vehicle else "",
+                    escape(vehicle["name"])
+                )
+                for vehicle in [{"id": "", "name": "Усі машини"}] + vehicles
+            ),
+            payment_all="selected" if selected_payment == "all" else "",
+            payment_unpaid="selected" if selected_payment == "unpaid" else "",
+            payment_paid="selected" if selected_payment == "paid" else "",
+            due_all="selected" if selected_due == "all" else "",
+            due_overdue="selected" if selected_due == "overdue" else "",
+            due_next7="selected" if selected_due == "next7" else "",
+            due_no_date="selected" if selected_due == "no_date" else "",
+            search_value=escape(selected_search),
             today=date.today().isoformat(),
             categories="".join(category_options),
             vehicles="".join(vehicle_options),
