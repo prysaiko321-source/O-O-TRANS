@@ -1828,6 +1828,8 @@ def start_gmail_auto_sync(app):
 
 
 def register_finance_routes(app, page_renderer, vehicles, html_text):
+    from mail_archive import register_mail_archive
+    register_mail_archive(app, page_renderer, connect_database)
     # Finance-specific localization for text assembled inside this module.
     # Keeping it here prevents multiline/dynamic Finance text from bypassing app.py translations.
     def finance_text(uk, pl, en, de):
@@ -4453,6 +4455,8 @@ def register_finance_routes(app, page_renderer, vehicles, html_text):
 
         <div style="height:18px"></div>
         {gmail_block}
+
+        <p><a class="button" href="/finance/mail-archive">Архів документів з пошти · 2026</a></p>
 
         {accounting_block}
 
