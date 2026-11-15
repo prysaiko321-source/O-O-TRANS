@@ -68,6 +68,23 @@ class DocumentSearch(unittest.TestCase):
         self.assertEqual(len(result),1)
         self.assertEqual(len(result[0]['messages']),4)
 
+    def test_unparsed_supplier_invoice_in_filename_is_found(self):
+        key,item=mail(70,'Documents','Rechnung_RE-00877-2026.pdf')
+        self.messages[key]=item
+        result=filter_document_groups(self.groups(),'invoice','RE/00877/2026','')
+        self.assertEqual(len(result),1)
+        self.assertTrue(result[0]['text_match_only'])
+        self.assertEqual(result[0]['invoices'],[])
+
+    def test_number_in_subject_or_preview_found_without_parser(self):
+        key,item=mail(71,'Faktura ABC/99871','scan.pdf')
+        item['snippet']='Attached transport order 32720'
+        self.messages[key]=item
+        self.assertEqual(len(filter_document_groups(self.groups(),'invoice','ABC/99871','')),1)
+        result=filter_document_groups(self.groups(),'order','32720','')
+        self.assertEqual(len(result),1)
+        self.assertTrue(result[0]['text_match_only'])
+
     def test_form_has_three_modes_and_escapes_input(self):
         result=document_search_form('order','"><script>')
         for name in ['За номером фактури','За номером зліцення','За датою виставлення']:

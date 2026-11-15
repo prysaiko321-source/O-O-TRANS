@@ -79,7 +79,21 @@ def filter_document_groups(groups, search_type, query, issue_date):
             return []
         return [g for g in groups if target in g['invoice_dates']]
     field = 'orders' if search_type == 'order' else 'invoices'
-    return [g for g in groups if not needle or any(needle in canonical_number(n) for n in g[field])]
+    matched = []
+    for group in groups:
+        exact = not needle or any(needle in canonical_number(n) for n in group[field])
+        # An attachment may contain a valid supplier-specific number that our
+        # invoice parser does not recognize. Search visible source metadata too;
+        # do not turn a textual mention into a confirmed document relationship.
+        source_values = [value for _, item in group['messages']
+            for value in [item['subject'], item['snippet']] +
+                [f['filename'] for f in item['files']]]
+        mentioned = bool(needle) and any(needle in canonical_number(value) for value in source_values)
+        if exact or mentioned:
+            match = dict(group)
+            match['text_match_only'] = not exact
+            matched.append(match)
+    return matched
 
 
 def normalize_message(raw):
@@ -374,8 +388,9 @@ def register_transport_archive(app, page_renderer, connect_database, get_integra
                 rows.append(f'<tr><td>{item["date"]}<br>{"Відправлено" if item["sent"] else "Отримано"}</td><td>{escape(item["sender"])}<br>→ {escape(item["recipients"])}<br><small>{escape(item["account"])}</small></td><td>{escape(item["subject"])}<ul>{"".join(filenames)}</ul></td></tr>')
             link=url_for('finance_transport_documents',bundle=group['id'],kind='all')
             issue_dates=' · '.join(sorted(group['invoice_dates'])) or 'не розпізнано'
+            search_note='<p>Номер знайдено в назві файла або листі. Перевірте документ у пакеті.</p>' if group.get('text_match_only') else ''
             cmr_status='CMR знайдено' if any(re.search('cmr', f['filename'], re.I) for _,m in group['messages'] for f in m['files']) else 'CMR не розпізнано — перевірте скани у пакеті'
-            cards.append(f'<details class="card" {"open" if selected or active_search or source_message or len(filtered)==1 else ""}><summary><strong>{escape(title)}</strong> · {group["date"]} · листів {len(group["messages"])}</summary><p>Замовлення: {escape(orders) or "номер не розпізнано"}<br>Фактури: {escape(invoices) or "номер не розпізнано"}<br>Дата виставлення фактури: {escape(issue_dates)}<br>{cmr_status}</p><p><a href="{escape(link,quote=True)}">Посилання на цей пакет</a></p><div style="overflow:auto"><table><thead><tr><th>Дата / напрям</th><th>Від кого / кому</th><th>Лист і документи</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></details>')
+            cards.append(f'<details class="card" {"open" if selected or active_search or source_message or len(filtered)==1 else ""}><summary><strong>{escape(title)}</strong> · {group["date"]} · листів {len(group["messages"])}</summary><p>Замовлення: {escape(orders) or "номер не розпізнано"}<br>Фактури: {escape(invoices) or "номер не розпізнано"}<br>Дата виставлення фактури: {escape(issue_dates)}<br>{cmr_status}</p>{search_note}<p><a href="{escape(link,quote=True)}">Посилання на цей пакет</a></p><div style="overflow:auto"><table><thead><tr><th>Дата / напрям</th><th>Від кого / кому</th><th>Лист і документи</th></tr></thead><tbody>{"".join(rows)}</tbody></table></div></details>')
         months=['2025-'+f'{m:02d}' for m in range(6,13)]+['2026-'+f'{m:02d}' for m in range(1,12)]
         options='<option value="">Від червня 2025 · усі місяці</option>'+''.join(f'<option value="{m}" {"selected" if month==m else ""}>{m}</option>' for m in months)
         kinds=''.join(f'<option value="{v}" {"selected" if kind==v else ""}>{label}</option>' for v,label in [('transport','Рейси: замовлення, фактури, CMR'),('all','Усі документи, включно з витратами та бухгалтерією')])
