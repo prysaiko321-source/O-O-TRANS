@@ -7308,7 +7308,7 @@ def geocode_search():
                     "languageCode": current_language(),
                     "units": "METRIC"
                 },
-                timeout=20
+                timeout=5
             )
             google_response.raise_for_status()
             google_routes = google_response.json().get("routes") or []
@@ -7366,7 +7366,7 @@ def geocode_search():
 
             raw_results = []
             photon_failed = False
-            for search_query in address_queries[:5]:
+            for search_index, search_query in enumerate(address_queries[:2]):
                 photon_params = {
                     "q": search_query,
                     "limit": 15
@@ -7385,7 +7385,7 @@ def geocode_search():
                                 "(transport route planner)"
                             )
                         },
-                        timeout=12
+                        timeout=4
                     )
                     response.raise_for_status()
                     raw_results = response.json().get("features") or []
@@ -7396,9 +7396,9 @@ def geocode_search():
                 finally:
                     GEOCODE_LAST_REQUEST_AT = time.monotonic()
 
-                # Szanujemy limit publicznego geokodera także między
-                # wariantami tego samego adresu.
-                time.sleep(1.05)
+                # Szanujemy limit publicznego geokodera między dwoma wariantami.
+                if search_index + 1 < min(len(address_queries), 2):
+                    time.sleep(1.05)
 
         results = []
         seen = set()
@@ -11266,6 +11266,7 @@ def gps():
                     /(?:^|[\s,])\d{{2}}-\d{{3}}(?:\s|,|$)/.test(v) ||          // PL: 65-138
                     /(?:^|[\s,])(?:D|DE)\s*-\s*\d{{5}}(?:\s|,|$)/i.test(v) || // D - 72531
                     /(?:^|[\s,])DE\d{{5}}(?:\s|,|$)/i.test(v) ||              // DE15711
+                    /\bNL[-\s]?\d{{4}}\s?[A-Z]{{2}}\b/i.test(v) ||             // NL: NL7772 TG
                     /(?:^|[\s,])\d{{4}}\s?[A-Z]{{2}}(?:\s|,|$)/i.test(v) || // NL: 9207 MA
                     /(?:^|[\s,])\d{{4}}-\d{{3}}(?:\s|,|$)/.test(v) ||       // PT: 1234-567
                     /(?:^|[\s,])\d{{3}}\s\d{{2}}(?:\s|,|$)/.test(v) ||       // CZ/SK: 123 45
