@@ -7225,7 +7225,7 @@ def geocode_search():
                 if without_prefix.casefold() not in {q.casefold() for q in address_queries}:
                     address_queries.append(without_prefix)
             street_parts = [part for part in parts if re.search(
-                r"\b\d{5}\b|(?:strasse|straße|str\.|street|ul\.|aleja|al\.|weg|platz)\b",
+                r"\b\d{5}\b|\b\d{4}\s?[A-Z]{2}\b|\b\d{2}-\d{3}\b|\b\d{4}-\d{3}\b|\b\d{3}\s\d{2}\b|(?:strasse|straße|str\.|street|ul\.|aleja|al\.|weg|platz)\b|\b\d{1,4}[A-Z]?\s*$",
                 part, re.I
             )]
             if street_parts:
@@ -11197,11 +11197,12 @@ def gps():
             let countryCode = '';
             for (let index = 0; index < useful.length; index += 1) {{
                 const match = useful[index].match(
-                    /^(?:([A-Z]{{2}})[-\\s]*)?(\\d{{4,6}})\\s+(.+)$/i
+                    /^(?:([A-Z]{{2}})[-\\s]*)?((?:\\d{{4}}\\s?[A-Z]{{2}})|(?:\\d{{2}}-\\d{{3}})|(?:\\d{{4}}-\\d{{3}})|(?:\\d{{3}}\\s\\d{{2}})|(?:\\d{{4,6}}))\\s+(.+)$/i
                 );
                 if (match) {{
                     postalIndex = index;
                     countryCode = (match[1] || '').toUpperCase();
+                    if (!countryCode && /^\\d{{4}}\\s?[A-Z]{{2}}\\b/i.test(useful[index])) countryCode = 'NL';
                     break;
                 }}
             }}
@@ -11265,6 +11266,9 @@ def gps():
                     /(?:^|[\s,])\d{{2}}-\d{{3}}(?:\s|,|$)/.test(v) ||          // PL: 65-138
                     /(?:^|[\s,])(?:D|DE)\s*-\s*\d{{5}}(?:\s|,|$)/i.test(v) || // D - 72531
                     /(?:^|[\s,])DE\d{{5}}(?:\s|,|$)/i.test(v) ||              // DE15711
+                    /(?:^|[\s,])\d{{4}}\s?[A-Z]{{2}}(?:\s|,|$)/i.test(v) || // NL: 9207 MA
+                    /(?:^|[\s,])\d{{4}}-\d{{3}}(?:\s|,|$)/.test(v) ||       // PT: 1234-567
+                    /(?:^|[\s,])\d{{3}}\s\d{{2}}(?:\s|,|$)/.test(v) ||       // CZ/SK: 123 45
                     /(?:^|[\s,])\d{{5}}(?:\s|,|$)/.test(v)                    // DE/other: 15711
                 );
             }}
@@ -11474,45 +11478,110 @@ def gps():
         const gps = parseDeliveryCoordinates(stop.address);
         if (gps) return Object.assign({{}}, stop, gps, {{map_name: stop.address}});
 
-        const original = String(stop.address || '').trim();
-        // Verified warehouse address supplied by the dispatcher. A geocoding
-        // provider does not always index a precise entrance / house number.
-        // Require street, house, postcode and city together: never match merely
-        // by the business name or by the town.
-        const exactAddress = original.toLocaleLowerCase('de-DE')
-            .replace(/ß/g, 'ss').replace(/\\s+/g, ' ');
-        if (/wallstadter\\s+stra(?:ße|sse|\\.)\\s*59\\b/i.test(exactAddress) &&
-            /\\b68526\\b/.test(exactAddress) && /\\bladenburg\\b/i.test(exactAddress)) {{
-            return Object.assign({{}}, stop, {{
-                latitude: 49.480787, longitude: 8.606914,
-                map_name: 'Wallstadter Straße 59, 68526 Ladenburg, Germany'
+        const original = String(stop.address || '').replace(/\\s*\\|\\s*$/, '').trim();
+        const parts = original.split(/[,\\n]+/).map(function(part) {{
+            return part.trim();
+        }}).filter(Boolean);
+        const postalPattern = /^(?:(NL|DE|PL|FR|ES|IT|BE|AT|CZ|SK|DK|SE|NO|FI|PT|IE|LU|HU|RO|BG|HR|SI|LT|LV|EE|CH)[-\\s]*)?((?:\\d{{4}}\\s?[A-Z]{{2}})|(?:\\d{{2}}-\\d{{3}})|(?:\\d{{4}}-\\d{{3}})|(?:\\d{{3}}\\s\\d{{2}})|(?:\\d{{4,6}}))\\s+(.+)$/i;
+        let postalIndex = -1;
+        let postalCode = '';
+        let city = '';
+        let postalCountry = '';
+        for (let i = 0; i < parts.length; i += 1) {{
+            const match = parts[i].match(postalPattern);
+            if (match) {{
+                postalIndex = i;
+                postalCode = match[2].replace(/\\s+/g, ' ').trim();
+                city = match[3].trim();
+                postalCountry = (match[1] || '').toUpperCase();
+                if (!postalCountry && /^\\d{{4}}\\s?[A-Z]{{2}}$/i.test(postalCode)) postalCountry = 'NL';
+                break;
+            }}
+        }}
+
+        // Ignore any leading company label. The closest segment containing a
+        // house number before the postcode is the actual street address.
+        let streetIndex = -1;
+        const searchEnd = postalIndex >= 0 ? postalIndex : parts.length;
+        for (let i = searchEnd - 1; i >= 0; i -= 1) {{
+            if (/\\d/.test(parts[i]) && /[A-Za-zÀ-ÿ]/.test(parts[i])) {{
+                streetIndex = i;
+                break;
+            }}
+        }}
+        if (streetIndex < 0) {{
+            streetIndex = parts.findIndex(function(part) {{
+                return /\\d/.test(part) && /[A-Za-zÀ-ÿ]/.test(part);
             }});
         }}
-        // Accept ordinary shipping addresses without requiring GPS coordinates.
-        // Try address components in a different order if the provider's first
-        // interpretation is a nearby business rather than the requested house.
-        const postal = original.match(/\\b(?:DE[-\\s]*)?(\\d{{5}})\\s+([^,]+)/i);
-        const beforePostal = postal ? original.slice(0, postal.index).replace(/[,\\s]+$/, '') : '';
-        const street = beforePostal || original.split(',')[0].trim();
-        const city = postal ? postal[2].trim().replace(/\\b(?:Germany|Deutschland)\\b/ig, '').trim() : '';
-        const queries = [original];
-        if (postal && street) {{
-            queries.push(street + ', ' + postal[1] + ' ' + city + ', Deutschland');
-            queries.push(street + ', ' + city + ', Deutschland');
-            queries.push(postal[1] + ' ' + city + ', ' + street);
-        }}
-        const uniqueQueries = [...new Set(queries.map(q => q.replace(/\\s+/g, ' ').trim()))];
+        const street = streetIndex >= 0 ? parts[streetIndex] : (parts[0] || original);
+
         const normalized = value => String(value || '').toLowerCase()
             .replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe')
-            .replace(/ü/g, 'ue').replace(/[^a-z0-9]+/g, ' ').trim();
-        const streetWords = normalized(street).split(/\\s+/).filter(w =>
-            w.length >= 4 && !['strasse','street','germany','deutschland'].includes(w));
-        const streetNumber = street.match(/\\b\\d{{1,4}}[a-z]?\\b/i);
+            .replace(/ü/g, 'ue').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+            .replace(/[^a-z0-9]+/g, ' ').trim();
+        const countryNames = {{
+            NL: 'Netherlands', DE: 'Germany', PL: 'Poland', FR: 'France',
+            ES: 'Spain', IT: 'Italy', BE: 'Belgium', AT: 'Austria',
+            CZ: 'Czechia', SK: 'Slovakia', DK: 'Denmark', SE: 'Sweden',
+            NO: 'Norway', FI: 'Finland', PT: 'Portugal', IE: 'Ireland',
+            LU: 'Luxembourg', HU: 'Hungary', RO: 'Romania', BG: 'Bulgaria',
+            HR: 'Croatia', SI: 'Slovenia', LT: 'Lithuania', LV: 'Latvia',
+            EE: 'Estonia', CH: 'Switzerland'
+        }};
+        const countryAliases = {{
+            netherlands: 'Netherlands', nederland: 'Netherlands',
+            germany: 'Germany', deutschland: 'Germany',
+            poland: 'Poland', polska: 'Poland', france: 'France',
+            spain: 'Spain', espana: 'Spain', italy: 'Italy', italia: 'Italy',
+            belgium: 'Belgium', austria: 'Austria', osterreich: 'Austria',
+            czechia: 'Czechia', slovakia: 'Slovakia', denmark: 'Denmark',
+            sweden: 'Sweden', norway: 'Norway', finland: 'Finland',
+            portugal: 'Portugal', ireland: 'Ireland', luxembourg: 'Luxembourg',
+            hungary: 'Hungary', romania: 'Romania', bulgaria: 'Bulgaria',
+            croatia: 'Croatia', slovenia: 'Slovenia', lithuania: 'Lithuania',
+            latvia: 'Latvia', estonia: 'Estonia', switzerland: 'Switzerland'
+        }};
+        let country = countryNames[postalCountry] || '';
+        if (!country) {{
+            for (let i = parts.length - 1; i >= 0; i -= 1) {{
+                const alias = countryAliases[normalized(parts[i]).replace(/\\s/g, '')];
+                if (alias) {{
+                    country = alias;
+                    break;
+                }}
+            }}
+        }}
+
+        const addressOnly = streetIndex >= 0 ? parts.slice(streetIndex).join(', ') : original;
+        const queryParts = [street];
+        if (postalCode && city) queryParts.push(postalCode + ' ' + city);
+        if (country) queryParts.push(country);
+        const queries = [queryParts.join(', '), addressOnly, original];
+        if (postalCode && city) {{
+            queries.push(postalCode + ' ' + city + ', ' + street +
+                (country ? ', ' + country : ''));
+        }}
+        const uniqueQueries = [...new Set(queries.map(function(query) {{
+            return query.replace(/\\s+/g, ' ').trim();
+        }}).filter(Boolean))];
+
+        const ignoredStreetWords = [
+            'strasse', 'street', 'road', 'weg', 'platz', 'straat', 'laan',
+            'rue', 'avenue', 'boulevard', 'calle', 'ul', 'aleja', 'al'
+        ];
+        const streetWords = normalized(street).split(/\\s+/).filter(function(word) {{
+            return word.length >= 3 && !ignoredStreetWords.includes(word);
+        }});
+        const streetNumber = street.match(/\\b\\d{{1,4}}[a-z]?(?:[-/]\\d{{1,4}}[a-z]?)?\\b/i);
         const requestedCity = normalized(city).split(' ')[0];
         let lastError = 'Адресу не знайдено';
-        for (let attempt = 0; attempt < uniqueQueries.length; attempt++) {{
-            buildDeliveryRouteButton.textContent = 'Шукаю адресу ' + (index + 1) + '/' + total + '...';
-            measureResult.textContent = 'Перевіряю адресу ' + (index + 1) + ': ' + original +
+
+        for (let attempt = 0; attempt < uniqueQueries.length; attempt += 1) {{
+            buildDeliveryRouteButton.textContent =
+                'Шукаю адресу ' + (index + 1) + '/' + total + '...';
+            measureResult.textContent =
+                'Перевіряю адресу ' + (index + 1) + ': ' + original +
                 ' (спроба ' + (attempt + 1) + '/' + uniqueQueries.length + ')';
             const controller = new AbortController();
             const timeout = window.setTimeout(() => controller.abort(), 22000);
@@ -11523,27 +11592,32 @@ def gps():
                     {{headers: {{'Accept':'application/json'}}, signal:controller.signal, cache:'no-store'}});
                 const data = await response.json();
                 const matches = Array.isArray(data.results) ? data.results : [];
-                const result = matches.find(item => {{
+                const result = matches.find(function(item) {{
                     const latitude = Number(item.latitude), longitude = Number(item.longitude);
                     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
                     if (item.source === 'google_routes') return true;
                     const name = normalized(item.name);
-                    const streetMatch = !streetWords.length || streetWords.some(w => name.includes(w));
-                    const numberMatch = !streetNumber || new RegExp('(^| )' + streetNumber[0].toLowerCase() + '( |$)').test(name);
+                    const streetMatch = !streetWords.length ||
+                        streetWords.some(function(word) {{ return name.includes(word); }});
+                    const numberMatch = !streetNumber ||
+                        new RegExp('(^| )' + streetNumber[0].toLowerCase() + '( |$)').test(name);
                     const cityMatch = !requestedCity || name.includes(requestedCity);
                     return streetMatch && numberMatch && cityMatch;
                 }});
                 if (result) return Object.assign({{}}, stop, {{
                     latitude: Number(result.latitude), longitude: Number(result.longitude),
-                    map_name: result.name || original
+                    map_name: result.name || uniqueQueries[attempt]
                 }});
                 lastError = (data && data.error) || (matches.length
-                    ? 'Пошук запропонував іншу адресу або інший номер будинку'
+                    ? 'Пошук запропонував іншу вулицю, індекс або номер будинку'
                     : 'Адресу не знайдено');
             }} catch (error) {{
-                lastError = error.name === 'AbortError' ? 'Пошук перевищив час очікування'
+                lastError = error.name === 'AbortError'
+                    ? 'Пошук перевищив час очікування'
                     : (error.message || String(error));
-            }} finally {{ window.clearTimeout(timeout); }}
+            }} finally {{
+                window.clearTimeout(timeout);
+            }}
         }}
         throw new Error('Не вдалося визначити точні координати: ' + original +
             '. ' + lastError + '. Іншу адресу замість цієї не підставлено.');
