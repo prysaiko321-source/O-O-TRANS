@@ -11274,6 +11274,24 @@ def gps():
                 );
             }}
 
+            // If each non-empty line is already a complete address, keep
+            // every line as its own stop. This covers mixed EU formats such as
+            // NL7772 TG before a street and prevents adjacent addresses merging.
+            if (simpleLines.length > 1 &&
+                    simpleLines.every(function(line) {{
+                        return isPostalEnd(line) && /\\d/.test(line);
+                    }})) {{
+                return simpleLines.map(function(address) {{
+                    return {{
+                        address: address,
+                        date: null,
+                        window_start: null,
+                        window_end: null,
+                        stop_type: null
+                    }};
+                }});
+            }}
+
             function cleanBlockAddress(block) {{
                 const rows = block.slice();
 
