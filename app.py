@@ -11672,6 +11672,11 @@ def gps():
         const uniqueQueries = [...new Set(queries.map(function(query) {{
             return query.replace(/\\s+/g, ' ').trim();
         }}).filter(Boolean))].slice(0, 2);
+        // A provider can return an empty result temporarily. Retry the same
+        // strongest query once when no alternate query variant exists.
+        const geocodeQueries = uniqueQueries.length === 1
+            ? [uniqueQueries[0], uniqueQueries[0]]
+            : uniqueQueries;
 
         const ignoredStreetWords = [
             'strasse', 'street', 'road', 'weg', 'platz', 'straat', 'laan',
@@ -11685,12 +11690,12 @@ def gps():
         const requestedCity = normalized(city).split(' ')[0];
         let lastError = 'Адресу не знайдено';
         const stopStartedAt = Date.now();
-        const stopTimeoutMs = 20000;
+        const stopTimeoutMs = 30000;
 
-        for (let attempt = 0; attempt < uniqueQueries.length; attempt += 1) {{
+        for (let attempt = 0; attempt < geocodeQueries.length; attempt += 1) {{
             buildDeliveryRouteButton.textContent =
                 'Шукаю адресу ' + (index + 1) + '/' + total +
-                ' · спроба ' + (attempt + 1) + '/' + uniqueQueries.length + '...';
+                ' · спроба ' + (attempt + 1) + '/' + geocodeQueries.length + '...';
             measureResult.textContent =
                 'Перевіряю адресу ' + (index + 1) + ': ' + original +
                 ' (спроба ' + (attempt + 1) + '/' + uniqueQueries.length + ')';
@@ -11700,7 +11705,7 @@ def gps():
             const timeout = window.setTimeout(() => controller.abort(), remainingMs);
             try {{
                 const response = await fetch('/api/geocode?mode=address&q=' +
-                    encodeURIComponent(uniqueQueries[attempt]) +
+                    encodeURIComponent(geocodeQueries[attempt]) +
                     '&purpose=delivery&consent=addresses_only',
                     {{headers: {{'Accept':'application/json'}}, signal:controller.signal, cache:'no-store'}});
                 const data = await response.json();
