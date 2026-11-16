@@ -7322,7 +7322,11 @@ def geocode_search():
                             }
                         }
                     },
-                    "destination": {"address": query},
+                    "destination": {"address": (
+                        f"{query}, {selected_city}"
+                        if selected_city and selected_city.casefold() not in query.casefold()
+                        else query
+                    )},
                     "travelMode": "DRIVE",
                     "languageCode": current_language(),
                     "units": "METRIC"
@@ -10363,7 +10367,8 @@ def gps():
                     selectedCity.short_name || selectedCity.city
                 ) +
                 '&lat=' + encodeURIComponent(selectedCity.latitude) +
-                '&lon=' + encodeURIComponent(selectedCity.longitude),
+                '&lon=' + encodeURIComponent(selectedCity.longitude) +
+                '&purpose=delivery&consent=addresses_only',
                 {{headers: {{'Accept': 'application/json'}}}}
             );
             const data = await response.json();
