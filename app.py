@@ -7225,7 +7225,7 @@ def geocode_search():
                 if without_prefix.casefold() not in {q.casefold() for q in address_queries}:
                     address_queries.append(without_prefix)
             street_parts = [part for part in parts if re.search(
-                r"\b\d{5}\b|(?:strasse|straße|str\.|street|ul\.|aleja|al\.|weg|platz)\b",
+                r"\b\d{5}\b|\b\d{4}\s?[A-Z]{2}\b|\b\d{2}-\d{3}\b|\b\d{4}-\d{3}\b|\b\d{3}\s\d{2}\b|(?:strasse|straße|str\.|street|ul\.|aleja|al\.|weg|platz)\b|\b\d{1,4}[A-Z]?\s*$",
                 part, re.I
             )]
             if street_parts:
@@ -11197,7 +11197,7 @@ def gps():
             let countryCode = '';
             for (let index = 0; index < useful.length; index += 1) {{
                 const match = useful[index].match(
-                    /^(?:([A-Z]{{2}})[-\\s]*)?((?:\\d{{4}}\\s?[A-Z]{{2}})|(?:\\d{{2}}-\\d{{3}})|(?:\\d{{4,6}}))\\s+(.+)$/i
+                    /^(?:([A-Z]{{2}})[-\\s]*)?((?:\\d{{4}}\\s?[A-Z]{{2}})|(?:\\d{{2}}-\\d{{3}})|(?:\\d{{4}}-\\d{{3}})|(?:\\d{{3}}\\s\\d{{2}})|(?:\\d{{4,6}}))\\s+(.+)$/i
                 );
                 if (match) {{
                     postalIndex = index;
@@ -11267,6 +11267,8 @@ def gps():
                     /(?:^|[\s,])(?:D|DE)\s*-\s*\d{{5}}(?:\s|,|$)/i.test(v) || // D - 72531
                     /(?:^|[\s,])DE\d{{5}}(?:\s|,|$)/i.test(v) ||              // DE15711
                     /(?:^|[\s,])\d{{4}}\s?[A-Z]{{2}}(?:\s|,|$)/i.test(v) || // NL: 9207 MA
+                    /(?:^|[\s,])\d{{4}}-\d{{3}}(?:\s|,|$)/.test(v) ||       // PT: 1234-567
+                    /(?:^|[\s,])\d{{3}}\s\d{{2}}(?:\s|,|$)/.test(v) ||       // CZ/SK: 123 45
                     /(?:^|[\s,])\d{{5}}(?:\s|,|$)/.test(v)                    // DE/other: 15711
                 );
             }}
@@ -11477,7 +11479,7 @@ def gps():
         if (gps) return Object.assign({{}}, stop, gps, {{map_name: stop.address}});
 
         const original = String(stop.address || '').replace(/\\s*\\|\\s*$/, '').trim();
-        const parts = original.split(/[ ,\\n]+/).map(function(part) {{
+        const parts = original.split(/[,\\n]+/).map(function(part) {{
             return part.trim();
         }}).filter(Boolean);
         const postalPattern = /^(?:(NL|DE|PL|FR|ES|IT|BE|AT|CZ|SK|DK|SE|NO|FI|PT|IE|LU|HU|RO|BG|HR|SI|LT|LV|EE|CH)[-\\s]*)?((?:\\d{{4}}\\s?[A-Z]{{2}})|(?:\\d{{2}}-\\d{{3}})|(?:\\d{{4,6}}))\\s+(.+)$/i;
