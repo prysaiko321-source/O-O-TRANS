@@ -1586,12 +1586,19 @@ def delivery_route_storage(vehicle_id):
 
         if request.method == "GET":
             saved = routes.get(vehicle_id)
+            if isinstance(saved, dict) and saved.get("_deleted"):
+                saved = None
             return jsonify({"route": saved})
 
         if request.method == "DELETE":
-            routes.pop(vehicle_id, None)
+            # Keep a server-side tombstone so stale browser tabs cannot restore
+            # the deleted route with an old PUT. A new route must opt in.
+            routes[vehicle_id] = {
+                "_deleted": True,
+                "deleted_at": datetime.now(timezone.utc).isoformat()
+            }
             _write_delivery_routes(routes)
-            return jsonify({"ok": True})
+            return jsonify({"ok": True, "route": None})
 
         payload = request.get_json(silent=True) or {}
         saved = payload.get("route")
@@ -1603,7 +1610,10 @@ def delivery_route_storage(vehicle_id):
             return jsonify({"error": "Немає даних маршруту."}), 400
 
         previous = routes.get(vehicle_id)
-        if isinstance(previous, dict) and isinstance(previous.get("route_queue"), list):
+        allow_create = bool(payload.get("allow_create"))
+        if isinstance(previous, dict) and previous.get("_deleted") and not allow_create:
+            return jsonify({"error": "Старий маршрут уже видалено. Створіть новий маршрут."}), 409
+        if isinstance(previous, dict) and not previous.get("_deleted") and isinstance(previous.get("route_queue"), list):
             saved["route_queue"] = previous.get("route_queue", [])
         routes[vehicle_id] = saved
         _write_delivery_routes(routes)
@@ -10489,7 +10499,7 @@ def gps():
         return 'tranviq_delivery_route_' + vehicleId;
     }}
 
-    async function saveDeliveryRouteForVehicle(savedRoute) {{
+    async function saveDeliveryRouteForVehicle(savedRoute, options) {{
         if (!savedRoute || !savedRoute.vehicle_id) return false;
 
         // Спочатку зберігаємо останню версію локально як резервну копію.
@@ -10508,7 +10518,7 @@ def gps():
                 method: 'PUT',
                 headers: {{'Content-Type': 'application/json'}},
                 cache: 'no-store',
-                body: JSON.stringify({{route: savedRoute}})
+                body: JSON.stringify({{route: savedRoute, allow_create: Boolean(options && options.allow_create)}})
             }}
         );
         if (!response.ok) {{
@@ -10536,8 +10546,6 @@ def gps():
     async function readSavedDeliveryRoute(vehicleId) {{
         if (!vehicleId) return null;
 
-        // Читаємо ОБИДВІ копії. Сервер не має права затерти новіший маршрут
-        // старою версією лише тому, що відповів першим після F5.
         let localSaved = null;
         try {{
             const raw = localStorage.getItem(deliveryRouteStorageKey(vehicleId));
@@ -10550,70 +10558,45 @@ def gps():
             }}
         }} catch (error) {{}}
 
-        let serverSaved = null;
+        let response;
         try {{
-            const response = await fetch(
+            response = await fetch(
                 '/api/delivery-route/' + encodeURIComponent(vehicleId) +
                 '?_=' + Date.now(),
                 {{cache: 'no-store'}}
             );
-            if (response.ok) {{
-                const data = await response.json();
-                const candidate = data.route;
-                if (candidate && candidate.vehicle_id === vehicleId &&
-                        candidate.delivery_route && candidate.route_data) {{
-                    serverSaved = candidate;
-                }}
+        }} catch (error) {{
+            return localSaved;
+        }}
+
+        if (!response.ok) return localSaved;
+
+        let serverSaved = null;
+        try {{
+            const data = await response.json();
+            const candidate = data && data.route;
+            if (candidate && candidate.vehicle_id === vehicleId &&
+                    candidate.delivery_route && candidate.route_data) {{
+                serverSaved = candidate;
             }}
         }} catch (error) {{}}
 
-        if (gpsUserRole === 'dispatcher') {{
-            // Логіст завжди показує тільки активну серверну версію.
-            // Локальна копія може бути застарілою і використовується лише
-            // директором як аварійний резерв під час створення маршруту.
-            if (serverSaved) {{
-                try {{
-                    localStorage.setItem(
-                        deliveryRouteStorageKey(vehicleId),
-                        JSON.stringify(serverSaved)
-                    );
-                }} catch (error) {{}}
-            }}
-            return serverSaved;
+        if (!serverSaved) {{
+            // A successful empty response means the route was deleted.
+            // Never restore it from an older browser copy.
+            try {{
+                localStorage.removeItem(deliveryRouteStorageKey(vehicleId));
+            }} catch (error) {{}}
+            return null;
         }}
-
-        if (!localSaved && !serverSaved) return null;
-
-        function savedRouteTime(route) {{
-            if (!route || !route.saved_at) return 0;
-            const value = Date.parse(route.saved_at);
-            return Number.isFinite(value) ? value : 0;
-        }}
-
-        // Завжди беремо найновішу реально збережену версію маршруту.
-        const saved = (!serverSaved ||
-            (localSaved && savedRouteTime(localSaved) > savedRouteTime(serverSaved)))
-            ? localSaved
-            : serverSaved;
 
         try {{
             localStorage.setItem(
                 deliveryRouteStorageKey(vehicleId),
-                JSON.stringify(saved)
+                JSON.stringify(serverSaved)
             );
         }} catch (error) {{}}
-
-        // Якщо локальна копія новіша за серверну, одразу синхронізуємо сервер.
-        if (saved === localSaved &&
-                (!serverSaved || savedRouteTime(localSaved) > savedRouteTime(serverSaved))) {{
-            try {{
-                await saveDeliveryRouteForVehicle(localSaved);
-            }} catch (error) {{
-                // Для F5 локальна актуальна копія все одно залишається доступною.
-            }}
-        }}
-
-        return saved;
+        return serverSaved;
     }}
 
     async function refreshVehicleDeliveryPopup(
@@ -10900,47 +10883,8 @@ def gps():
     // На безкоштовному Render файл у /tmp може очиститися при новому deploy.
     // Тому директор, у якого є актуальна локальна копія маршруту, автоматично
     // публікує її назад на сервер. Водій і логіст після цього читають той самий маршрут.
-    async function republishDirectorLocalRoutes() {{
-        if (gpsUserRole !== 'director') return;
-        const prefix = 'tranviq_delivery_route_';
-        const candidates = [];
-        try {{
-            for (let i = 0; i < localStorage.length; i += 1) {{
-                const key = localStorage.key(i);
-                if (!key || !key.startsWith(prefix)) continue;
-                const raw = localStorage.getItem(key);
-                if (!raw) continue;
-                const saved = JSON.parse(raw);
-                if (!saved || !saved.vehicle_id || !saved.delivery_route || !saved.route_data) continue;
-                candidates.push(saved);
-            }}
-        }} catch (error) {{
-            return;
-        }}
-        for (const saved of candidates) {{
-            try {{
-                const response = await fetch(
-                    '/api/delivery-route/' + encodeURIComponent(saved.vehicle_id) + '?restore=' + Date.now(),
-                    {{cache: 'no-store'}}
-                );
-                let serverSaved = null;
-                if (response.ok) {{
-                    const data = await response.json();
-                    serverSaved = data && data.route ? data.route : null;
-                }}
-                const localTime = Date.parse(saved.saved_at || '') || 0;
-                const serverTime = Date.parse((serverSaved && serverSaved.saved_at) || '') || 0;
-                if (!serverSaved || localTime >= serverTime) {{
-                    await saveDeliveryRouteForVehicle(saved);
-                }}
-            }} catch (error) {{}}
-        }}
-    }}
-
-    if (gpsUserRole === 'director') {{
-        window.setTimeout(republishDirectorLocalRoutes, 1200);
-        window.setInterval(republishDirectorLocalRoutes, 10000);
-    }}
+    // Server routes are authoritative. Do not republish browser backups:
+    // a successful server deletion must stay deleted across all devices.
 
     // ЖИВА СИНХРОНІЗАЦІЯ КАРТИ ЛОГІСТА МІЖ БРАУЗЕРАМИ/ПРИСТРОЯМИ.
     // Перевіряємо всі активні маршрути, а не тільки випадково вибране авто.
@@ -11095,9 +11039,7 @@ def gps():
         // Для логіста сервер є єдиним джерелом активного маршруту.
         // Старий localStorage у браузері логіста не має права "воскресити"
         // маршрут минулого тижня і тим більше записати його назад на сервер.
-        const localRoutes = gpsUserRole === 'dispatcher'
-            ? {{}}
-            : localDeliveryRoutesForVisibleVehicles();
+        const localRoutes = {{}};
         const best = newestRouteCandidate(serverRoutes, localRoutes);
         if (!best) return false;
 
@@ -11951,7 +11893,7 @@ def gps():
             // останній маршрут із цього браузера.
             if (requestedSaveMode === 'active') {{
                 try {{
-                    await saveDeliveryRouteForVehicle(earlySavedRoute);
+                    await saveDeliveryRouteForVehicle(earlySavedRoute, {{allow_create: true}});
                 }} catch (saveError) {{
                     console.warn('Маршрут збережено локально; серверний запис не вдався.', saveError);
                 }}
@@ -12162,7 +12104,7 @@ def gps():
             }} else {{
                 buildDeliveryRouteButton.textContent =
                     'Зберігаю активний маршрут...';
-                await saveDeliveryRouteForVehicle(completedSavedRoute);
+                await saveDeliveryRouteForVehicle(completedSavedRoute, {{allow_create: true}});
             }}
         }} catch (error) {{
             measureResult.textContent =
