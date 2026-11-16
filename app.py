@@ -11666,7 +11666,11 @@ def gps():
                     const numberMatch = !streetNumber ||
                         new RegExp('(^| )' + streetNumber[0].toLowerCase() + '( |$)').test(name);
                     const cityMatch = !requestedCity || name.includes(requestedCity);
-                    return streetMatch && numberMatch && cityMatch;
+                    const postcodeMatch = Boolean(postalCode) &&
+                        normalized(String(item.name || '') + ' ' +
+                            String(item.city || '')).includes(normalized(postalCode));
+                    const localityMatch = !requestedCity || cityMatch || postcodeMatch;
+                    return streetMatch && numberMatch && localityMatch;
                 }});
                 if (result) return Object.assign({{}}, stop, {{
                     latitude: Number(result.latitude), longitude: Number(result.longitude),
