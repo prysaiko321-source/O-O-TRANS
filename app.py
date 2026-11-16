@@ -11700,7 +11700,7 @@ def gps():
                     {{headers: {{'Accept':'application/json'}}, signal:controller.signal, cache:'no-store'}});
                 const data = await response.json();
                 const matches = Array.isArray(data.results) ? data.results : [];
-                const result = matches.find(function(item) {{
+                const matchesAddress = function(item, requireHouseNumber) {{
                     const latitude = Number(item.latitude), longitude = Number(item.longitude);
                     if (!Number.isFinite(latitude) || !Number.isFinite(longitude)) return false;
                     if (item.source === 'google_routes') return true;
@@ -11714,11 +11714,32 @@ def gps():
                         normalized(String(item.name || '') + ' ' +
                             String(item.city || '')).includes(normalized(postalCode));
                     const localityMatch = !requestedCity || cityMatch || postcodeMatch;
-                    return streetMatch && numberMatch && localityMatch;
+                    return streetMatch && localityMatch &&
+                        (!requireHouseNumber || numberMatch);
+                }};
+                const result = matches.find(function(item) {{
+                    return matchesAddress(item, true);
                 }});
                 if (result) return Object.assign({{}}, stop, {{
                     latitude: Number(result.latitude), longitude: Number(result.longitude),
                     map_name: result.name || uniqueQueries[attempt]
+                }});
+
+                // If the provider has no building number, a verified matching
+                // street/locality point is still useful for routing. Never use
+                // a different numbered building as a substitute.
+                const streetTypes = ['road', 'street', 'residential', 'tertiary',
+                    'unclassified', 'living_street', 'service'];
+                const streetFallback = matches.find(function(item) {{
+                    const type = String(item.type || '').toLowerCase();
+                    return streetTypes.includes(type) &&
+                        matchesAddress(item, false);
+                }});
+                if (streetFallback) return Object.assign({{}}, stop, {{
+                    latitude: Number(streetFallback.latitude),
+                    longitude: Number(streetFallback.longitude),
+                    map_name: streetFallback.name || uniqueQueries[attempt],
+                    geocode_approximate: true
                 }});
                 lastError = (data && data.error) || (matches.length
                     ? 'Пошук запропонував іншу вулицю, індекс або номер будинку'
@@ -12207,8 +12228,20 @@ def gps():
                     '>↓</button></span></li>';
             }}).join('');
 
+            const approximateStops = stops.filter(function(stop) {{
+                return stop.geocode_approximate;
+            }});
             measureResult.innerHTML =
                 '<strong>' + escapeHtml(polishUi && deliveryRoute.label.indexOf('Розвізка') === 0 ? deliveryRoute.label.replace('Розвізка', 'Trasa dostaw') : deliveryRoute.label) + '</strong>' +
+                (approximateStops.length
+                    ? '<br><strong style="color:#9a5b00">' +
+                        (polishUi
+                            ? 'Uwaga: numer budynku niepotwierdzony przez mapę; punkt na ulicy: '
+                            : 'Увага: карта не підтвердила номер будинку; точка поставлена на вулиці: ') +
+                        escapeHtml(approximateStops.map(function(stop) {{
+                            return stop.address;
+                        }}).join('; ')) + '</strong>'
+                    : '') +
                 (polishUi ? '<br>Pojazd: <strong>' : '<br>Автомобіль: <strong>') +
                 escapeHtml(vehicle.name) + '</strong>' +
                 (polishUi ? '<br>Kierowca: <strong>' : '<br>Водій: <strong>') +
