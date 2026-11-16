@@ -7519,25 +7519,28 @@ def geocode_search():
             if len(results) >= 7:
                 break
 
+        def normalized_address(value):
+            return (str(value).casefold().replace("ß", "ss")
+                    .replace("ä", "ae").replace("ö", "oe")
+                    .replace("ü", "ue"))
+
+        # Parse the requested house number before either provider fallback:
+        # Nominatim also needs it when Photon returns no candidates.
+        requested = normalized_address(query)
+        street_query = requested.split(",", 1)[0]
+        house_matches = list(re.finditer(
+            r"(?<!\d)\d{1,4}[a-z]?(?:[-/]\d{1,4}[a-z]?)?(?!\d)",
+            street_query, re.I
+        ))
+        requested_house = house_matches[-1] if house_matches else None
+
         # A place of interest near the requested street is not the requested
         # delivery address. Photon may return e.g. "ABB, Ladenburg" for
         # "Wallstadter Straße 59"; reject that and try the address provider.
         if search_mode == "address" and (selected_city or delivery_consent) and results:
-            def normalized_address(value):
-                return (str(value).casefold().replace("ß", "ss")
-                        .replace("ä", "ae").replace("ö", "oe")
-                        .replace("ü", "ue"))
-
-            requested = normalized_address(query)
             street_words = [word for word in re.findall(r"[a-z]{4,}", requested)
                             if word not in {"strasse", "straße", "street", "germany",
                                             "deutschland", "poland", "polska"}]
-            street_query = requested.split(",", 1)[0]
-            house_matches = list(re.finditer(
-                r"(?<!\d)\d{1,4}[a-z]?(?:[-/]\d{1,4}[a-z]?)?(?!\d)",
-                street_query, re.I
-            ))
-            requested_house = house_matches[-1] if house_matches else None
             relevant = []
             for candidate in results:
                 label = normalized_address(candidate.get("name", ""))
