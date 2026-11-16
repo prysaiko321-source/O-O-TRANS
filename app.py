@@ -11487,34 +11487,56 @@ def gps():
         let postalCode = '';
         let city = '';
         let postalCountry = '';
+        const reversedPostalPattern = /^(.+?)\s+(?:(NL|DE|PL|FR|ES|IT|BE|AT|CZ|SK|DK|SE|NO|FI|PT|IE|LU|HU|RO|BG|HR|SI|LT|LV|EE|CH)[-\s]*)?((?:\d{{4}}\s?[A-Z]{{2}})|(?:\d{{2}}-\d{{3}})|(?:\d{{4}}-\d{{3}})|(?:\d{{3}}\s\d{{2}})|(?:\d{{4,6}}))$/i;
         for (let i = 0; i < parts.length; i += 1) {{
             const match = parts[i].match(postalPattern);
             if (match) {{
                 postalIndex = i;
-                postalCode = match[2].replace(/\\s+/g, ' ').trim();
+                postalCode = match[2].replace(/\s+/g, ' ').trim();
                 city = match[3].trim();
                 postalCountry = (match[1] || '').toUpperCase();
-                if (!postalCountry && /^\\d{{4}}\\s?[A-Z]{{2}}$/i.test(postalCode)) postalCountry = 'NL';
-                break;
+            }} else {{
+                const reversed = parts[i].match(reversedPostalPattern);
+                if (!reversed) continue;
+                postalIndex = i;
+                postalCode = reversed[3].replace(/\s+/g, ' ').trim();
+                city = reversed[1].trim();
+                postalCountry = (reversed[2] || '').toUpperCase();
             }}
+            if (!postalCountry && /^\d{{4}}\s?[A-Z]{{2}}$/i.test(postalCode)) {{
+                postalCountry = 'NL';
+            }}
+            break;
         }}
 
         // Ignore any leading company label. The closest segment containing a
         // house number before the postcode is the actual street address.
         let streetIndex = -1;
-        const searchEnd = postalIndex >= 0 ? postalIndex : parts.length;
-        for (let i = searchEnd - 1; i >= 0; i -= 1) {{
-            if (/\\d/.test(parts[i]) && /[A-Za-zÀ-ÿ]/.test(parts[i])) {{
+        const streetSegment = function(part) {{
+            return /\\d/.test(part) && /[A-Za-zÀ-ÿ]/.test(part);
+        }};
+        const streetBeforeEnd = postalIndex >= 0 ? postalIndex : parts.length;
+        for (let i = streetBeforeEnd - 1; i >= 0; i -= 1) {{
+            if (streetSegment(parts[i])) {{
                 streetIndex = i;
                 break;
             }}
         }}
-        if (streetIndex < 0) {{
-            streetIndex = parts.findIndex(function(part) {{
-                return /\\d/.test(part) && /[A-Za-zÀ-ÿ]/.test(part);
-            }});
+        // Some transport orders put the postcode before the street.
+        if (streetIndex < 0 && postalIndex >= 0) {{
+            for (let i = postalIndex + 1; i < parts.length; i += 1) {{
+                if (streetSegment(parts[i])) {{
+                    streetIndex = i;
+                    break;
+                }}
+            }}
         }}
-        const street = streetIndex >= 0 ? parts[streetIndex] : (parts[0] || original);
+        if (streetIndex < 0) {{
+            streetIndex = parts.findIndex(streetSegment);
+        }}
+        const street = (streetIndex >= 0 ? parts[streetIndex] : (parts[0] || original))
+            .replace(/^(?:adres|address|adresse|direcci[oó]n|direccion|indirizzo)\\s*:?\\s*/i, '')
+            .trim();
 
         const normalized = value => String(value || '').toLowerCase()
             .replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe')
@@ -11530,17 +11552,32 @@ def gps():
             EE: 'Estonia', CH: 'Switzerland'
         }};
         const countryAliases = {{
-            netherlands: 'Netherlands', nederland: 'Netherlands',
-            germany: 'Germany', deutschland: 'Germany',
-            poland: 'Poland', polska: 'Poland', france: 'France',
-            spain: 'Spain', espana: 'Spain', italy: 'Italy', italia: 'Italy',
-            belgium: 'Belgium', austria: 'Austria', osterreich: 'Austria',
-            czechia: 'Czechia', slovakia: 'Slovakia', denmark: 'Denmark',
-            sweden: 'Sweden', norway: 'Norway', finland: 'Finland',
-            portugal: 'Portugal', ireland: 'Ireland', luxembourg: 'Luxembourg',
-            hungary: 'Hungary', romania: 'Romania', bulgaria: 'Bulgaria',
-            croatia: 'Croatia', slovenia: 'Slovenia', lithuania: 'Lithuania',
-            latvia: 'Latvia', estonia: 'Estonia', switzerland: 'Switzerland'
+            netherlands: 'Netherlands', nederland: 'Netherlands', nl: 'Netherlands',
+            germany: 'Germany', deutschland: 'Germany', de: 'Germany',
+            poland: 'Poland', polska: 'Poland', pl: 'Poland',
+            france: 'France', fr: 'France',
+            spain: 'Spain', espana: 'Spain', es: 'Spain',
+            italy: 'Italy', italia: 'Italy', it: 'Italy',
+            belgium: 'Belgium', be: 'Belgium',
+            austria: 'Austria', osterreich: 'Austria', at: 'Austria',
+            czechia: 'Czechia', cz: 'Czechia',
+            slovakia: 'Slovakia', sk: 'Slovakia',
+            denmark: 'Denmark', dk: 'Denmark',
+            sweden: 'Sweden', se: 'Sweden',
+            norway: 'Norway', no: 'Norway',
+            finland: 'Finland', fi: 'Finland',
+            portugal: 'Portugal', pt: 'Portugal',
+            ireland: 'Ireland', ie: 'Ireland',
+            luxembourg: 'Luxembourg', lu: 'Luxembourg',
+            hungary: 'Hungary', hu: 'Hungary',
+            romania: 'Romania', ro: 'Romania',
+            bulgaria: 'Bulgaria', bg: 'Bulgaria',
+            croatia: 'Croatia', hr: 'Croatia',
+            slovenia: 'Slovenia', si: 'Slovenia',
+            lithuania: 'Lithuania', lt: 'Lithuania',
+            latvia: 'Latvia', lv: 'Latvia',
+            estonia: 'Estonia', ee: 'Estonia',
+            switzerland: 'Switzerland', ch: 'Switzerland'
         }};
         let country = countryNames[postalCountry] || '';
         if (!country) {{
