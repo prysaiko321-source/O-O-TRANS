@@ -11664,7 +11664,7 @@ def gps():
                     const streetMatch = !streetWords.length ||
                         streetWords.some(function(word) {{ return name.includes(word); }});
                     const numberMatch = !streetNumber ||
-                        new RegExp('(^| )' + streetNumber[0].toLowerCase() + '( |$)').test(name);
+                        name.includes(normalized(streetNumber[0]));
                     const cityMatch = !requestedCity || name.includes(requestedCity);
                     const postcodeMatch = Boolean(postalCode) &&
                         normalized(String(item.name || '') + ' ' +
