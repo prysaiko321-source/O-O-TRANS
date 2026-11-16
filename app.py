@@ -3800,7 +3800,9 @@ body.page-gps .powered-by {{
     padding: 5px;
     background: rgba(255,255,255,.97);
     box-shadow: 0 2px 9px rgba(15,37,51,.2);
-    max-width: min(230px, calc(100vw - 24px));
+    max-width: min(320px, calc(100vw - 24px));
+    max-height: min(65vh, 620px);
+    overflow-y: auto;
 }}
 .gps-distance-tool.is-open #clear-route-button {{
     display: inline-block;
@@ -10965,6 +10967,7 @@ def gps():
                     : 'Відновлено збережений маршрут для <strong>') +
                 escapeHtml(vehicle.name) + '</strong>.';
         }}
+        measureTool.classList.add('is-open');
 
         await refreshDeliveryStopStatuses(
             vehicle,
@@ -12387,6 +12390,7 @@ def gps():
                 (polishUi ? 'porównamy prognozę z rzeczywistym czasem i skorygujemy normę.</span>' : (gpsUiLanguage === 'de' ? 'vergleichen wir die Prognose mit den tatsächlichen Werten und passen die Vorgabe entsprechend an.</span>' : 'порівняємо прогноз із фактом і скоригуємо норматив.</span>'));
 
             measureResult.innerHTML = localizeSavedRouteSummary(measureResult.innerHTML);
+            measureTool.classList.add('is-open');
 
             const completedSavedRoute = {{
                 vehicle_id: vehicle.id,
