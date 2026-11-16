@@ -103,7 +103,6 @@ DRIVER_PASSWORD = (
     or ""
 ).strip()
 DRIVER_DXF_USER = (os.environ.get("DRIVER_DXF_USER") or "dxf").strip()
-DRIVER_DXF_PASSWORD = (os.environ.get("DRIVER_DXF_PASSWORD") or "DXF-739184").strip()
 POLAND_TZ = ZoneInfo("Europe/Warsaw")
 
 ROLE_LABELS = {
@@ -7565,7 +7564,8 @@ def geocode_search():
 
                     nominatim_raw = []
                     best_nominatim_raw = []
-                    for search_index, search_query in enumerate(address_queries[:4]):
+                    nominatim_queries = address_queries[:2] if delivery_consent else address_queries[:4]
+                    for search_index, search_query in enumerate(nominatim_queries):
                         nominatim_response = requests.get(
                             "https://nominatim.openstreetmap.org/search",
                             params={
@@ -7601,7 +7601,7 @@ def geocode_search():
                             nominatim_raw = exact_candidates
                             break
                         nominatim_raw = []
-                        if search_index + 1 < min(len(address_queries), 4):
+                        if search_index + 1 < len(nominatim_queries):
                             time.sleep(1.05)
                     if not nominatim_raw:
                         nominatim_raw = best_nominatim_raw
@@ -11671,7 +11671,7 @@ def gps():
         }}
         const uniqueQueries = [...new Set(queries.map(function(query) {{
             return query.replace(/\\s+/g, ' ').trim();
-        }}).filter(Boolean))];
+        }}).filter(Boolean))].slice(0, 2);
 
         const ignoredStreetWords = [
             'strasse', 'street', 'road', 'weg', 'platz', 'straat', 'laan',
@@ -11687,7 +11687,8 @@ def gps():
 
         for (let attempt = 0; attempt < uniqueQueries.length; attempt += 1) {{
             buildDeliveryRouteButton.textContent =
-                'Шукаю адресу ' + (index + 1) + '/' + total + '...';
+                'Шукаю адресу ' + (index + 1) + '/' + total +
+                ' · спроба ' + (attempt + 1) + '/' + uniqueQueries.length + '...';
             measureResult.textContent =
                 'Перевіряю адресу ' + (index + 1) + ': ' + original +
                 ' (спроба ' + (attempt + 1) + '/' + uniqueQueries.length + ')';
