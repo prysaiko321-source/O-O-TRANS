@@ -7230,6 +7230,26 @@ def geocode_search():
             )]
             if street_parts:
                 without_company = ", ".join(street_parts)
+                postal_city = re.search(
+                    r"\b(\d{2}-\d{3}|\d{4}\s?[A-Z]{2}|\d{5})\s+([^,]+)",
+                    query, re.I
+                )
+                if postal_city:
+                    street = re.sub(
+                        r"^(?:adres|address|adresse|indirizzo|ul(?:ica)?\.?|rue|str(?:asse|aße)?\.?)\s*",
+                        "", street_parts[0], flags=re.I
+                    ).strip()
+                    postcode, city = postal_city.group(1).strip(), postal_city.group(2).strip()
+                    last = parts[-1] if parts else ""
+                    is_locality = bool(re.search(
+                        r"\b(\d{2}-\d{3}|\d{4}\s?[A-Z]{2}|\d{5})\b", last, re.I
+                    )) or last.casefold() == city.casefold()
+                    country = "" if is_locality else last
+                    flexible_query = ", ".join(
+                        part for part in (street, f"{city} {postcode}", country) if part
+                    )
+                    if flexible_query.casefold() not in {q.casefold() for q in address_queries}:
+                        address_queries.append(flexible_query)
                 if without_company.casefold() not in {q.casefold() for q in address_queries}:
                     address_queries.append(without_company)
         replacements = (
@@ -7512,7 +7532,12 @@ def geocode_search():
             street_words = [word for word in re.findall(r"[a-z]{4,}", requested)
                             if word not in {"strasse", "straße", "street", "germany",
                                             "deutschland", "poland", "polska"}]
-            requested_house = re.search(r"(?<!\d)\d{1,4}[a-z]?(?!\d)", requested)
+            street_query = requested.split(",", 1)[0]
+            house_matches = list(re.finditer(
+                r"(?<!\d)\d{1,4}[a-z]?(?:[-/]\d{1,4}[a-z]?)?(?!\d)",
+                street_query, re.I
+            ))
+            requested_house = house_matches[-1] if house_matches else None
             relevant = []
             for candidate in results:
                 label = normalized_address(candidate.get("name", ""))
@@ -7536,7 +7561,8 @@ def geocode_search():
                         time.sleep(wait_seconds)
 
                     nominatim_raw = []
-                    for search_query in address_queries[:3]:
+                    best_nominatim_raw = []
+                    for search_index, search_query in enumerate(address_queries[:4]):
                         nominatim_response = requests.get(
                             "https://nominatim.openstreetmap.org/search",
                             params={
@@ -7553,14 +7579,29 @@ def geocode_search():
                                 ),
                                 "Accept-Language": "de,en,pl,uk"
                             },
-                            timeout=12
+                            timeout=4
                         )
                         nominatim_response.raise_for_status()
-                        nominatim_raw = nominatim_response.json() or []
+                        candidates = nominatim_response.json() or []
                         GEOCODE_LAST_REQUEST_AT = time.monotonic()
-                        if nominatim_raw:
+                        if candidates and not best_nominatim_raw:
+                            best_nominatim_raw = candidates
+                        exact_candidates = candidates
+                        if requested_house:
+                            requested_number = requested_house.group().casefold()
+                            exact_candidates = [
+                                item for item in candidates
+                                if str((item.get("address") or {}).get("house_number") or "")
+                                    .casefold() == requested_number
+                            ]
+                        if exact_candidates:
+                            nominatim_raw = exact_candidates
                             break
-                        time.sleep(1.05)
+                        nominatim_raw = []
+                        if search_index + 1 < min(len(address_queries), 4):
+                            time.sleep(1.05)
+                    if not nominatim_raw:
+                        nominatim_raw = best_nominatim_raw
 
                 for item in nominatim_raw:
                     try:
@@ -11648,7 +11689,7 @@ def gps():
                 'Перевіряю адресу ' + (index + 1) + ': ' + original +
                 ' (спроба ' + (attempt + 1) + '/' + uniqueQueries.length + ')';
             const controller = new AbortController();
-            const timeout = window.setTimeout(() => controller.abort(), 22000);
+            const timeout = window.setTimeout(() => controller.abort(), 35000);
             try {{
                 const response = await fetch('/api/geocode?mode=address&q=' +
                     encodeURIComponent(uniqueQueries[attempt]) +
