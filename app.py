@@ -9269,6 +9269,7 @@ def gps():
     const deliveryStopsInput = document.getElementById(
         'delivery-stops-input'
     );
+    let deliveryStopsDraftDirty = false;
     const deliveryStopOrderList = document.getElementById(
         'delivery-stop-order-list'
     );
@@ -9370,6 +9371,7 @@ def gps():
         if (queueDeliveryRouteButton) queueDeliveryRouteButton.disabled = false;
     }});
     deliveryStopsInput.addEventListener('input', function() {{
+        deliveryStopsDraftDirty = true;
         buildDeliveryRouteButton.disabled = false;
         if (queueDeliveryRouteButton) queueDeliveryRouteButton.disabled = false;
     }});
@@ -10794,6 +10796,7 @@ def gps():
     }}
 
     async function restoreDeliveryRouteForVehicle(vehicleId, savedOverride) {{
+        if (deliveryStopsDraftDirty) return;
         liveRouteLastOrigin = null;
         liveRouteLastAt = 0;
         removeMeasurementLayers();
@@ -10805,6 +10808,7 @@ def gps():
         // У цьому випадку серверна версія є авторитетною і стара localStorage
         // копія в іншому браузері не може повернути карту назад.
         const saved = savedOverride || await readSavedDeliveryRoute(vehicleId);
+        if (deliveryStopsDraftDirty) return;
         if (vehicleSelect && vehicleSelect.value !== vehicleId) {{
             return;
         }}
@@ -10817,6 +10821,7 @@ def gps():
             }} catch (error) {{}}
         }}
         if (!saved) {{
+            deliveryStopsDraftDirty = false;
             deliveryStopsInput.value = '';
             measureResult.textContent =
                 'Для цього автомобіля активного розвізного маршруту немає.';
@@ -10830,6 +10835,7 @@ def gps():
         if (!vehicle) return;
 
         activeDeliveryRoute = saved.delivery_route;
+        deliveryStopsDraftDirty = false;
         deliveryStopsInput.value = saved.input_text || '';
         renderDeliveryStopOrder();
         deliveryRouteDate.value = saved.delivery_route.date ||
@@ -12026,6 +12032,7 @@ def gps():
             if (requestedSaveMode === 'active') {{
                 try {{
                     await saveDeliveryRouteForVehicle(earlySavedRoute, {{allow_create: true}});
+                    deliveryStopsDraftDirty = false;
                 }} catch (saveError) {{
                     console.warn('Маршрут збережено локально; серверний запис не вдався.', saveError);
                 }}
