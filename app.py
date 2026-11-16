@@ -7322,7 +7322,11 @@ def geocode_search():
                             }
                         }
                     },
-                    "destination": {"address": query},
+                    "destination": {"address": (
+                        f"{query}, {selected_city}"
+                        if selected_city and selected_city.casefold() not in query.casefold()
+                        else query
+                    )},
                     "travelMode": "DRIVE",
                     "languageCode": current_language(),
                     "units": "METRIC"
@@ -10363,7 +10367,8 @@ def gps():
                     selectedCity.short_name || selectedCity.city
                 ) +
                 '&lat=' + encodeURIComponent(selectedCity.latitude) +
-                '&lon=' + encodeURIComponent(selectedCity.longitude),
+                '&lon=' + encodeURIComponent(selectedCity.longitude) +
+                '&purpose=delivery&consent=addresses_only',
                 {{headers: {{'Accept': 'application/json'}}}}
             );
             const data = await response.json();
@@ -11277,9 +11282,25 @@ def gps():
 
         // Старий/ручний формат: одна готова адреса на рядок, за бажанням
         // з часовим вікном через |.
-        const simpleLines = rawText.split(/\\r?\\n/)
+        const rawSimpleLines = rawText.split(/\\r?\\n/)
             .map(function(line) {{ return line.trim(); }})
             .filter(Boolean);
+        // Strip list numbers only when every line is numbered in ascending
+        // order. This accepts skipped stops (1–4, 7–13) without damaging a
+        // real street name such as "1. Mai Straße".
+        let previousStopNumber = 0;
+        const numberedStopList = rawSimpleLines.length > 1 &&
+            rawSimpleLines.every(function(line) {{
+                const match = line.match(/^\\s*(\\d+)[.)]\\s+/);
+                if (!match || Number(match[1]) <= previousStopNumber) return false;
+                previousStopNumber = Number(match[1]);
+                return true;
+            }});
+        const simpleLines = numberedStopList
+            ? rawSimpleLines.map(function(line) {{
+                return line.replace(/^\\s*\\d+[.)]\\s+/, '').trim();
+            }})
+            : rawSimpleLines;
         const looksLikeOrder = simpleLines.some(function(line) {{
             return datePattern.test(line) || stopTypeFromText(line);
         }});
