@@ -11805,8 +11805,23 @@ def gps():
                     'unclassified', 'living_street', 'service'];
                 const streetFallback = matches.find(function(item) {{
                     const type = String(item.type || '').toLowerCase();
-                    return streetTypes.includes(type) &&
-                        matchesAddress(item, false);
+                    const label = normalized(
+                        String(item.name || '') + ' ' +
+                        String(item.city || '')
+                    );
+                    const hasStreet = !streetWords.length ||
+                        streetWords.some(function(word) {{
+                            return label.includes(word);
+                        }});
+                    const hasPostcode = Boolean(postalCode) &&
+                        label.includes(normalized(postalCode));
+                    const hasCity = Boolean(requestedCity) &&
+                        label.includes(requestedCity);
+                    const hasLocality = (!postalCode && !requestedCity) ||
+                        hasPostcode || hasCity;
+                    const streetLike = streetTypes.includes(type) ||
+                        hasPostcode;
+                    return streetLike && hasStreet && hasLocality;
                 }});
                 if (streetFallback) return Object.assign({{}}, stop, {{
                     latitude: Number(streetFallback.latitude),
