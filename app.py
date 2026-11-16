@@ -11684,6 +11684,8 @@ def gps():
         const streetNumber = streetNumbers.length ? [streetNumbers[streetNumbers.length - 1]] : null;
         const requestedCity = normalized(city).split(' ')[0];
         let lastError = 'Адресу не знайдено';
+        const stopStartedAt = Date.now();
+        const stopTimeoutMs = 20000;
 
         for (let attempt = 0; attempt < uniqueQueries.length; attempt += 1) {{
             buildDeliveryRouteButton.textContent =
@@ -11692,8 +11694,10 @@ def gps():
             measureResult.textContent =
                 'Перевіряю адресу ' + (index + 1) + ': ' + original +
                 ' (спроба ' + (attempt + 1) + '/' + uniqueQueries.length + ')';
+            const remainingMs = stopTimeoutMs - (Date.now() - stopStartedAt);
+            if (remainingMs <= 0) break;
             const controller = new AbortController();
-            const timeout = window.setTimeout(() => controller.abort(), 35000);
+            const timeout = window.setTimeout(() => controller.abort(), remainingMs);
             try {{
                 const response = await fetch('/api/geocode?mode=address&q=' +
                     encodeURIComponent(uniqueQueries[attempt]) +
