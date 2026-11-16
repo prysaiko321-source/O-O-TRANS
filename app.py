@@ -7568,7 +7568,15 @@ def geocode_search():
 
                     nominatim_raw = []
                     best_nominatim_raw = []
-                    nominatim_queries = address_queries[:2] if delivery_consent else address_queries[:4]
+                    query_variants = address_queries[:2] if delivery_consent else address_queries[:4]
+                    nominatim_queries = []
+                    for search_query in query_variants:
+                        if selected_city and selected_city.casefold() not in search_query.casefold():
+                            search_query = f"{search_query}, {selected_city}"
+                        if search_query.casefold() not in {
+                            existing.casefold() for existing in nominatim_queries
+                        }:
+                            nominatim_queries.append(search_query)
                     for search_index, search_query in enumerate(nominatim_queries):
                         nominatim_response = requests.get(
                             "https://nominatim.openstreetmap.org/search",
@@ -7577,7 +7585,20 @@ def geocode_search():
                                 "format": "jsonv2",
                                 "addressdetails": 1,
                                 "limit": 5,
-                                "countrycodes": "de" if "germany" in query.casefold() else ""
+                                "countrycodes": "de" if "germany" in query.casefold() else "",
+                                **({
+                                    "viewbox": (
+                                        f"{bias_longitude - 0.3},"
+                                        f"{bias_latitude + 0.3},"
+                                        f"{bias_longitude + 0.3},"
+                                        f"{bias_latitude - 0.3}"
+                                    ),
+                                    "bounded": 1
+                                } if (
+                                    selected_city
+                                    and bias_latitude is not None
+                                    and bias_longitude is not None
+                                ) else {})
                             },
                             headers={
                                 "User-Agent": (
@@ -7591,6 +7612,27 @@ def geocode_search():
                         nominatim_response.raise_for_status()
                         candidates = nominatim_response.json() or []
                         GEOCODE_LAST_REQUEST_AT = time.monotonic()
+                        if (
+                            selected_city
+                            and bias_latitude is not None
+                            and bias_longitude is not None
+                        ):
+                            scoped_candidates = []
+                            city_center = {
+                                "latitude": bias_latitude,
+                                "longitude": bias_longitude
+                            }
+                            for candidate in candidates:
+                                try:
+                                    candidate_point = {
+                                        "latitude": float(candidate.get("lat")),
+                                        "longitude": float(candidate.get("lon"))
+                                    }
+                                except (TypeError, ValueError):
+                                    continue
+                                if haversine_km(city_center, candidate_point) <= 35:
+                                    scoped_candidates.append(candidate)
+                            candidates = scoped_candidates
                         if candidates and not best_nominatim_raw:
                             best_nominatim_raw = candidates
                         exact_candidates = candidates
