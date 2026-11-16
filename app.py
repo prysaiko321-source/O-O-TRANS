@@ -11482,7 +11482,7 @@ def gps():
         const parts = original.split(/[,\\n]+/).map(function(part) {{
             return part.trim();
         }}).filter(Boolean);
-        const postalPattern = /^(?:(NL|DE|PL|FR|ES|IT|BE|AT|CZ|SK|DK|SE|NO|FI|PT|IE|LU|HU|RO|BG|HR|SI|LT|LV|EE|CH)[-\\s]*)?((?:\\d{{4}}\\s?[A-Z]{{2}})|(?:\\d{{2}}-\\d{{3}})|(?:\\d{{4,6}}))\\s+(.+)$/i;
+        const postalPattern = /^(?:(NL|DE|PL|FR|ES|IT|BE|AT|CZ|SK|DK|SE|NO|FI|PT|IE|LU|HU|RO|BG|HR|SI|LT|LV|EE|CH)[-\\s]*)?((?:\\d{{4}}\\s?[A-Z]{{2}})|(?:\\d{{2}}-\\d{{3}})|(?:\\d{{4}}-\\d{{3}})|(?:\\d{{3}}\\s\\d{{2}})|(?:\\d{{4,6}}))\\s+(.+)$/i;
         let postalIndex = -1;
         let postalCode = '';
         let city = '';
