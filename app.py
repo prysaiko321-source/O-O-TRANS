@@ -11541,6 +11541,7 @@ def gps():
         const normalized = value => String(value || '').toLowerCase()
             .replace(/ß/g, 'ss').replace(/ä/g, 'ae').replace(/ö/g, 'oe')
             .replace(/ü/g, 'ue').normalize('NFD').replace(/[\\u0300-\\u036f]/g, '')
+            .replace(/([a-z])(\\d)/g, '$1 $2').replace(/(\\d)([a-z])/g, '$1 $2')
             .replace(/[^a-z0-9]+/g, ' ').trim();
         const countryNames = {{
             NL: 'Netherlands', DE: 'Germany', PL: 'Poland', FR: 'France',
@@ -11610,7 +11611,8 @@ def gps():
         const streetWords = normalized(street).split(/\\s+/).filter(function(word) {{
             return word.length >= 3 && !ignoredStreetWords.includes(word);
         }});
-        const streetNumber = street.match(/\\b\\d{{1,4}}[a-z]?(?:[-/]\\d{{1,4}}[a-z]?)?\\b/i);
+        const streetNumbers = street.match(/\\b\\d{{1,4}}[a-z]?(?:[-/]\\d{{1,4}}[a-z]?)?\\b/gi) || [];
+        const streetNumber = streetNumbers.length ? [streetNumbers[streetNumbers.length - 1]] : null;
         const requestedCity = normalized(city).split(' ')[0];
         let lastError = 'Адресу не знайдено';
 
